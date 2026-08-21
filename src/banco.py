@@ -48,6 +48,8 @@ def criar_tabelas():
             relacao TEXT,
             principal INTEGER NOT NULL DEFAULT 0,
 
+            UNIQUE (residente_id, responsavel_id),
+
             FOREIGN KEY (residente_id)
                 REFERENCES residentes (id),
 
