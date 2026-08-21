@@ -1,9 +1,12 @@
 from src.residentes import cadastrar_residente
 from src.responsaveis import cadastrar_responsavel
-from src.residente_responsavel import (
-    vincular_responsavel,
-    buscar_responsaveis_do_residente,
-    remover_vinculo
+from src.internacoes import (
+    cadastrar_internacao,
+    buscar_internacao
+)
+from src.cobrancas import (
+    gerar_cobrancas,
+    buscar_cobrancas
 )
 
 
@@ -30,53 +33,48 @@ responsavel = cadastrar_responsavel(
 print(responsavel)
 
 
-print("\n=== 3. CRIANDO VÍNCULO ===")
+print("\n=== 3. CADASTRANDO INTERNAÇÃO ===")
 
-vinculo = vincular_responsavel(
-    residente["id"],
-    responsavel["id"],
-    "Mãe",
-    1
+resultado = cadastrar_internacao(
+    residente_id=residente["id"],
+    responsavel_id=responsavel["id"],
+    data_acolhimento="2026-08-10",
+    periodo_tratamento=3,
+    valor_contrato=8500,
+    valor_acolhimento=1000,
+    valor_mensalidade=2500
 )
 
-print(vinculo)
+print(resultado)
 
 
-print("\n=== 4. BUSCANDO RESPONSÁVEIS ===")
+if resultado["sucesso"]:
 
-lista = buscar_responsaveis_do_residente(
-    residente["id"]
-)
+    print("\n=== 4. BUSCANDO INTERNAÇÃO ===")
 
-for item in lista:
-    print(item)
+    internacao = buscar_internacao(
+        resultado["id"]
+    )
 
-
-print("\n=== 5. TENTANDO CRIAR O MESMO VÍNCULO NOVAMENTE ===")
-
-duplicado = vincular_responsavel(
-    residente["id"],
-    responsavel["id"],
-    "Mãe",
-    1
-)
-
-print(duplicado)
+    print(internacao)
 
 
-print("\n=== 6. REMOVENDO VÍNCULO ===")
+    print("\n=== 5. GERANDO COBRANÇAS ===")
 
-removido = remover_vinculo(
-    vinculo["id"]
-)
+    resultado_cobrancas = gerar_cobrancas(
+        resultado["id"]
+    )
 
-print("Removido:", removido)
+    print(resultado_cobrancas)
 
 
-print("\n=== 7. BUSCANDO NOVAMENTE ===")
+    if resultado_cobrancas["sucesso"]:
 
-lista = buscar_responsaveis_do_residente(
-    residente["id"]
-)
+        print("\n=== 6. COBRANÇAS GERADAS ===")
 
-print(lista)
+        cobrancas = buscar_cobrancas(
+            resultado["id"]
+        )
+
+        for cobranca in cobrancas:
+            print(cobranca)

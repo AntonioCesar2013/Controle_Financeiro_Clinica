@@ -8,13 +8,12 @@ CAMINHO_BANCO = BASE_DIR / "dados" / "clinica.db"
 
 
 def conectar():
-    """Cria e retorna uma conexão com o banco de dados."""
+    
     CAMINHO_BANCO.parent.mkdir(exist_ok=True)
     return sqlite3.connect(CAMINHO_BANCO)
 
 
 def criar_tabelas():
-    """Cria as tabelas iniciais do sistema."""
 
     conexao = conectar()
     cursor = conexao.cursor()
@@ -61,15 +60,17 @@ def criar_tabelas():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS internacoes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+
             residente_id INTEGER NOT NULL,
             responsavel_id INTEGER NOT NULL,
-            data_internacao TEXT NOT NULL,
-            periodo_meses INTEGER NOT NULL,
-            data_prevista_alta TEXT,
-            data_alta_real TEXT,
-            valor_tratamento INTEGER NOT NULL,
+
+            data_acolhimento TEXT NOT NULL,
+            periodo_tratamento INTEGER NOT NULL,
+
+            valor_contrato INTEGER NOT NULL,
             valor_acolhimento INTEGER NOT NULL,
-            valor_parcela INTEGER NOT NULL,
+            valor_mensalidade INTEGER NOT NULL,
+
             status TEXT NOT NULL DEFAULT 'ATIVA',
 
             FOREIGN KEY (residente_id)
@@ -77,6 +78,27 @@ def criar_tabelas():
 
             FOREIGN KEY (responsavel_id)
                 REFERENCES responsaveis (id)
+        )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS cobrancas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        internacao_id INTEGER NOT NULL,
+
+        numero_parcela INTEGER NOT NULL,
+        tipo TEXT NOT NULL,
+
+        data_vencimento TEXT NOT NULL,
+        valor INTEGER NOT NULL,
+
+        status TEXT NOT NULL DEFAULT 'ABERTA',
+
+        UNIQUE (internacao_id, numero_parcela),
+
+        FOREIGN KEY (internacao_id)
+            REFERENCES internacoes (id)
         )
     """)
 
