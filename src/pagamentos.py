@@ -1,215 +1,680 @@
+from datetime import datetime
 import sqlite3
 
-from src.banco import CAMINHO_BANCO
+from src.banco import conectar
 
 
-def registrar_pagamento(
-    cobranca_id,
-    data_pagamento,
-    valor,
-    forma_pagamento,
-    observacao=None
-):
-    conexao = sqlite3.connect(CAMINHO_BANCO)
-    conexao.row_factory = sqlite3.Row
+# ============================================================
+# UTILITÁRIOS
+# ============================================================
 
-    cursor = conexao.cursor()
+def _nova_conexao():
+    """
+    Cria uma conexão com o banco já configurada para retornar
+    registros SQLite como sqlite3.Row.
 
-    # Busca a cobrança
-    cursor.execute(
-        """
-        SELECT
-            id,
-            valor,
-            status
-        FROM cobrancas
-        WHERE id = ?
-        """,
-        (cobranca_id,)
-    )
+    Isso permite utilizar:
 
-    cobranca = cursor.fetchone()
+        dict(row)
 
-    if cobranca is None:
-        conexao.close()
+    nas consultas que retornam registros.
+    """
 
-        return {
-            "sucesso": False,
-            "erro": "Cobrança não encontrada."
-        }
+    conn = conectar()
+    conn.row_factory = sqlite3.Row
 
-    # Valor da cobrança
-    valor_cobranca = cobranca["valor"]
+    return conn
 
-    # Soma tudo que já foi pago
-    cursor.execute(
-        """
-        SELECT COALESCE(SUM(valor), 0)
-        FROM pagamentos
-        WHERE cobranca_id = ?
-        """,
-        (cobranca_id,)
-    )
 
-    total_pago = cursor.fetchone()[0]
+def _validar_valor(valor):
+    """
+    Valida um valor já convertido para centavos.
 
-    # Calcula quanto ainda falta
-    restante = valor_cobranca - total_pago
+    Exemplos:
+        125000 = R$ 1.250,00
+        50000  = R$ 500,00
+        1      = R$ 0,01
+    """
+
+    try:
+        valor = int(valor)
+    except (TypeError, ValueError):
+        raise ValueError("O valor do pagamento deve ser numérico.")
 
     if valor <= 0:
-        conexao.close()
+        raise ValueError("O valor do pagamento deve ser maior que zero.")
 
-        return {
-            "sucesso": False,
-            "erro": "O valor do pagamento deve ser maior que zero."
-        }
+    return valor
 
-    if valor > restante:
-        conexao.close()
 
-        return {
-            "sucesso": False,
-            "erro": (
-                f"Pagamento excede o valor restante da cobrança. "
-                f"Restante: R$ {restante}"
-            )
-        }
+def _validar_data(data):
+    """
+    Valida uma data no formato YYYY-MM-DD.
 
-    # Registra o pagamento
-    cursor.execute(
+    Exemplos válidos:
+        2026-09-10
+        2026-12-31
+
+    Exemplos inválidos:
+        10/09/2026
+        09-10-2026
+        2026/09/10
+    """
+
+    if not isinstance(data, str):
+        return False
+
+    try:
+        data_convertida = datetime.strptime(
+            data,
+            "%Y-%m-%d"
+        )
+
+        # Garante que o formato informado seja exatamente
+        # YYYY-MM-DD.
+        return data_convertida.strftime("%Y-%m-%d") == data
+
+    except ValueError:
+        return False
+
+
+# ============================================================
+# BUSCAR CONTA
+# ============================================================
+
+def _buscar_conta(conn, conta_pagar_id):
+    """
+    Busca uma conta a pagar.
+    """
+
+    cursor = conn.execute(
         """
-        INSERT INTO pagamentos (
-            cobranca_id,
-            data_pagamento,
-            valor,
-            forma_pagamento,
-            observacao
-        )
-        VALUES (?, ?, ?, ?, ?)
+        SELECT
+            cp.id,
+            cp.despesa_id,
+            cp.data_vencimento,
+            cp.valor,
+            cp.status
+        FROM contas_pagar cp
+        WHERE cp.id = ?
         """,
-        (
-            cobranca_id,
-            data_pagamento,
-            valor,
-            forma_pagamento,
-            observacao
-        )
+        (conta_pagar_id,)
     )
 
-    pagamento_id = cursor.lastrowid
+    return cursor.fetchone()
 
-    # Novo total pago
-    novo_total_pago = total_pago + valor
 
-    # Atualiza o status da cobrança
-    if novo_total_pago == valor_cobranca:
-        novo_status = "PAGA"
-    else:
+# ============================================================
+# TOTAL PAGO
+# ============================================================
+
+def _total_pago(conn, conta_pagar_id):
+    """
+    Retorna o total já pago da conta.
+    """
+
+    cursor = conn.execute(
+        """
+        SELECT COALESCE(SUM(valor), 0)
+        FROM pagamentos_saida
+        WHERE conta_pagar_id = ?
+        """,
+        (conta_pagar_id,)
+    )
+
+    return cursor.fetchone()[0]
+
+
+# ============================================================
+# ATUALIZAR STATUS
+# ============================================================
+
+def _atualizar_status(conn, conta_pagar_id):
+    """
+    Atualiza automaticamente o status da conta.
+
+    Regras:
+
+        0 pago
+            -> ABERTA
+
+        parcial
+            -> PARCIAL
+
+        valor total pago
+            -> PAGA
+
+        CANCELADA
+            -> permanece CANCELADA
+    """
+
+    conta = _buscar_conta(
+        conn,
+        conta_pagar_id
+    )
+
+    if not conta:
+        return {
+            "sucesso": False,
+            "erro": "Conta a pagar não encontrada."
+        }
+
+    valor_conta = conta["valor"]
+    status_atual = conta["status"]
+
+    total_pago = _total_pago(
+        conn,
+        conta_pagar_id
+    )
+
+    restante = max(
+        valor_conta - total_pago,
+        0
+    )
+
+    # Conta cancelada não sofre alteração.
+    if status_atual == "CANCELADA":
+        return {
+            "sucesso": True,
+            "status": "CANCELADA",
+            "total_pago": total_pago,
+            "restante": restante
+        }
+
+    if total_pago == 0:
+        novo_status = "ABERTA"
+
+    elif total_pago < valor_conta:
         novo_status = "PARCIAL"
 
-    cursor.execute(
+    else:
+        novo_status = "PAGA"
+
+    conn.execute(
         """
-        UPDATE cobrancas
+        UPDATE contas_pagar
         SET status = ?
         WHERE id = ?
         """,
         (
             novo_status,
-            cobranca_id
+            conta_pagar_id
         )
     )
 
-    conexao.commit()
-    conexao.close()
-
     return {
         "sucesso": True,
-        "id": pagamento_id,
-        "cobranca_id": cobranca_id,
-        "valor": valor,
-        "total_pago": novo_total_pago,
-        "restante": valor_cobranca - novo_total_pago,
-        "status": novo_status
+        "status": novo_status,
+        "total_pago": total_pago,
+        "restante": restante
     }
 
 
-def buscar_pagamentos(cobranca_id):
-    conexao = sqlite3.connect(CAMINHO_BANCO)
-    conexao.row_factory = sqlite3.Row
+# ============================================================
+# REGISTRAR PAGAMENTO
+# ============================================================
 
-    cursor = conexao.cursor()
+def registrar_pagamento(
+    conta_pagar_id,
+    data_pagamento,
+    valor,
+    forma_pagamento,
+    observacao=None
+):
+    """
+    Registra um pagamento de saída.
 
-    cursor.execute(
-        """
-        SELECT
-            id,
-            cobranca_id,
-            data_pagamento,
-            valor,
-            forma_pagamento,
-            observacao
-        FROM pagamentos
-        WHERE cobranca_id = ?
-        ORDER BY data_pagamento, id
-        """,
-        (cobranca_id,)
-    )
+    IMPORTANTE:
+    O valor deve ser informado em CENTAVOS.
 
-    pagamentos = cursor.fetchall()
+    Exemplo:
 
-    conexao.close()
+        registrar_pagamento(
+            conta_pagar_id=1,
+            data_pagamento="2026-09-10",
+            valor=50000,
+            forma_pagamento="PIX"
+        )
 
-    return [dict(pagamento) for pagamento in pagamentos]
+    significa um pagamento de R$ 500,00.
+    """
 
+    # --------------------------------------------------------
+    # VALIDAR VALOR
+    # --------------------------------------------------------
 
-def resumo_cobranca(cobranca_id):
-    conexao = sqlite3.connect(CAMINHO_BANCO)
-    conexao.row_factory = sqlite3.Row
+    try:
+        valor = _validar_valor(valor)
 
-    cursor = conexao.cursor()
+    except ValueError as erro:
+        return {
+            "sucesso": False,
+            "erro": str(erro)
+        }
 
-    cursor.execute(
-        """
-        SELECT
-            id,
-            valor,
-            status
-        FROM cobrancas
-        WHERE id = ?
-        """,
-        (cobranca_id,)
-    )
+    # --------------------------------------------------------
+    # VALIDAR DATA
+    # --------------------------------------------------------
 
-    cobranca = cursor.fetchone()
+    if not _validar_data(data_pagamento):
+        return {
+            "sucesso": False,
+            "erro": "Data de pagamento inválida. Use YYYY-MM-DD."
+        }
 
-    if cobranca is None:
-        conexao.close()
+    # --------------------------------------------------------
+    # VALIDAR FORMA DE PAGAMENTO
+    # --------------------------------------------------------
+
+    if not forma_pagamento or not str(forma_pagamento).strip():
+        return {
+            "sucesso": False,
+            "erro": "A forma de pagamento é obrigatória."
+        }
+
+    conn = _nova_conexao()
+
+    try:
+
+        # ----------------------------------------------------
+        # BUSCAR CONTA
+        # ----------------------------------------------------
+
+        conta = _buscar_conta(
+            conn,
+            conta_pagar_id
+        )
+
+        if not conta:
+            return {
+                "sucesso": False,
+                "erro": "Conta a pagar não encontrada."
+            }
+
+        valor_conta = conta["valor"]
+        status_conta = conta["status"]
+
+        # ----------------------------------------------------
+        # CONTA CANCELADA
+        # ----------------------------------------------------
+
+        if status_conta == "CANCELADA":
+            return {
+                "sucesso": False,
+                "erro": "Não é possível pagar uma conta cancelada."
+            }
+
+        # ----------------------------------------------------
+        # VALOR JÁ PAGO
+        # ----------------------------------------------------
+
+        total_pago = _total_pago(
+            conn,
+            conta_pagar_id
+        )
+
+        restante = valor_conta - total_pago
+
+        # ----------------------------------------------------
+        # CONTA JÁ PAGA
+        # ----------------------------------------------------
+
+        if restante <= 0:
+            return {
+                "sucesso": False,
+                "erro": "A conta já está totalmente paga."
+            }
+
+        # ----------------------------------------------------
+        # PAGAMENTO ACIMA DO RESTANTE
+        # ----------------------------------------------------
+
+        if valor > restante:
+            return {
+                "sucesso": False,
+                "erro": (
+                    "Pagamento excede o valor restante da conta. "
+                    f"Restante: R$ {restante / 100:.2f}"
+                )
+            }
+
+        # ----------------------------------------------------
+        # NORMALIZAR FORMA DE PAGAMENTO
+        # ----------------------------------------------------
+
+        forma_pagamento = str(
+            forma_pagamento
+        ).strip().upper()
+
+        # ----------------------------------------------------
+        # REGISTRAR PAGAMENTO
+        # ----------------------------------------------------
+
+        cursor = conn.execute(
+            """
+            INSERT INTO pagamentos_saida (
+                conta_pagar_id,
+                data_pagamento,
+                valor,
+                forma_pagamento,
+                observacao
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                conta_pagar_id,
+                data_pagamento,
+                valor,
+                forma_pagamento,
+                observacao
+            )
+        )
+
+        pagamento_id = cursor.lastrowid
+
+        # ----------------------------------------------------
+        # ATUALIZAR STATUS
+        # ----------------------------------------------------
+
+        status = _atualizar_status(
+            conn,
+            conta_pagar_id
+        )
+
+        conn.commit()
+
+        return {
+            "sucesso": True,
+            "id": pagamento_id,
+            "conta_pagar_id": conta_pagar_id,
+            "data_pagamento": data_pagamento,
+            "valor": valor,
+            "forma_pagamento": forma_pagamento,
+            "total_pago": status["total_pago"],
+            "restante": status["restante"],
+            "status": status["status"]
+        }
+
+    except sqlite3.Error as erro:
+
+        conn.rollback()
 
         return {
             "sucesso": False,
-            "erro": "Cobrança não encontrada."
+            "erro": f"Erro no banco de dados: {erro}"
         }
 
-    cursor.execute(
-        """
-        SELECT COALESCE(SUM(valor), 0)
-        FROM pagamentos
-        WHERE cobranca_id = ?
-        """,
-        (cobranca_id,)
-    )
+    finally:
+        conn.close()
 
-    total_pago = cursor.fetchone()[0]
 
-    restante = cobranca["valor"] - total_pago
+# ============================================================
+# RESUMO DA CONTA
+# ============================================================
 
-    conexao.close()
+def resumo_conta(conta_pagar_id):
+    """
+    Retorna o resumo financeiro da conta.
+    """
 
-    return {
-        "sucesso": True,
-        "cobranca_id": cobranca["id"],
-        "valor_cobranca": cobranca["valor"],
-        "total_pago": total_pago,
-        "restante": restante,
-        "status": cobranca["status"]
-    }
+    conn = _nova_conexao()
+
+    try:
+
+        conta = _buscar_conta(
+            conn,
+            conta_pagar_id
+        )
+
+        if not conta:
+            return {
+                "sucesso": False,
+                "erro": "Conta a pagar não encontrada."
+            }
+
+        valor_conta = conta["valor"]
+
+        total_pago = _total_pago(
+            conn,
+            conta_pagar_id
+        )
+
+        restante = max(
+            valor_conta - total_pago,
+            0
+        )
+
+        return {
+            "sucesso": True,
+            "conta_pagar_id": conta_pagar_id,
+            "valor_conta": valor_conta,
+            "total_pago": total_pago,
+            "restante": restante,
+            "status": conta["status"]
+        }
+
+    finally:
+        conn.close()
+
+
+# ============================================================
+# LISTAR PAGAMENTOS
+# ============================================================
+
+def listar_pagamentos(conta_pagar_id):
+    """
+    Lista todos os pagamentos realizados para uma conta.
+    """
+
+    conn = _nova_conexao()
+
+    try:
+
+        cursor = conn.execute(
+            """
+            SELECT
+                p.id,
+                p.conta_pagar_id,
+                p.data_pagamento,
+                p.valor,
+                p.forma_pagamento,
+                p.observacao,
+                c.data_vencimento,
+                d.descricao AS despesa_descricao,
+                s.nome AS setor_nome,
+                td.nome AS tipo_despesa_nome
+
+            FROM pagamentos_saida p
+
+            INNER JOIN contas_pagar c
+                ON c.id = p.conta_pagar_id
+
+            INNER JOIN despesas d
+                ON d.id = c.despesa_id
+
+            INNER JOIN setores s
+                ON s.id = d.setor_id
+
+            INNER JOIN tipos_despesa td
+                ON td.id = d.tipo_despesa_id
+
+            WHERE p.conta_pagar_id = ?
+
+            ORDER BY
+                p.data_pagamento,
+                p.id
+            """,
+            (conta_pagar_id,)
+        )
+
+        return [
+            dict(row)
+            for row in cursor.fetchall()
+        ]
+
+    finally:
+        conn.close()
+
+
+# ============================================================
+# BUSCAR PAGAMENTO
+# ============================================================
+
+def buscar_pagamento(pagamento_id):
+    """
+    Busca um pagamento específico.
+    """
+
+    conn = _nova_conexao()
+
+    try:
+
+        cursor = conn.execute(
+            """
+            SELECT
+                ps.id,
+                ps.conta_pagar_id,
+                ps.data_pagamento,
+                ps.valor,
+                ps.forma_pagamento,
+                ps.observacao,
+                cp.data_vencimento,
+                d.descricao AS despesa_descricao,
+                s.nome AS setor_nome,
+                td.nome AS tipo_despesa_nome
+
+            FROM pagamentos_saida ps
+
+            INNER JOIN contas_pagar cp
+                ON cp.id = ps.conta_pagar_id
+
+            INNER JOIN despesas d
+                ON d.id = cp.despesa_id
+
+            INNER JOIN setores s
+                ON s.id = d.setor_id
+
+            INNER JOIN tipos_despesa td
+                ON td.id = d.tipo_despesa_id
+
+            WHERE ps.id = ?
+            """,
+            (pagamento_id,)
+        )
+
+        pagamento = cursor.fetchone()
+
+        if not pagamento:
+            return {
+                "sucesso": False,
+                "erro": "Pagamento não encontrado."
+            }
+
+        return {
+            "sucesso": True,
+            **dict(pagamento)
+        }
+
+    finally:
+        conn.close()
+
+
+# ============================================================
+# EXCLUIR PAGAMENTO
+# ============================================================
+
+def excluir_pagamento(pagamento_id):
+    """
+    Exclui um pagamento.
+
+    Depois da exclusão, o status da conta é recalculado.
+    """
+
+    conn = _nova_conexao()
+
+    try:
+
+        cursor = conn.execute(
+            """
+            SELECT
+                id,
+                conta_pagar_id
+            FROM pagamentos_saida
+            WHERE id = ?
+            """,
+            (pagamento_id,)
+        )
+
+        pagamento = cursor.fetchone()
+
+        if not pagamento:
+            return {
+                "sucesso": False,
+                "erro": "Pagamento não encontrado."
+            }
+
+        conta_pagar_id = pagamento["conta_pagar_id"]
+
+        conta = _buscar_conta(
+            conn,
+            conta_pagar_id
+        )
+
+        if not conta:
+            return {
+                "sucesso": False,
+                "erro": "Conta a pagar relacionada não encontrada."
+            }
+
+        if conta["status"] == "CANCELADA":
+            return {
+                "sucesso": False,
+                "erro": (
+                    "Não é possível alterar pagamentos "
+                    "de uma conta cancelada."
+                )
+            }
+
+        conn.execute(
+            """
+            DELETE FROM pagamentos_saida
+            WHERE id = ?
+            """,
+            (pagamento_id,)
+        )
+
+        status = _atualizar_status(
+            conn,
+            conta_pagar_id
+        )
+
+        conn.commit()
+
+        return {
+            "sucesso": True,
+            "id": pagamento_id,
+            "conta_pagar_id": conta_pagar_id,
+            "total_pago": status["total_pago"],
+            "restante": status["restante"],
+            "status": status["status"]
+        }
+
+    except sqlite3.Error as erro:
+
+        conn.rollback()
+
+        return {
+            "sucesso": False,
+            "erro": f"Erro no banco de dados: {erro}"
+        }
+
+    finally:
+        conn.close()
+
+
+# ============================================================
+# EXECUÇÃO DIRETA
+# ============================================================
+
+if __name__ == "__main__":
+    print("Módulo de pagamentos carregado com sucesso.")

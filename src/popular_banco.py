@@ -1,440 +1,225 @@
-
 import sqlite3
 
-from src.banco import CAMINHO_BANCO
+from src.banco import CAMINHO_BANCO, conectar, criar_tabelas
+from src.cobrancas import gerar_cobrancas, listar_cobrancas
+from src.contas_pagar import cadastrar_conta, cancelar_conta
+from src.despesas import cadastrar_despesa, cadastrar_setor, cadastrar_tipo_despesa
+from src.internacoes import cadastrar_internacao
+from src.pagamentos import registrar_pagamento as registrar_pagamento_saida
+from src.recebimentos import registrar_pagamento as registrar_recebimento
 from src.residentes import cadastrar_residente
 from src.responsaveis import cadastrar_responsavel
-from src.internacoes import cadastrar_internacao
-from src.cobrancas import gerar_cobrancas
-from src.pagamentos import registrar_pagamento
+
+
+CENTAVOS = 100
 
 
 def limpar_banco():
-    conexao = sqlite3.connect(CAMINHO_BANCO)
-    cursor = conexao.cursor()
+    """Remove os dados de teste, preservando a estrutura do banco."""
+    tabelas = [
+        "recebimentos", "cobrancas", "internacoes", "residente_responsavel",
+        "responsaveis", "residentes", "pagamentos_saida", "contas_pagar",
+        "despesas", "tipos_despesa", "setores",
+    ]
+    conn = sqlite3.connect(CAMINHO_BANCO)
+    try:
+        for tabela in tabelas:
+            conn.execute(f"DELETE FROM {tabela}")
+        for tabela in tabelas:
+            conn.execute("DELETE FROM sqlite_sequence WHERE name = ?", (tabela,))
+        conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
-    # Apaga primeiro as tabelas que possuem relacionamentos
-    cursor.execute("DELETE FROM pagamentos")
-    cursor.execute("DELETE FROM cobrancas")
-    cursor.execute("DELETE FROM internacoes")
-    cursor.execute("DELETE FROM residente_responsavel")
-    cursor.execute("DELETE FROM responsaveis")
-    cursor.execute("DELETE FROM residentes")
 
-    conexao.commit()
-    conexao.close()
+def _exigir_sucesso(resultado, operacao):
+    if "sucesso" in resultado and not resultado["sucesso"]:
+        raise RuntimeError(f"{operacao}: {resultado.get('erro', 'falhou.')}")
+    return resultado
 
 
-def buscar_cobranca(internacao_id, tipo=None, numero_parcela=None):
-    conexao = sqlite3.connect(CAMINHO_BANCO)
-    cursor = conexao.cursor()
+def cadastrar_residentes():
+    dados = [
+        ("João da Silva", "11111111111", "Curitiba"),
+        ("Carlos Oliveira", "22222222222", "Cascavel"),
+        ("Pedro Santos", "33333333333", "Foz do Iguaçu"),
+        ("Lucas Ferreira", "44444444444", "Londrina"),
+        ("Marcos Souza", "55555555555", "Maringá"),
+    ]
+    return [cadastrar_residente(*item) for item in dados]
 
-    if tipo is not None:
-        cursor.execute(
-            """
-            SELECT id
-            FROM cobrancas
-            WHERE internacao_id = ?
-            AND tipo = ?
-            """,
-            (internacao_id, tipo)
+
+def cadastrar_responsaveis():
+    dados = [
+        ("Maria da Silva", "66666666666", "(41) 99999-1111", "maria@email.com"),
+        ("Ana Oliveira", "77777777777", "(45) 99999-2222", "ana@email.com"),
+        ("José Santos", "88888888888", "(45) 99999-3333", "jose@email.com"),
+        ("Fernanda Ferreira", "99999999999", "(43) 99999-4444", "fernanda@email.com"),
+        ("Paulo Souza", "10101010101", "(44) 99999-5555", "paulo@email.com"),
+    ]
+    return [cadastrar_responsavel(*item) for item in dados]
+
+
+def cadastrar_internacoes(residentes, responsaveis):
+    dados = [
+        ("2026-08-10", 3, 8500, 1000, 2500),
+        ("2026-07-15", 4, 9000, 1000, 2000),
+        ("2026-08-01", 6, 16000, 1000, 2500),
+        ("2026-06-20", 3, 10000, 1000, 3000),
+        ("2026-05-05", 5, 17000, 2000, 3000),
+    ]
+    internacoes = []
+    for residente, responsavel, valores in zip(residentes, responsaveis, dados):
+        data, periodo, contrato, acolhimento, mensalidade = valores
+        resultado = cadastrar_internacao(
+            residente_id=residente["id"], responsavel_id=responsavel["id"],
+            data_acolhimento=data, periodo_tratamento=periodo,
+            valor_contrato=contrato * CENTAVOS,
+            valor_acolhimento=acolhimento * CENTAVOS,
+            valor_mensalidade=mensalidade * CENTAVOS,
         )
+        internacoes.append(_exigir_sucesso(resultado, "Cadastro da internação"))
+    return internacoes
 
-    else:
-        cursor.execute(
-            """
-            SELECT id
-            FROM cobrancas
-            WHERE internacao_id = ?
-            AND numero_parcela = ?
-            """,
-            (internacao_id, numero_parcela)
+
+def gerar_todas_cobrancas(internacoes):
+    for internacao in internacoes:
+        _exigir_sucesso(gerar_cobrancas(internacao["id"]), "Geração das cobranças")
+
+
+def _id_cobranca(internacao_id, numero_parcela):
+    for cobranca in listar_cobrancas(internacao_id):
+        if cobranca["numero_parcela"] == numero_parcela:
+            return cobranca["id"]
+    raise RuntimeError("Cobrança de teste não encontrada.")
+
+
+def _registrar_recebimento(internacao_id, parcela, data, valor_reais, forma, observacao):
+    resultado = registrar_recebimento(
+        cobranca_id=_id_cobranca(internacao_id, parcela),
+        data_pagamento=data, valor=valor_reais * CENTAVOS,
+        forma_pagamento=forma, observacao=observacao,
+    )
+    return _exigir_sucesso(resultado, "Registro de recebimento")
+
+
+def cadastrar_recebimentos(internacoes):
+    joao, carlos, pedro, lucas, marcos = [item["id"] for item in internacoes]
+    recebimentos = [
+        (joao, 0, "2026-08-10", 1000, "PIX", "Acolhimento"),
+        (joao, 1, "2026-09-10", 1000, "PIX", "Mensalidade parcial"),
+        (carlos, 0, "2026-07-15", 1000, "DINHEIRO", "Acolhimento"),
+        (carlos, 1, "2026-08-15", 2000, "PIX", "Mensalidade 1"),
+        (carlos, 2, "2026-09-15", 2000, "TRANSFERENCIA", "Mensalidade 2"),
+        (pedro, 0, "2026-08-01", 1000, "DEPOSITO", "Acolhimento"),
+        (pedro, 1, "2026-09-01", 1500, "PIX", "Primeira parte da mensalidade"),
+        (pedro, 1, "2026-09-05", 1000, "DINHEIRO", "Segunda parte da mensalidade"),
+        (lucas, 0, "2026-06-20", 1000, "PIX", "Acolhimento"),
+        (marcos, 0, "2026-05-05", 1000, "DINHEIRO", "Acolhimento parcial"),
+    ]
+    for recebimento in recebimentos:
+        _registrar_recebimento(*recebimento)
+
+
+def cadastrar_financeiro():
+    setores = {
+        nome: _exigir_sucesso(cadastrar_setor(nome), "Cadastro de setor")["id"]
+        for nome in ("Administração", "Cozinha", "Transporte", "Manutenção", "Alojamento")
+    }
+    tipos = {
+        nome: _exigir_sucesso(cadastrar_tipo_despesa(nome), "Cadastro de tipo de despesa")["id"]
+        for nome in ("Internet", "Alimentação", "Combustível", "Manutenção", "Energia elétrica", "Água", "Material de limpeza")
+    }
+    dados_despesas = [
+        ("Internet", "Administração", "Internet", "Internet da clínica", "FIXA", True),
+        ("Alimentação", "Cozinha", "Alimentação", "Compra de alimentos", "VARIAVEL", True),
+        ("Combustível", "Transporte", "Combustível", "Combustível dos veículos", "VARIAVEL", True),
+        ("Manutenção", "Manutenção", "Manutenção", "Reparos gerais da clínica", "EXTRAORDINARIA", False),
+        ("Energia", "Administração", "Energia elétrica", "Conta de energia elétrica", "FIXA", True),
+        ("Água", "Administração", "Água", "Conta de água", "FIXA", True),
+    ]
+    despesas = {}
+    for chave, setor, tipo, descricao, natureza, recorrente in dados_despesas:
+        despesas[chave] = _exigir_sucesso(
+            cadastrar_despesa(setores[setor], tipos[tipo], descricao, natureza, recorrente),
+            "Cadastro de despesa",
+        )["id"]
+
+    dados_contas = [
+        ("Internet", "2026-09-10", 18000), ("Alimentação", "2026-09-05", 125000),
+        ("Combustível", "2026-09-08", 85000), ("Manutenção", "2026-09-15", 230000),
+        ("Energia", "2026-09-20", 45000), ("Água", "2026-09-25", 22000),
+    ]
+    contas = {
+        chave: _exigir_sucesso(cadastrar_conta(despesas[chave], vencimento, valor), "Cadastro de conta")["id"]
+        for chave, vencimento, valor in dados_contas
+    }
+    pagamentos_saida = [
+        ("Internet", "2026-09-10", 9000, "PIX", "Pagamento parcial"),
+        ("Combustível", "2026-09-08", 85000, "DINHEIRO", "Pagamento integral"),
+        ("Energia", "2026-09-20", 20000, "PIX", "Primeira parcela"),
+        ("Energia", "2026-09-22", 10000, "DINHEIRO", "Segunda parcela"),
+    ]
+    for chave, data, valor, forma, observacao in pagamentos_saida:
+        _exigir_sucesso(
+            registrar_pagamento_saida(contas[chave], data, valor, forma, observacao),
+            "Registro de pagamento de saída",
         )
+    _exigir_sucesso(cancelar_conta(contas["Manutenção"]), "Cancelamento da conta")
 
-    resultado = cursor.fetchone()
 
-    conexao.close()
+def mostrar_resumo(conn):
+    print("\n=== RESUMO DE ENTRADAS ===")
+    entradas = conn.execute("""
+        SELECT r.nome, c.tipo, c.numero_parcela, c.valor, c.desconto,
+               COALESCE(SUM(rc.valor), 0), c.status
+        FROM cobrancas c
+        INNER JOIN internacoes i ON i.id = c.internacao_id
+        INNER JOIN residentes r ON r.id = i.residente_id
+        LEFT JOIN recebimentos rc ON rc.cobranca_id = c.id
+        GROUP BY c.id
+        ORDER BY r.id, c.numero_parcela
+    """)
+    for nome, tipo, parcela, valor, desconto, pago, status in entradas:
+        print({"residente": nome, "tipo": tipo, "parcela": parcela,
+               "valor_devido": valor - desconto, "total_recebido": pago, "status": status})
 
-    if resultado:
-        return resultado[0]
-
-    return None
+    print("\n=== RESUMO DE SAÍDAS ===")
+    saidas = conn.execute("""
+        SELECT d.descricao, cp.data_vencimento, cp.valor,
+               COALESCE(SUM(ps.valor), 0), cp.status
+        FROM contas_pagar cp
+        INNER JOIN despesas d ON d.id = cp.despesa_id
+        LEFT JOIN pagamentos_saida ps ON ps.conta_pagar_id = cp.id
+        GROUP BY cp.id
+        ORDER BY cp.id
+    """)
+    for descricao, vencimento, valor, pago, status in saidas:
+        print({"despesa": descricao, "vencimento": vencimento, "valor": valor,
+               "total_pago": pago, "restante": valor - pago, "status": status})
 
 
 def popular_banco():
-
-    print("=== LIMPANDO BANCO ===")
-    limpar_banco()
-
-
-    # =========================================================
-    # RESIDENTES
-    # =========================================================
-
-    print("\n=== CADASTRANDO RESIDENTES ===")
-
-    residente1 = cadastrar_residente(
-        "João da Silva",
-        "11111111111",
-        "Curitiba"
-    )
-
-    residente2 = cadastrar_residente(
-        "Carlos Oliveira",
-        "22222222222",
-        "Cascavel"
-    )
-
-    residente3 = cadastrar_residente(
-        "Pedro Santos",
-        "33333333333",
-        "Foz do Iguaçu"
-    )
-
-    residente4 = cadastrar_residente(
-        "Lucas Ferreira",
-        "44444444444",
-        "Londrina"
-    )
-
-    residente5 = cadastrar_residente(
-        "Marcos Souza",
-        "55555555555",
-        "Maringá"
-    )
-
-    print(residente1)
-    print(residente2)
-    print(residente3)
-    print(residente4)
-    print(residente5)
-
-
-    # =========================================================
-    # RESPONSÁVEIS
-    # =========================================================
-
-    print("\n=== CADASTRANDO RESPONSÁVEIS ===")
-
-    responsavel1 = cadastrar_responsavel(
-        "Maria da Silva",
-        "66666666666",
-        "(41) 99999-1111",
-        "maria@email.com"
-    )
-
-    responsavel2 = cadastrar_responsavel(
-        "Ana Oliveira",
-        "77777777777",
-        "(45) 99999-2222",
-        "ana@email.com"
-    )
-
-    responsavel3 = cadastrar_responsavel(
-        "José Santos",
-        "88888888888",
-        "(45) 99999-3333",
-        "jose@email.com"
-    )
-
-    responsavel4 = cadastrar_responsavel(
-        "Fernanda Ferreira",
-        "99999999999",
-        "(43) 99999-4444",
-        "fernanda@email.com"
-    )
-
-    responsavel5 = cadastrar_responsavel(
-        "Paulo Souza",
-        "10101010101",
-        "(44) 99999-5555",
-        "paulo@email.com"
-    )
-
-    print(responsavel1)
-    print(responsavel2)
-    print(responsavel3)
-    print(responsavel4)
-    print(responsavel5)
-
-
-    # =========================================================
-    # INTERNAÇÕES
-    # =========================================================
-
-    print("\n=== CADASTRANDO INTERNAÇÕES ===")
-
-    # R$ 1.000 + (R$ 2.500 x 3) = R$ 8.500
-    internacao1 = cadastrar_internacao(
-        residente_id=residente1["id"],
-        responsavel_id=responsavel1["id"],
-        data_acolhimento="2026-08-10",
-        periodo_tratamento=3,
-        valor_contrato=8500,
-        valor_acolhimento=1000,
-        valor_mensalidade=2500
-    )
-
-    # R$ 1.000 + (R$ 2.000 x 4) = R$ 9.000
-    internacao2 = cadastrar_internacao(
-        residente_id=residente2["id"],
-        responsavel_id=responsavel2["id"],
-        data_acolhimento="2026-07-15",
-        periodo_tratamento=4,
-        valor_contrato=9000,
-        valor_acolhimento=1000,
-        valor_mensalidade=2000
-    )
-
-    # R$ 1.000 + (R$ 2.500 x 6) = R$ 16.000
-    internacao3 = cadastrar_internacao(
-        residente_id=residente3["id"],
-        responsavel_id=responsavel3["id"],
-        data_acolhimento="2026-08-01",
-        periodo_tratamento=6,
-        valor_contrato=16000,
-        valor_acolhimento=1000,
-        valor_mensalidade=2500
-    )
-
-    # R$ 1.000 + (R$ 3.000 x 3) = R$ 10.000
-    internacao4 = cadastrar_internacao(
-        residente_id=residente4["id"],
-        responsavel_id=responsavel4["id"],
-        data_acolhimento="2026-06-20",
-        periodo_tratamento=3,
-        valor_contrato=10000,
-        valor_acolhimento=1000,
-        valor_mensalidade=3000
-    )
-
-    # R$ 2.000 + (R$ 3.000 x 5) = R$ 17.000
-    internacao5 = cadastrar_internacao(
-        residente_id=residente5["id"],
-        responsavel_id=responsavel5["id"],
-        data_acolhimento="2026-05-05",
-        periodo_tratamento=5,
-        valor_contrato=17000,
-        valor_acolhimento=2000,
-        valor_mensalidade=3000
-    )
-
-    print(internacao1)
-    print(internacao2)
-    print(internacao3)
-    print(internacao4)
-    print(internacao5)
-
-
-    # =========================================================
-    # COBRANÇAS
-    # =========================================================
-
-    print("\n=== GERANDO COBRANÇAS ===")
-
-    internacoes = [
-        internacao1,
-        internacao2,
-        internacao3,
-        internacao4,
-        internacao5
-    ]
-
-    for internacao in internacoes:
-        gerar_cobrancas(internacao["id"])
-
-    print("Cobranças geradas para todas as internações.")
-
-
-    # =========================================================
-    # PAGAMENTOS
-    # =========================================================
-
-    print("\n=== REGISTRANDO PAGAMENTOS ===")
-
-
-    # ---------------------------------------------------------
-    # JOÃO
-    #
-    # Acolhimento pago
-    # Primeira mensalidade parcialmente paga
-    # ---------------------------------------------------------
-
-    cobranca_id = buscar_cobranca(
-        internacao1["id"],
-        tipo="ACOLHIMENTO"
-    )
-
-    registrar_pagamento(
-        cobranca_id=cobranca_id,
-        data_pagamento="2026-08-10",
-        valor=1000,
-        forma_pagamento="PIX",
-        observacao="Acolhimento pago"
-    )
-
-    cobranca_id = buscar_cobranca(
-        internacao1["id"],
-        numero_parcela=1
-    )
-
-    registrar_pagamento(
-        cobranca_id=cobranca_id,
-        data_pagamento="2026-09-10",
-        valor=1000,
-        forma_pagamento="PIX",
-        observacao="Pagamento parcial da mensalidade"
-    )
-
-
-    # ---------------------------------------------------------
-    # CARLOS
-    #
-    # Acolhimento pago
-    # Primeira mensalidade paga integralmente
-    # Segunda mensalidade paga integralmente
-    # ---------------------------------------------------------
-
-    cobranca_id = buscar_cobranca(
-        internacao2["id"],
-        tipo="ACOLHIMENTO"
-    )
-
-    registrar_pagamento(
-        cobranca_id=cobranca_id,
-        data_pagamento="2026-07-15",
-        valor=1000,
-        forma_pagamento="DINHEIRO",
-        observacao="Acolhimento"
-    )
-
-    cobranca_id = buscar_cobranca(
-        internacao2["id"],
-        numero_parcela=1
-    )
-
-    registrar_pagamento(
-        cobranca_id=cobranca_id,
-        data_pagamento="2026-08-15",
-        valor=2000,
-        forma_pagamento="PIX",
-        observacao="Mensalidade paga"
-    )
-
-    cobranca_id = buscar_cobranca(
-        internacao2["id"],
-        numero_parcela=2
-    )
-
-    registrar_pagamento(
-        cobranca_id=cobranca_id,
-        data_pagamento="2026-09-15",
-        valor=2000,
-        forma_pagamento="TRANSFERENCIA",
-        observacao="Mensalidade paga"
-    )
-
-
-    # ---------------------------------------------------------
-    # PEDRO
-    #
-    # Acolhimento pago
-    # Primeira mensalidade dividida em dois pagamentos
-    # ---------------------------------------------------------
-
-    cobranca_id = buscar_cobranca(
-        internacao3["id"],
-        tipo="ACOLHIMENTO"
-    )
-
-    registrar_pagamento(
-        cobranca_id=cobranca_id,
-        data_pagamento="2026-08-01",
-        valor=1000,
-        forma_pagamento="DEPOSITO",
-        observacao="Acolhimento"
-    )
-
-    cobranca_id = buscar_cobranca(
-        internacao3["id"],
-        numero_parcela=1
-    )
-
-    registrar_pagamento(
-        cobranca_id=cobranca_id,
-        data_pagamento="2026-09-01",
-        valor=1500,
-        forma_pagamento="PIX",
-        observacao="Primeira parte da mensalidade"
-    )
-
-    registrar_pagamento(
-        cobranca_id=cobranca_id,
-        data_pagamento="2026-09-05",
-        valor=1000,
-        forma_pagamento="DINHEIRO",
-        observacao="Segunda parte da mensalidade"
-    )
-
-
-    # ---------------------------------------------------------
-    # LUCAS
-    #
-    # Acolhimento pago
-    # Nenhuma mensalidade paga ainda
-    # ---------------------------------------------------------
-
-    cobranca_id = buscar_cobranca(
-        internacao4["id"],
-        tipo="ACOLHIMENTO"
-    )
-
-    registrar_pagamento(
-        cobranca_id=cobranca_id,
-        data_pagamento="2026-06-20",
-        valor=1000,
-        forma_pagamento="PIX",
-        observacao="Acolhimento"
-    )
-
-
-    # ---------------------------------------------------------
-    # MARCOS
-    #
-    # Acolhimento parcialmente pago
-    # Nenhuma mensalidade paga
-    # ---------------------------------------------------------
-
-    cobranca_id = buscar_cobranca(
-        internacao5["id"],
-        tipo="ACOLHIMENTO"
-    )
-
-    registrar_pagamento(
-        cobranca_id=cobranca_id,
-        data_pagamento="2026-05-05",
-        valor=1000,
-        forma_pagamento="DINHEIRO",
-        observacao="Pagamento parcial do acolhimento"
-    )
-
-
-    print("Pagamentos fictícios registrados.")
-
-
-    # =========================================================
-    # FINAL
-    # =========================================================
-
+    criar_tabelas()
+    conn = conectar()
+    try:
+        limpar_banco()
+        residentes = cadastrar_residentes()
+        responsaveis = cadastrar_responsaveis()
+        internacoes = cadastrar_internacoes(residentes, responsaveis)
+        gerar_todas_cobrancas(internacoes)
+        cadastrar_recebimentos(internacoes)
+        cadastrar_financeiro()
+        mostrar_resumo(conn)
+    except sqlite3.Error:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
     print("\n=== BANCO POPULADO COM SUCESSO ===")
-
-    print("\nCenários criados:")
-
-    print("- João: mensalidade parcialmente paga")
-    print("- Carlos: mensalidades pagas")
-    print("- Pedro: mensalidade paga em duas partes")
-    print("- Lucas: somente acolhimento pago")
-    print("- Marcos: acolhimento parcialmente pago")
 
 
 if __name__ == "__main__":
