@@ -82,29 +82,48 @@ def criar_tabelas():
     """)
 
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS cobrancas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        CREATE TABLE IF NOT EXISTS cobrancas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-        internacao_id INTEGER NOT NULL,
+            internacao_id INTEGER NOT NULL,
 
-        numero_parcela INTEGER NOT NULL,
-        tipo TEXT NOT NULL,
+            numero_parcela INTEGER NOT NULL,
+            tipo TEXT NOT NULL,
 
-        data_vencimento TEXT NOT NULL,
-        valor INTEGER NOT NULL,
+            data_vencimento TEXT NOT NULL,
 
-        status TEXT NOT NULL DEFAULT 'ABERTA',
+            valor INTEGER NOT NULL,
+            desconto INTEGER NOT NULL DEFAULT 0,
 
-        UNIQUE (internacao_id, numero_parcela),
+            status TEXT NOT NULL DEFAULT 'ABERTA',
 
-        FOREIGN KEY (internacao_id)
-            REFERENCES internacoes (id)
+            UNIQUE (internacao_id, numero_parcela),
+
+            FOREIGN KEY (internacao_id)
+                REFERENCES internacoes (id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pagamentos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            cobranca_id INTEGER NOT NULL,
+
+            data_pagamento TEXT NOT NULL,
+            valor INTEGER NOT NULL,
+
+            forma_pagamento TEXT NOT NULL,
+
+            observacao TEXT,
+
+            FOREIGN KEY (cobranca_id)
+                REFERENCES cobrancas (id)
         )
     """)
 
     conexao.commit()
     conexao.close()
-
 
 if __name__ == "__main__":
     criar_tabelas()

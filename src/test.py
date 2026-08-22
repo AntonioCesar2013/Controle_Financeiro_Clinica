@@ -1,80 +1,128 @@
-from src.residentes import cadastrar_residente
-from src.responsaveis import cadastrar_responsavel
-from src.internacoes import (
-    cadastrar_internacao,
-    buscar_internacao
-)
 from src.cobrancas import (
-    gerar_cobrancas,
-    buscar_cobrancas
+    aplicar_desconto,
+    listar_cobrancas
 )
 
 
-print("=== 1. CADASTRANDO RESIDENTE ===")
-
-residente = cadastrar_residente(
-    "João da Silva",
-    "12345678900",
-    "Curitiba"
-)
-
-print(residente)
+print("=== TESTE DE DESCONTOS ===")
 
 
-print("\n=== 2. CADASTRANDO RESPONSÁVEL ===")
+# ============================================================
+# 1. LOCALIZAR UMA COBRANÇA DE MENSALIDADE
+# ============================================================
 
-responsavel = cadastrar_responsavel(
-    "Maria da Silva",
-    "98765432100",
-    "(41) 99999-9999",
-    "maria@email.com"
-)
+print("\n=== 1. LOCALIZANDO COBRANÇA ===")
 
-print(responsavel)
+cobrancas = listar_cobrancas(1)
+
+cobranca_parcial = None
+cobranca_total = None
+
+for cobranca in cobrancas:
+    if cobranca["tipo"] == "MENSALIDADE":
+        if cobranca_parcial is None:
+            cobranca_parcial = cobranca
+        elif cobranca_total is None:
+            cobranca_total = cobranca
 
 
-print("\n=== 3. CADASTRANDO INTERNAÇÃO ===")
+if cobranca_parcial is None:
+    print("Nenhuma cobrança de mensalidade encontrada.")
+    raise SystemExit
 
-resultado = cadastrar_internacao(
-    residente_id=residente["id"],
-    responsavel_id=responsavel["id"],
-    data_acolhimento="2026-08-10",
-    periodo_tratamento=3,
-    valor_contrato=8500,
-    valor_acolhimento=1000,
-    valor_mensalidade=2500
+
+print("Cobrança para teste parcial:")
+print(cobranca_parcial)
+
+
+# ============================================================
+# 2. DESCONTO PARCIAL
+# ============================================================
+
+print("\n=== 2. APLICANDO DESCONTO PARCIAL ===")
+
+resultado = aplicar_desconto(
+    cobranca_parcial["id"],
+    500
 )
 
 print(resultado)
 
 
-if resultado["sucesso"]:
+# ============================================================
+# 3. CONSULTANDO A COBRANÇA
+# ============================================================
 
-    print("\n=== 4. BUSCANDO INTERNAÇÃO ===")
+print("\n=== 3. COBRANÇA APÓS DESCONTO ===")
 
-    internacao = buscar_internacao(
-        resultado["id"]
+cobrancas = listar_cobrancas(1)
+
+for cobranca in cobrancas:
+    if cobranca["id"] == cobranca_parcial["id"]:
+        print(cobranca)
+
+
+# ============================================================
+# 4. TENTANDO APLICAR DESCONTO ACIMA DO VALOR RESTANTE
+# ============================================================
+
+print("\n=== 4. TESTANDO DESCONTO ACIMA DO LIMITE ===")
+
+resultado = aplicar_desconto(
+    cobranca_parcial["id"],
+    3000
+)
+
+print(resultado)
+
+
+# ============================================================
+# 5. TESTANDO DESCONTO TOTAL
+# ============================================================
+
+if cobranca_total is not None:
+
+    print("\n=== 5. APLICANDO DESCONTO TOTAL ===")
+
+    print("Cobrança escolhida:")
+    print(cobranca_total)
+
+    resultado = aplicar_desconto(
+        cobranca_total["id"],
+        cobranca_total["valor"]
     )
 
-    print(internacao)
+    print(resultado)
 
 
-    print("\n=== 5. GERANDO COBRANÇAS ===")
+    # ========================================================
+    # 6. CONSULTANDO COBRANÇA DESCONTADA
+    # ========================================================
 
-    resultado_cobrancas = gerar_cobrancas(
-        resultado["id"]
-    )
+    print("\n=== 6. COBRANÇA APÓS DESCONTO TOTAL ===")
 
-    print(resultado_cobrancas)
+    cobrancas = listar_cobrancas(1)
 
-
-    if resultado_cobrancas["sucesso"]:
-
-        print("\n=== 6. COBRANÇAS GERADAS ===")
-
-        cobrancas = buscar_cobrancas(
-            resultado["id"]
-        )
-
-        for cobranca in cobrancas:
+    for cobranca in cobrancas:
+        if cobranca["id"] == cobranca_total["id"]:
             print(cobranca)
+
+
+    # ========================================================
+    # 7. TENTANDO APLICAR OUTRO DESCONTO
+    # ========================================================
+
+    print("\n=== 7. TENTANDO DESCONTAR NOVAMENTE ===")
+
+    resultado = aplicar_desconto(
+        cobranca_total["id"],
+        100
+    )
+
+    print(resultado)
+
+else:
+    print("\nNão foi encontrada uma segunda mensalidade para o teste total.")
+
+
+print("\n=== TESTES FINALIZADOS ===")
