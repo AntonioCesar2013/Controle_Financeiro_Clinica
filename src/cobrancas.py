@@ -1,7 +1,9 @@
-from datetime import date
-from dateutil.relativedelta import relativedelta
-
 from .banco import conectar
+from .contas_receber import (
+    buscar_cobranca_consolidada,
+    listar_cobrancas_consolidadas,
+)
+from .parcelas import calcular_data_vencimento
 
 
 def gerar_cobrancas(internacao_id):
@@ -25,7 +27,7 @@ def gerar_cobrancas(internacao_id):
             "erro": "Internação não encontrada."
         }
 
-    data_acolhimento = date.fromisoformat(internacao[0])
+    data_acolhimento = internacao[0]
     periodo_tratamento = internacao[1]
     valor_acolhimento = internacao[2]
     valor_mensalidade = internacao[3]
@@ -59,7 +61,7 @@ def gerar_cobrancas(internacao_id):
         internacao_id,
         0,
         "ACOLHIMENTO",
-        data_acolhimento.isoformat(),
+        data_acolhimento,
         valor_acolhimento,
         0,
         "ABERTA"
@@ -67,8 +69,9 @@ def gerar_cobrancas(internacao_id):
 
     # Mensalidades
     for numero in range(1, periodo_tratamento + 1):
-        data_vencimento = (
-            data_acolhimento + relativedelta(months=numero)
+        data_vencimento = calcular_data_vencimento(
+            data_acolhimento,
+            numero,
         )
 
         cursor.execute("""
@@ -101,77 +104,20 @@ def gerar_cobrancas(internacao_id):
     }
 
 
-def listar_cobrancas(internacao_id):
-    conexao = conectar()
-    cursor = conexao.cursor()
-
-    cobrancas = cursor.execute("""
-        SELECT
-            id,
-            internacao_id,
-            numero_parcela,
-            tipo,
-            data_vencimento,
-            valor,
-            desconto,
-            status
-        FROM cobrancas
-        WHERE internacao_id = ?
-        ORDER BY numero_parcela
-    """, (internacao_id,)).fetchall()
-
-    conexao.close()
-
-    resultado = []
-
-    for cobranca in cobrancas:
-        resultado.append({
-            "id": cobranca[0],
-            "internacao_id": cobranca[1],
-            "numero_parcela": cobranca[2],
-            "tipo": cobranca[3],
-            "data_vencimento": cobranca[4],
-            "valor": cobranca[5],
-            "desconto": cobranca[6],
-            "status": cobranca[7]
-        })
-
-    return resultado
+def listar_cobrancas(internacao_id, data_referencia=None):
+    """Lista cobranças da internação com informações consolidadas de recebimento."""
+    return listar_cobrancas_consolidadas(
+        internacao_id=internacao_id,
+        data_referencia=data_referencia,
+    )
 
 
-def buscar_cobranca(cobranca_id):
-    conexao = conectar()
-    cursor = conexao.cursor()
-
-    cobranca = cursor.execute("""
-        SELECT
-            id,
-            internacao_id,
-            numero_parcela,
-            tipo,
-            data_vencimento,
-            valor,
-            desconto,
-            status
-        FROM cobrancas
-        WHERE id = ?
-    """, (cobranca_id,)).fetchone()
-
-    conexao.close()
-
-    if not cobranca:
-        return None
-
-    return {
-        "id": cobranca[0],
-        "internacao_id": cobranca[1],
-        "numero_parcela": cobranca[2],
-        "tipo": cobranca[3],
-        "data_vencimento": cobranca[4],
-        "valor": cobranca[5],
-        "desconto": cobranca[6],
-        "status": cobranca[7]
-    }
+def buscar_cobranca(cobranca_id, data_referencia=None):
+    """Busca uma cobrança com informações consolidadas de recebimento."""
+    return buscar_cobranca_consolidada(
+        cobranca_id,
+        data_referencia=data_referencia,
+    )
 
 
 def aplicar_desconto(cobranca_id, valor_desconto):

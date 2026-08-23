@@ -369,7 +369,7 @@ def resumo_cobranca(cobranca_id):
     total_pago = cursor.fetchone()[0]
 
     valor_devido = cobranca["valor"] - cobranca["desconto"]
-    restante = valor_devido - total_pago
+    restante = max(valor_devido - total_pago, 0)
 
     conexao.close()
 
