@@ -2,6 +2,11 @@ import sqlite3
 
 from src.banco import CAMINHO_BANCO
 
+from src.regras_financeiras import (
+    calcular_saldo_restante,
+    calcular_valor_devido,
+)
+
 
 def registrar_pagamento(
     cobranca_id,
@@ -53,7 +58,7 @@ def registrar_pagamento(
     # Valor líquido da cobrança
     valor_cobranca = cobranca["valor"]
     desconto = cobranca["desconto"]
-    valor_devido = valor_cobranca - desconto
+    valor_devido = calcular_valor_devido(valor_cobranca, desconto)
 
     if valor_devido == 0:
         conexao.close()
@@ -76,7 +81,7 @@ def registrar_pagamento(
     total_pago = cursor.fetchone()[0]
 
     # Calcula quanto ainda falta
-    restante = valor_devido - total_pago
+    restante = calcular_saldo_restante(valor_devido, total_pago)
 
     if valor <= 0:
         conexao.close()
@@ -287,7 +292,10 @@ def excluir_recebimento(recebimento_id):
         )
 
         total_recebido = cursor.fetchone()[0]
-        valor_devido = cobranca["valor"] - cobranca["desconto"]
+        valor_devido = calcular_valor_devido(
+            cobranca["valor"],
+            cobranca["desconto"],
+        )
 
         if valor_devido == 0:
             novo_status = "DESCONTADA"
@@ -318,7 +326,10 @@ def excluir_recebimento(recebimento_id):
             "id": recebimento_id,
             "cobranca_id": cobranca_id,
             "total_recebido": total_recebido,
-            "restante": valor_devido - total_recebido,
+            "restante": calcular_saldo_restante(
+                valor_devido,
+                total_recebido,
+            ),
             "status": novo_status
         }
     except Exception:
@@ -368,9 +379,15 @@ def resumo_cobranca(cobranca_id):
 
     total_pago = cursor.fetchone()[0]
 
-    valor_devido = cobranca["valor"] - cobranca["desconto"]
-    restante = max(valor_devido - total_pago, 0)
+    valor_devido = calcular_valor_devido(
+        cobranca["valor"],
+        cobranca["desconto"],
+    )
 
+    restante = calcular_saldo_restante(
+        valor_devido,
+        total_pago,
+    )
     conexao.close()
 
     return {

@@ -1,3 +1,4 @@
+
 """Motor de consulta de contas a receber.
 
 Consolida cobranças (o que deveria ser recebido) com recebimentos (o que
@@ -8,6 +9,10 @@ from datetime import date
 
 from .banco import conectar
 from .parcelas import calcular_status_parcela
+from .regras_financeiras import (
+    calcular_saldo_restante,
+    calcular_valor_devido,
+)
 
 
 def _situacao_temporal(cobranca, data_referencia=None):
@@ -44,21 +49,18 @@ def _paga_em_atraso(status, data_vencimento, data_pagamento):
     return pagamento > vencimento
 
 
-def _valor_devido(valor, desconto):
-    return valor - desconto
-
-
-def _saldo_restante(valor, desconto, total_recebido):
-    """Saldo a receber, nunca negativo, considerando o desconto persistido."""
-    return max(_valor_devido(valor, desconto) - total_recebido, 0)
-
-
 def consolidar_cobranca(cobranca, data_referencia=None):
     """Acrescenta campos derivados à cobrança sem alterar os valores originais."""
     total_recebido = cobranca["total_recebido"]
     valor = cobranca["valor"]
     desconto = cobranca["desconto"]
-    valor_devido = _valor_devido(valor, desconto)
+
+    valor_devido = calcular_valor_devido(valor, desconto)
+    saldo_restante = calcular_saldo_restante(
+        valor_devido,
+        total_recebido,
+    )
+
     return {
         "id": cobranca["id"],
         "internacao_id": cobranca["internacao_id"],
@@ -70,7 +72,7 @@ def consolidar_cobranca(cobranca, data_referencia=None):
         "status": cobranca["status"],
         "valor_devido": valor_devido,
         "total_recebido": total_recebido,
-        "saldo_restante": _saldo_restante(valor, desconto, total_recebido),
+        "saldo_restante": saldo_restante,
         "data_pagamento": cobranca["data_pagamento"],
         "situacao_temporal": _situacao_temporal(cobranca, data_referencia),
         "paga_em_atraso": _paga_em_atraso(
@@ -91,6 +93,7 @@ def _consultar_cobrancas(cobranca_id=None, internacao_id=None):
     if cobranca_id is not None:
         filtros.append("c.id = ?")
         parametros.append(cobranca_id)
+
     if internacao_id is not None:
         filtros.append("c.internacao_id = ?")
         parametros.append(internacao_id)
@@ -142,14 +145,20 @@ def _consultar_cobrancas(cobranca_id=None, internacao_id=None):
 def buscar_cobranca_consolidada(cobranca_id, data_referencia=None):
     """Busca uma cobrança com recebimentos consolidados. Não altera o banco."""
     cobrancas = _consultar_cobrancas(cobranca_id=cobranca_id)
+
     if not cobrancas:
         return None
+
     return consolidar_cobranca(cobrancas[0], data_referencia)
 
 
 def listar_cobrancas_consolidadas(internacao_id=None, data_referencia=None):
-    """Lista cobranças consolidadas. ``internacao_id`` restringe a uma internação."""
+    """Lista cobranças consolidadas.
+
+    ``internacao_id`` restringe a uma internação.
+    """
     cobrancas = _consultar_cobrancas(internacao_id=internacao_id)
+
     return [
         consolidar_cobranca(cobranca, data_referencia)
         for cobranca in cobrancas
