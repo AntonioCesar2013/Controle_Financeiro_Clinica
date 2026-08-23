@@ -249,6 +249,70 @@ def criar_tabelas():
         )
     """)
 
+    # ============================================================
+    # CONFIGURAÇÕES FINANCEIRAS
+    # ============================================================
+    #
+    # Guarda as regras futuras de juros e multa.
+    #
+    # Por enquanto:
+    #   aplicar_juros = 0
+    #   valor_juros = 0
+    #   aplicar_multa = 0
+    #   valor_multa = 0
+    #
+    # Esta tabela NÃO participa atualmente do cálculo das cobranças.
+    # ============================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS configuracoes_financeiras (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            aplicar_juros INTEGER NOT NULL DEFAULT 0,
+            tipo_juros TEXT NOT NULL DEFAULT 'PERCENTUAL',
+            valor_juros INTEGER NOT NULL DEFAULT 0,
+
+            aplicar_multa INTEGER NOT NULL DEFAULT 0,
+            tipo_multa TEXT NOT NULL DEFAULT 'PERCENTUAL',
+            valor_multa INTEGER NOT NULL DEFAULT 0,
+
+            ativo INTEGER NOT NULL DEFAULT 1
+        )
+    """)
+
+    # ============================================================
+    # CONFIGURAÇÃO FINANCEIRA INICIAL
+    # ============================================================
+    #
+    # Garante que exista uma configuração padrão.
+    # Não altera nenhuma cobrança existente.
+    # ============================================================
+
+    cursor.execute("""
+        INSERT INTO configuracoes_financeiras (
+            aplicar_juros,
+            tipo_juros,
+            valor_juros,
+            aplicar_multa,
+            tipo_multa,
+            valor_multa,
+            ativo
+        )
+        SELECT
+            0,
+            'PERCENTUAL',
+            0,
+            0,
+            'PERCENTUAL',
+            0,
+            1
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM configuracoes_financeiras
+            WHERE ativo = 1
+        )
+    """)
+
     conexao.commit()
     conexao.close()
 
