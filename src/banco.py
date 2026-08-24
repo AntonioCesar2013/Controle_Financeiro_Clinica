@@ -252,17 +252,6 @@ def criar_tabelas():
     # ============================================================
     # CONFIGURAÇÕES FINANCEIRAS
     # ============================================================
-    #
-    # Guarda as regras futuras de juros e multa.
-    #
-    # Por enquanto:
-    #   aplicar_juros = 0
-    #   valor_juros = 0
-    #   aplicar_multa = 0
-    #   valor_multa = 0
-    #
-    # Esta tabela NÃO participa atualmente do cálculo das cobranças.
-    # ============================================================
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS configuracoes_financeiras (
@@ -281,11 +270,7 @@ def criar_tabelas():
     """)
 
     # ============================================================
-    # CONFIGURAÇÃO FINANCEIRA INICIAL
-    # ============================================================
-    #
-    # Garante que exista uma configuração padrão.
-    # Não altera nenhuma cobrança existente.
+    # CONFIGURAÇÃO FINANCEIRA PADRÃO
     # ============================================================
 
     cursor.execute("""
@@ -298,18 +283,97 @@ def criar_tabelas():
             valor_multa,
             ativo
         )
-        SELECT
-            0,
-            'PERCENTUAL',
-            0,
-            0,
-            'PERCENTUAL',
-            0,
-            1
+        SELECT 0, 'PERCENTUAL', 0, 0, 'PERCENTUAL', 0, 1
         WHERE NOT EXISTS (
             SELECT 1
             FROM configuracoes_financeiras
-            WHERE ativo = 1
+        )
+    """)
+
+    # ============================================================
+    # ITENS
+    # ============================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS item (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            nome TEXT NOT NULL UNIQUE,
+
+            ativo INTEGER NOT NULL DEFAULT 1
+        )
+    """)
+
+    # ============================================================
+    # HISTÓRICO DE VALORES DOS ITENS
+    # ============================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS item_valor (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            item_id INTEGER NOT NULL,
+
+            valor REAL NOT NULL,
+
+            data_inicio_valor TEXT NOT NULL,
+
+            ativo INTEGER NOT NULL DEFAULT 1,
+
+            FOREIGN KEY (item_id)
+                REFERENCES item (id)
+        )
+    """)
+
+    # ============================================================
+    # CARTEIRAS
+    # ============================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS carteiras (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            residente_id INTEGER NOT NULL UNIQUE,
+
+            saldo REAL NOT NULL DEFAULT 0,
+
+            ativo INTEGER NOT NULL DEFAULT 1,
+
+            FOREIGN KEY (residente_id)
+                REFERENCES residentes (id)
+        )
+    """)
+
+    # ============================================================
+    # MOVIMENTAÇÕES DAS CARTEIRAS
+    # ============================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS movimentacoes_carteira (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            carteira_id INTEGER NOT NULL,
+
+            tipo TEXT NOT NULL,
+
+            item_id INTEGER,
+
+            quantidade INTEGER NOT NULL DEFAULT 1,
+
+            item_valor_id INTEGER,
+
+            valor_total REAL NOT NULL,
+
+            data_movimentacao TEXT NOT NULL,
+
+            FOREIGN KEY (carteira_id)
+                REFERENCES carteiras (id),
+
+            FOREIGN KEY (item_id)
+                REFERENCES item (id),
+
+            FOREIGN KEY (item_valor_id)
+                REFERENCES item_valor (id)
         )
     """)
 
