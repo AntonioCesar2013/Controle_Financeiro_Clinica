@@ -22,7 +22,7 @@ def cadastrar_item(nome):
 
         cursor.execute(
             """
-            INSERT INTO item (
+            INSERT INTO itens (
                 nome
             )
             VALUES (?)
@@ -67,7 +67,7 @@ def buscar_item(item_id):
                 id,
                 nome,
                 ativo
-            FROM item
+            FROM itens
             WHERE id = ?
             """,
             (item_id,)
@@ -106,7 +106,7 @@ def listar_itens(apenas_ativos=True):
                     id,
                     nome,
                     ativo
-                FROM item
+                FROM itens
                 WHERE ativo = 1
                 ORDER BY nome
                 """
@@ -118,7 +118,7 @@ def listar_itens(apenas_ativos=True):
                     id,
                     nome,
                     ativo
-                FROM item
+                FROM itens
                 ORDER BY nome
                 """
             )
@@ -147,7 +147,7 @@ def alterar_status_item(item_id, ativo):
 
         cursor.execute(
             """
-            UPDATE item
+            UPDATE itens
             SET ativo = ?
             WHERE id = ?
             """,
@@ -196,7 +196,7 @@ def cadastrar_valor_item(item_id, valor, data_inicio_valor):
                 id,
                 nome,
                 ativo
-            FROM item
+            FROM itens
             WHERE id = ?
             """,
             (item_id,)
@@ -212,7 +212,7 @@ def cadastrar_valor_item(item_id, valor, data_inicio_valor):
 
         cursor.execute(
             """
-            INSERT INTO item_valor (
+            INSERT INTO itens_valores (
                 item_id,
                 valor,
                 data_inicio_valor
@@ -263,7 +263,7 @@ def buscar_valor_item(item_id, data_referencia=None):
                     valor,
                     data_inicio_valor,
                     ativo
-                FROM item_valor
+                FROM itens_valores
                 WHERE item_id = ?
                   AND ativo = 1
                 ORDER BY data_inicio_valor DESC, id DESC
@@ -280,7 +280,7 @@ def buscar_valor_item(item_id, data_referencia=None):
                     valor,
                     data_inicio_valor,
                     ativo
-                FROM item_valor
+                FROM itens_valores
                 WHERE item_id = ?
                   AND ativo = 1
                   AND data_inicio_valor <= ?
@@ -328,7 +328,7 @@ def listar_valores_item(item_id, apenas_ativos=True):
                     valor,
                     data_inicio_valor,
                     ativo
-                FROM item_valor
+                FROM itens_valores
                 WHERE item_id = ?
                   AND ativo = 1
                 ORDER BY data_inicio_valor DESC, id DESC
@@ -344,7 +344,7 @@ def listar_valores_item(item_id, apenas_ativos=True):
                     valor,
                     data_inicio_valor,
                     ativo
-                FROM item_valor
+                FROM itens_valores
                 WHERE item_id = ?
                 ORDER BY data_inicio_valor DESC, id DESC
                 """,
@@ -375,7 +375,7 @@ def alterar_status_valor(item_valor_id, ativo):
 
         cursor.execute(
             """
-            UPDATE item_valor
+            UPDATE itens_valores
             SET ativo = ?
             WHERE id = ?
             """,

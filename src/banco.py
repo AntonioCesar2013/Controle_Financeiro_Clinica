@@ -47,6 +47,31 @@ def criar_tabelas():
     """)
 
     # ============================================================
+    # COLABORADORES
+    # ============================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS colaboradores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            nome TEXT NOT NULL
+                CHECK (LENGTH(TRIM(nome)) > 0),
+
+            cpf TEXT NOT NULL UNIQUE
+                CHECK (LENGTH(TRIM(cpf)) > 0),
+
+            senha_hash TEXT NOT NULL
+                CHECK (LENGTH(TRIM(senha_hash)) > 0),
+
+            status TEXT NOT NULL DEFAULT 'ATIVO'
+                CHECK (status IN ('ATIVO', 'INATIVO')),
+
+            criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            atualizado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # ============================================================
     # RELAÇÃO RESIDENTE x RESPONSÁVEL
     # ============================================================
 
@@ -295,7 +320,7 @@ def criar_tabelas():
     # ============================================================
 
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS item (
+        CREATE TABLE IF NOT EXISTS itens (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
 
             nome TEXT NOT NULL UNIQUE,
@@ -309,7 +334,7 @@ def criar_tabelas():
     # ============================================================
 
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS item_valor (
+        CREATE TABLE IF NOT EXISTS itens_valores (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
 
             item_id INTEGER NOT NULL,
@@ -321,7 +346,7 @@ def criar_tabelas():
             ativo INTEGER NOT NULL DEFAULT 1,
 
             FOREIGN KEY (item_id)
-                REFERENCES item (id)
+                REFERENCES itens (id)
         )
     """)
 
@@ -370,10 +395,10 @@ def criar_tabelas():
                 REFERENCES carteiras (id),
 
             FOREIGN KEY (item_id)
-                REFERENCES item (id),
+                REFERENCES itens (id),
 
             FOREIGN KEY (item_valor_id)
-                REFERENCES item_valor (id)
+                REFERENCES itens_valores (id)
         )
     """)
 

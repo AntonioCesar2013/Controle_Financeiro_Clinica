@@ -1,10 +1,8 @@
-from src import residentes
-from src import responsaveis
+from src.servidor import executar
 
 
 def main():
-    print("Sistema Financeiro da Clínica")
-    print("Estrutura inicial carregada.")
+    executar()
 
 
 if __name__ == "__main__":

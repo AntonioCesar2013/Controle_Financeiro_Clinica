@@ -1,214 +1,99 @@
 """Testes do cadastro e histórico de valores dos itens."""
 
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
-from src import banco
-from src.itens import (
-    cadastrar_item,
-    buscar_item,
-    listar_itens,
-    alterar_valor_item,
-    listar_historico_valores,
-    desativar_item,
-)
+from src import banco, itens
 
 
 class TestItens(unittest.TestCase):
-    """Testa o cadastro de itens usando banco temporário."""
+    """Testa os itens usando um banco temporário."""
 
     def setUp(self):
         self.diretorio_temporario = tempfile.TemporaryDirectory()
-
-        self.caminho_original = banco.CAMINHO_BANCO
-        banco.CAMINHO_BANCO = (
-            Path(self.diretorio_temporario.name) / "clinica.db"
-        )
-
+        self.caminho_original_banco = banco.CAMINHO_BANCO
+        self.caminho_original_itens = itens.CAMINHO_BANCO
+        self.caminho_banco = Path(self.diretorio_temporario.name) / "clinica.db"
+        banco.CAMINHO_BANCO = self.caminho_banco
+        itens.CAMINHO_BANCO = self.caminho_banco
         banco.criar_tabelas()
 
     def tearDown(self):
-        banco.CAMINHO_BANCO = self.caminho_original
+        banco.CAMINHO_BANCO = self.caminho_original_banco
+        itens.CAMINHO_BANCO = self.caminho_original_itens
         self.diretorio_temporario.cleanup()
 
-    # ============================================================
-    # CADASTRO
-    # ============================================================
+    def test_cria_tabelas_com_nomenclatura_padronizada(self):
+        conexao = sqlite3.connect(self.caminho_banco)
+        try:
+            tabelas = {
+                linha[0]
+                for linha in conexao.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+            chave_estrangeira = conexao.execute(
+                "PRAGMA foreign_key_list(movimentacoes_carteira)"
+            ).fetchall()
+        finally:
+            conexao.close()
 
-    def test_cadastrar_item(self):
-        resultado = cadastrar_item("Desodorante", 1500)
+        self.assertIn("itens", tabelas)
+        self.assertIn("itens_valores", tabelas)
+        self.assertNotIn("item", tabelas)
+        self.assertNotIn("item_valor", tabelas)
+        self.assertIn(("itens_valores", "item_valor_id"), {
+            (linha[2], linha[3]) for linha in chave_estrangeira
+        })
+
+    def test_cadastrar_e_buscar_item(self):
+        resultado = itens.cadastrar_item("Desodorante")
 
         self.assertTrue(resultado["sucesso"])
-        self.assertIsNotNone(resultado["id"])
-        self.assertEqual(resultado["nome"], "Desodorante")
-        self.assertEqual(resultado["valor"], 1500)
-        self.assertEqual(resultado["ativo"], 1)
+        encontrado = itens.buscar_item(resultado["id"])
+        self.assertTrue(encontrado["sucesso"])
+        self.assertEqual(encontrado["nome"], "Desodorante")
+        self.assertEqual(encontrado["ativo"], 1)
 
-    def test_cadastrar_item_com_valor_decimal(self):
-        resultado = cadastrar_item("Shampoo", 12.50)
+    def test_nao_permite_item_com_nome_vazio_ou_duplicado(self):
+        self.assertFalse(itens.cadastrar_item("  ")["sucesso"])
+        self.assertTrue(itens.cadastrar_item("Shampoo")["sucesso"])
+        self.assertFalse(itens.cadastrar_item("Shampoo")["sucesso"])
 
-        self.assertTrue(resultado["sucesso"])
-        self.assertEqual(resultado["valor"], 12.50)
+    def test_lista_e_altera_status_do_item(self):
+        primeiro = itens.cadastrar_item("Pasta de dente")
+        itens.cadastrar_item("Shampoo")
 
-    def test_nao_permite_item_com_nome_vazio(self):
-        resultado = cadastrar_item("", 1000)
+        self.assertEqual(
+            [item["nome"] for item in itens.listar_itens()],
+            ["Pasta de dente", "Shampoo"],
+        )
+        self.assertTrue(itens.alterar_status_item(primeiro["id"], 0)["sucesso"])
+        self.assertEqual(
+            [item["nome"] for item in itens.listar_itens()],
+            ["Shampoo"],
+        )
 
-        self.assertFalse(resultado["sucesso"])
+    def test_cadastra_e_consulta_historico_de_valores(self):
+        item = itens.cadastrar_item("Sabonete")
+        primeiro = itens.cadastrar_valor_item(item["id"], 5.0, "2026-08-01")
+        itens.cadastrar_valor_item(item["id"], 7.0, "2026-09-01")
 
-    def test_nao_permite_item_com_valor_negativo(self):
-        resultado = cadastrar_item("Chocolate", -100)
+        valor = itens.buscar_valor_item(item["id"], "2026-08-15")
+        historico = itens.listar_valores_item(item["id"])
 
-        self.assertFalse(resultado["sucesso"])
-
-    def test_nao_permite_item_com_valor_zero(self):
-        resultado = cadastrar_item("Item gratuito", 0)
-
-        self.assertFalse(resultado["sucesso"])
-
-    def test_nao_permite_item_duplicado(self):
-        primeiro = cadastrar_item("Pasta de dente", 1000)
         self.assertTrue(primeiro["sucesso"])
+        self.assertEqual(valor["valor"], 5.0)
+        self.assertEqual([valor["valor"] for valor in historico], [7.0, 5.0])
 
-        segundo = cadastrar_item("Pasta de dente", 1200)
+    def test_altera_status_do_valor(self):
+        item = itens.cadastrar_item("Creme")
+        valor = itens.cadastrar_valor_item(item["id"], 10.0, "2026-08-01")
 
-        self.assertFalse(segundo["sucesso"])
-
-    # ============================================================
-    # CONSULTA
-    # ============================================================
-
-    def test_buscar_item(self):
-        resultado = cadastrar_item("Shampoo", 2000)
-
-        item = buscar_item(resultado["id"])
-
-        self.assertIsNotNone(item)
-        self.assertEqual(item["nome"], "Shampoo")
-        self.assertEqual(item["valor"], 2000)
-        self.assertEqual(item["ativo"], 1)
-
-    def test_buscar_item_inexistente(self):
-        item = buscar_item(9999)
-
-        self.assertIsNone(item)
-
-    def test_listar_itens(self):
-        cadastrar_item("Desodorante", 1500)
-        cadastrar_item("Pasta de dente", 1000)
-        cadastrar_item("Shampoo", 2000)
-
-        itens = listar_itens()
-
-        self.assertEqual(len(itens), 3)
-        self.assertEqual(itens[0]["nome"], "Desodorante")
-        self.assertEqual(itens[1]["nome"], "Pasta de dente")
-        self.assertEqual(itens[2]["nome"], "Shampoo")
-
-    # ============================================================
-    # ALTERAÇÃO DE VALOR
-    # ============================================================
-
-    def test_alterar_valor_item(self):
-        resultado = cadastrar_item("Desodorante", 1500)
-
-        alteracao = alterar_valor_item(
-            resultado["id"],
-            1800,
-            "2026-08-24",
-        )
-
-        self.assertTrue(alteracao["sucesso"])
-        self.assertEqual(alteracao["valor"], 1800)
-
-        item = buscar_item(resultado["id"])
-
-        self.assertEqual(item["valor"], 1800)
-
-    def test_alteracao_de_valor_cria_historico(self):
-        resultado = cadastrar_item("Shampoo", 2000)
-
-        alterar_valor_item(
-            resultado["id"],
-            2500,
-            "2026-08-24",
-        )
-
-        historico = listar_historico_valores(resultado["id"])
-
-        self.assertEqual(len(historico), 2)
-
-        self.assertEqual(historico[0]["valor"], 2000)
-        self.assertEqual(historico[1]["valor"], 2500)
-
-    def test_alterar_valor_nao_permite_valor_zero(self):
-        resultado = cadastrar_item("Chocolate", 500)
-
-        alteracao = alterar_valor_item(
-            resultado["id"],
-            0,
-            "2026-08-24",
-        )
-
-        self.assertFalse(alteracao["sucesso"])
-
-    def test_alterar_valor_nao_permite_valor_negativo(self):
-        resultado = cadastrar_item("Chocolate", 500)
-
-        alteracao = alterar_valor_item(
-            resultado["id"],
-            -100,
-            "2026-08-24",
-        )
-
-        self.assertFalse(alteracao["sucesso"])
-
-    # ============================================================
-    # HISTÓRICO
-    # ============================================================
-
-    def test_historico_mantem_valores_anteriores(self):
-        resultado = cadastrar_item("Sabonete", 500)
-
-        alterar_valor_item(
-            resultado["id"],
-            700,
-            "2026-08-24",
-        )
-
-        alterar_valor_item(
-            resultado["id"],
-            900,
-            "2026-09-01",
-        )
-
-        historico = listar_historico_valores(resultado["id"])
-
-        self.assertEqual(len(historico), 3)
-
-        self.assertEqual(historico[0]["valor"], 500)
-        self.assertEqual(historico[1]["valor"], 700)
-        self.assertEqual(historico[2]["valor"], 900)
-
-    # ============================================================
-    # DESATIVAÇÃO
-    # ============================================================
-
-    def test_desativar_item(self):
-        resultado = cadastrar_item("Desodorante", 1500)
-
-        desativacao = desativar_item(resultado["id"])
-
-        self.assertTrue(desativacao["sucesso"])
-
-        item = buscar_item(resultado["id"])
-
-        self.assertEqual(item["ativo"], 0)
-
-    def test_desativar_item_inexistente(self):
-        resultado = desativar_item(9999)
-
-        self.assertFalse(resultado["sucesso"])
+        self.assertTrue(itens.alterar_status_valor(valor["id"], 0)["sucesso"])
+        self.assertFalse(itens.buscar_valor_item(item["id"])["sucesso"])
 
 
 if __name__ == "__main__":
