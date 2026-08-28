@@ -218,7 +218,7 @@ def registrar_pagamento(
     conta_pagar_id,
     data_pagamento,
     valor,
-    forma_pagamento,
+    forma_pagamento=None,
     observacao=None
 ):
     """
@@ -263,14 +263,10 @@ def registrar_pagamento(
         }
 
     # --------------------------------------------------------
-    # VALIDAR FORMA DE PAGAMENTO
+    # FORMA DE PAGAMENTO PADRÃO
     # --------------------------------------------------------
 
-    if not forma_pagamento or not str(forma_pagamento).strip():
-        return {
-            "sucesso": False,
-            "erro": "A forma de pagamento é obrigatória."
-        }
+    forma_pagamento = str(forma_pagamento or "PIX").strip().upper() or "PIX"
 
     conn = _nova_conexao()
 
@@ -341,10 +337,6 @@ def registrar_pagamento(
         # ----------------------------------------------------
         # NORMALIZAR FORMA DE PAGAMENTO
         # ----------------------------------------------------
-
-        forma_pagamento = str(
-            forma_pagamento
-        ).strip().upper()
 
         # ----------------------------------------------------
         # REGISTRAR PAGAMENTO

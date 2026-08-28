@@ -13,6 +13,8 @@ def _listar(sql, parametros=()):
 
 
 def listar_residentes():
+    from src.internacoes import sincronizar_status_residentes
+    sincronizar_status_residentes()
     return _listar("SELECT id, nome, cpf, cidade_origem, ativo FROM residentes ORDER BY nome")
 
 
@@ -21,6 +23,8 @@ def listar_responsaveis():
 
 
 def listar_internacoes():
+    from src.internacoes import sincronizar_status_residentes
+    sincronizar_status_residentes()
     return _listar(
         """
         SELECT i.id, r.nome AS residente_nome, rp.nome AS responsavel_nome,
@@ -57,4 +61,3 @@ def listar_carteiras():
         ORDER BY r.nome
         """
     )
-

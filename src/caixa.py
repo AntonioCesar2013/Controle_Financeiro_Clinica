@@ -50,22 +50,29 @@ def listar_movimentacoes(data_inicio=None, data_fim=None):
     """
     data_inicio, data_fim = _periodo_validado(data_inicio, data_fim)
     filtros_entrada = []
+    filtros_bancarias = []
     filtros_saida = []
     parametros_entrada = []
+    parametros_bancarias = []
     parametros_saida = []
 
     if data_inicio:
         filtros_entrada.append("r.data_recebimento >= ?")
+        filtros_bancarias.append("eb.data_entrada >= ?")
         filtros_saida.append("ps.data_pagamento >= ?")
         parametros_entrada.append(data_inicio)
+        parametros_bancarias.append(data_inicio)
         parametros_saida.append(data_inicio)
     if data_fim:
         filtros_entrada.append("r.data_recebimento <= ?")
+        filtros_bancarias.append("eb.data_entrada <= ?")
         filtros_saida.append("ps.data_pagamento <= ?")
         parametros_entrada.append(data_fim)
+        parametros_bancarias.append(data_fim)
         parametros_saida.append(data_fim)
 
     where_entrada = " WHERE " + " AND ".join(filtros_entrada) if filtros_entrada else ""
+    where_bancarias = " WHERE " + " AND ".join(filtros_bancarias) if filtros_bancarias else ""
     where_saida = " WHERE " + " AND ".join(filtros_saida) if filtros_saida else ""
 
     conexao = conectar()
@@ -90,6 +97,16 @@ def listar_movimentacoes(data_inicio=None, data_fim=None):
             {where_entrada}
             """,
             parametros_entrada,
+        ).fetchall()
+        entradas_bancarias = conexao.execute(
+            f"""
+            SELECT eb.id, eb.data_entrada AS data, eb.valor,
+                   eb.forma_recebimento AS forma_pagamento, eb.descricao,
+                   eb.observacao
+            FROM entradas_bancarias eb
+            {where_bancarias}
+            """,
+            parametros_bancarias,
         ).fetchall()
         saidas = conexao.execute(
             f"""
@@ -131,6 +148,13 @@ def listar_movimentacoes(data_inicio=None, data_fim=None):
             "residente_nome": entrada["residente_nome"],
             "cobranca_tipo": entrada["cobranca_tipo"],
             "numero_parcela": entrada["numero_parcela"],
+            "observacao": entrada["observacao"],
+        })
+    for entrada in entradas_bancarias:
+        movimentacoes.append({
+            "id": entrada["id"], "data": entrada["data"], "tipo": "ENTRADA",
+            "descricao": entrada["descricao"], "valor": entrada["valor"],
+            "forma_pagamento": entrada["forma_pagamento"], "origem_id": entrada["id"],
             "observacao": entrada["observacao"],
         })
     for saida in saidas:

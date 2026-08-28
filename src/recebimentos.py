@@ -12,9 +12,10 @@ def registrar_pagamento(
     cobranca_id,
     data_pagamento,
     valor,
-    forma_pagamento,
+    forma_pagamento=None,
     observacao=None
 ):
+    forma_pagamento = str(forma_pagamento or "PIX").strip().upper() or "PIX"
     conexao = sqlite3.connect(CAMINHO_BANCO)
     conexao.row_factory = sqlite3.Row
 

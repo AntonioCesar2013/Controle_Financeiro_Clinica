@@ -2,6 +2,14 @@ from src.banco import conectar
 
 
 def cadastrar_residente(nome, cpf, cidade_origem):
+    nome = str(nome or "").strip()
+    cpf_original = str(cpf or "").strip()
+    cpf = cpf_original if cpf_original.startswith("PENDENTE-") else "".join(x for x in cpf_original if x.isdigit())
+    cidade_origem = str(cidade_origem or "").strip() or None
+    if not nome:
+        return {"sucesso": False, "erro": "O nome do residente é obrigatório."}
+    if not cpf.startswith("PENDENTE-") and len(cpf) != 11:
+        return {"sucesso": False, "erro": "O CPF do residente deve conter 11 números."}
     conexao = conectar()
     cursor = conexao.cursor()
 
@@ -19,6 +27,7 @@ def cadastrar_residente(nome, cpf, cidade_origem):
     if residente:
         conexao.close()
         return {
+            "sucesso": True,
             "existe": True,
             "id": residente[0],
             "nome": residente[1],
@@ -29,8 +38,8 @@ def cadastrar_residente(nome, cpf, cidade_origem):
 
     cursor.execute(
         """
-        INSERT INTO residentes (nome, cpf, cidade_origem)
-        VALUES (?, ?, ?)
+        INSERT INTO residentes (nome, cpf, cidade_origem, ativo)
+        VALUES (?, ?, ?, 0)
         """,
         (nome, cpf, cidade_origem)
     )
@@ -42,12 +51,13 @@ def cadastrar_residente(nome, cpf, cidade_origem):
     conexao.close()
 
     return {
+        "sucesso": True,
         "existe": False,
         "id": id_residente,
         "nome": nome,
         "cpf": cpf,
         "cidade_origem": cidade_origem,
-        "ativo": 1
+        "ativo": 0
     }
 
 def buscar_residente_por_cpf(cpf):

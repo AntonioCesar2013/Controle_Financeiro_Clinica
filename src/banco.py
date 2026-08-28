@@ -175,6 +175,20 @@ def criar_tabelas():
         )
     """)
 
+    # Entradas bancárias que ainda não possuem vínculo comprovado com cobrança.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS entradas_bancarias (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            data_entrada TEXT NOT NULL,
+            descricao TEXT NOT NULL,
+            valor INTEGER NOT NULL CHECK (valor > 0),
+            forma_recebimento TEXT NOT NULL DEFAULT 'PIX',
+            origem_documento TEXT NOT NULL,
+            observacao TEXT,
+            UNIQUE (data_entrada, descricao, valor, origem_documento)
+        )
+    """)
+
     # ============================================================
     # SETORES
     # ============================================================
@@ -325,9 +339,32 @@ def criar_tabelas():
 
             nome TEXT NOT NULL UNIQUE,
 
-            ativo INTEGER NOT NULL DEFAULT 1
+            codigo_barras TEXT,
+            descricao TEXT,
+            categoria TEXT,
+            unidade_medida TEXT NOT NULL DEFAULT 'UN',
+            estoque_atual INTEGER NOT NULL DEFAULT 0,
+            estoque_minimo INTEGER NOT NULL DEFAULT 0,
+
+            ativo INTEGER NOT NULL DEFAULT 0
         )
     """)
+
+    # Migração compatível com bancos criados antes do cadastro completo da Cantina.
+    colunas_itens = {linha[1] for linha in cursor.execute("PRAGMA table_info(itens)")}
+    novas_colunas = {
+        "codigo_barras": "TEXT",
+        "descricao": "TEXT",
+        "categoria": "TEXT",
+        "unidade_medida": "TEXT NOT NULL DEFAULT 'UN'",
+        "estoque_atual": "INTEGER NOT NULL DEFAULT 0",
+        "estoque_minimo": "INTEGER NOT NULL DEFAULT 0",
+    }
+    for nome_coluna, definicao in novas_colunas.items():
+        if nome_coluna not in colunas_itens:
+            cursor.execute(f"ALTER TABLE itens ADD COLUMN {nome_coluna} {definicao}")
+    cursor.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_itens_codigo_barras
+                      ON itens(codigo_barras) WHERE codigo_barras IS NOT NULL""")
 
     # ============================================================
     # HISTÓRICO DE VALORES DOS ITENS

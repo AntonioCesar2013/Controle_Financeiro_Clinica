@@ -2,6 +2,17 @@ from src.banco import conectar
 
 
 def cadastrar_responsavel(nome, cpf, telefone, email):
+    nome = str(nome or "").strip()
+    cpf_original = str(cpf or "").strip()
+    cpf = cpf_original if cpf_original.startswith("PENDENTE-") else "".join(x for x in cpf_original if x.isdigit())
+    telefone = str(telefone or "").strip() or None
+    email = str(email or "").strip() or None
+    if not nome:
+        return {"sucesso": False, "erro": "O nome do responsável é obrigatório."}
+    if not cpf.startswith("PENDENTE-") and len(cpf) != 11:
+        return {"sucesso": False, "erro": "O CPF do responsável deve conter 11 números."}
+    if email and "@" not in email:
+        return {"sucesso": False, "erro": "O e-mail informado é inválido."}
     conexao = conectar()
     cursor = conexao.cursor()
 
@@ -19,6 +30,7 @@ def cadastrar_responsavel(nome, cpf, telefone, email):
     if responsavel:
         conexao.close()
         return {
+            "sucesso": True,
             "existe": True,
             "id": responsavel[0],
             "nome": responsavel[1],
@@ -43,6 +55,7 @@ def cadastrar_responsavel(nome, cpf, telefone, email):
     conexao.close()
 
     return {
+        "sucesso": True,
         "existe": False,
         "id": id_responsavel,
         "nome": nome,
