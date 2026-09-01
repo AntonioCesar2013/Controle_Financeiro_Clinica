@@ -174,10 +174,12 @@ def listar_mensalidades(data_referencia=None):
     conexao = conectar()
     try:
         residentes = {
-            linha[0]: {"residente_id": linha[1], "residente_nome": linha[2]}
+            linha[0]: {"residente_id": linha[1], "residente_nome": linha[2],
+                       "modalidade": linha[3], "convenio_nome": linha[4]}
             for linha in conexao.execute(
-                """SELECT i.id,r.id,r.nome FROM internacoes i
-                   JOIN residentes r ON r.id=i.residente_id"""
+                """SELECT i.id,r.id,r.nome,i.modalidade,c.nome FROM internacoes i
+                   JOIN residentes r ON r.id=i.residente_id
+                   LEFT JOIN convenios c ON c.id=i.convenio_id"""
             )
         }
     finally:

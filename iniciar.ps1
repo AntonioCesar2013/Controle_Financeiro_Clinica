@@ -41,6 +41,14 @@ Write-Host "Iniciando o Controle Financeiro da Clínica..." -ForegroundColor Cya
 Write-Host "Python: $pythonExecutavel"
 
 try {
+    & $pythonExecutavel -c "import webview" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Preparando a interface WebView2..." -ForegroundColor Yellow
+        & $pythonExecutavel -m pip install -r requirements.txt
+        if ($LASTEXITCODE -ne 0) {
+            throw "Não foi possível instalar os componentes da interface WebView2."
+        }
+    }
     & $pythonExecutavel main.py
     if ($LASTEXITCODE -ne 0) {
         throw "O processo terminou com o código $LASTEXITCODE."

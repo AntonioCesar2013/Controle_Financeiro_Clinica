@@ -18,7 +18,9 @@ Na raiz do projeto, também é possível executar:
 python main.py
 ```
 
-O navegador será aberto automaticamente em `http://127.0.0.1:8000`.
+O sistema será aberto em uma janela própria baseada no Microsoft Edge WebView2.
+O servidor local é iniciado em segundo plano e encerrado automaticamente quando
+a janela for fechada. O navegador comum não é aberto.
 
 No primeiro acesso, o sistema solicitará o cadastro do primeiro colaborador.
 Nos acessos seguintes, utilize o CPF e a senha cadastrados.
@@ -29,6 +31,17 @@ O frontend deve ser aberto pelo servidor. A abertura direta de
 ## Primeira execução
 
 1. Inicie o sistema por `iniciar.cmd` ou `python main.py`.
+
+Para preparar uma instalação exclusivamente para demonstração e testes, execute:
+
+```powershell
+python -m src.popular_banco
+```
+
+Esse comando cria um backup do banco atual, remove os dados existentes e popula
+todas as tabelas com um cenário fictício completo. O acesso de demonstração é
+CPF `90000000001` e senha `admin1234`. Não execute o populador fictício sobre
+uma instalação em produção sem a intenção de substituir seus dados.
 
 Para substituir os dados de demonstração pelas despesas reais conferidas nos
 relatórios de agosto de 2026, execute `python -m src.popular_despesas_reais`.
@@ -84,6 +97,34 @@ encerradas mantêm o residente inativo.
 
 O arquivo local `dados/clinica.db` é criado automaticamente e não é enviado ao
 Git, pois cada instalação deve possuir seu próprio banco.
+
+## Backup e restauração
+
+Ao iniciar, o sistema cria no máximo um backup diário em `dados/backups` e
+mantém os 30 backups diários mais recentes. Para criar uma cópia manual:
+
+```powershell
+python -m src.backup_banco criar --rotulo antes_fechamento
+```
+
+Para listar e restaurar uma cópia:
+
+```powershell
+python -m src.backup_banco listar
+python -m src.backup_banco restaurar NOME_DO_ARQUIVO.db
+```
+
+A restauração valida o arquivo e preserva automaticamente uma cópia do banco
+atual antes de substituí-lo. O sistema deve estar fechado durante a restauração.
+
+## Sincronização futura com Google Drive
+
+A infraestrutura está preparada, mas permanece desativada. O banco ativo
+continua local; quando o recurso for habilitado, a instalação principal poderá
+publicar versões imutáveis em uma pasta do Google Drive e instalações de
+consulta poderão atualizar sua cópia local. Copie
+`configuracao_local.exemplo.json` para `configuracao_local.json` somente quando
+for iniciar essa fase. Esse arquivo local não é enviado ao Git.
 
 ## Carteiras e manutenção
 

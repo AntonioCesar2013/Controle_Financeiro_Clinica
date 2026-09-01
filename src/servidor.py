@@ -10,8 +10,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from src import caixa, cantina, configuracoes_financeiras, contas_pagar, contas_receber, despesas, itens, relatorios, pagamentos, recebimentos
+from src import auditoria, caixa, cantina, configuracoes_financeiras, contas_pagar, contas_receber, convenios, despesas, itens, relatorios, pagamentos, recebimentos, sincronizacao_nuvem
 from src.banco import criar_tabelas
+from src.backup_banco import criar_backup_diario
+from src.configuracao_instalacao import somente_leitura
 from src.colaboradores import (
     autenticar_colaborador, cadastrar_colaborador, editar_colaborador,
     possui_colaboradores, redefinir_senha,
@@ -26,7 +28,7 @@ from src.consultas_interface import (
 from src.residentes import cadastrar_residente, editar_residente
 from src.responsaveis import cadastrar_responsavel, editar_responsavel
 from src.internacoes import (
-    alterar_responsavel_principal, cadastrar_internacao, encerrar_internacao,
+    alterar_responsavel_principal, cadastrar_internacao_com_cobrancas, encerrar_internacao,
     sincronizar_status_residentes,
 )
 from src.cobrancas import aplicar_desconto, gerar_cobrancas
@@ -97,6 +99,9 @@ class Requisicao(BaseHTTPRequestHandler):
         dados = self._corpo_json()
         if dados is None:
             return
+        self._rota_auditoria = rota
+        self._dados_auditoria = dados
+        self._auditoria_registrada = False
         if rota == "/api/auth/setup":
             if possui_colaboradores():
                 return self._json({"erro": "O primeiro acesso já foi configurado."}, HTTPStatus.CONFLICT)
@@ -115,6 +120,15 @@ class Requisicao(BaseHTTPRequestHandler):
             with LOCK_SESSOES:
                 SESSOES.pop(token, None)
             return self._json({"sucesso": True}, cookie="sessao=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0")
+        if rota == "/api/sincronizacao/publicar":
+            return self._resultado_operacao(sincronizacao_nuvem.publicar_versao(), criado=False)
+        if rota == "/api/sincronizacao/atualizar":
+            return self._resultado_operacao(sincronizacao_nuvem.atualizar_versao_local(), criado=False)
+        if somente_leitura():
+            return self._json(
+                {"sucesso": False, "erro": "Esta instalação está configurada somente para leitura."},
+                HTTPStatus.FORBIDDEN,
+            )
         # TESTES: reative estas duas linhas para proteger novamente as rotas POST.
         # if self._sessao() is None:
         #     return self._json({"erro": "Sessão não autenticada."}, HTTPStatus.UNAUTHORIZED)
@@ -126,17 +140,24 @@ class Requisicao(BaseHTTPRequestHandler):
             return self._json(resultado, HTTPStatus.CREATED if resultado.get("sucesso") else HTTPStatus.BAD_REQUEST)
         if rota == "/api/internacoes":
             try:
-                resultado = cadastrar_internacao(
+                resultado = cadastrar_internacao_com_cobrancas(
                     dados.get("residente_id"), dados.get("responsavel_id"), dados.get("data_acolhimento"),
                     dados.get("periodo_tratamento"), _centavos(dados.get("valor_contrato")),
                     _centavos(dados.get("valor_acolhimento")), _centavos(dados.get("valor_mensalidade")),
+                    dados.get("modalidade", "PARTICULAR"), dados.get("convenio_id"),
+                    dados.get("servicos_voluntario"),
                 )
             except ValueError as erro:
                 return self._json({"sucesso": False, "erro": str(erro)}, HTTPStatus.BAD_REQUEST)
-            if resultado.get("sucesso"):
-                cobrancas = gerar_cobrancas(resultado["id"])
-                resultado["cobrancas"] = cobrancas.get("quantidade", 0)
             return self._json(resultado, HTTPStatus.CREATED if resultado.get("sucesso") else HTTPStatus.BAD_REQUEST)
+        if rota == "/api/convenios":
+            try:
+                resultado = convenios.cadastrar_convenio(
+                    dados.get("nome"), _centavos(dados.get("valor_diaria")), dados.get("ativo", 1)
+                )
+            except ValueError as erro:
+                resultado = {"sucesso": False, "erro": str(erro)}
+            return self._resultado_operacao(resultado)
         if rota == "/api/colaboradores":
             resultado = cadastrar_colaborador(dados.get("nome"), dados.get("cpf"), dados.get("senha"), dados.get("status", "ATIVO"))
             return self._json(resultado, HTTPStatus.CREATED if resultado.get("sucesso") else HTTPStatus.BAD_REQUEST)
@@ -202,22 +223,14 @@ class Requisicao(BaseHTTPRequestHandler):
         if rota == "/api/setores":
             resultado = despesas.cadastrar_setor(dados.get("nome"))
             return self._resultado_operacao(resultado)
-        if rota == "/api/tipos-despesa":
-            resultado = despesas.cadastrar_tipo_despesa(dados.get("nome"))
-            return self._resultado_operacao(resultado)
         if rota == "/api/setores/editar":
             return self._resultado_operacao(
                 despesas.editar_setor(dados.get("id"), dados.get("nome"), dados.get("ativo", 1)),
                 criado=False,
             )
-        if rota == "/api/tipos-despesa/editar":
-            return self._resultado_operacao(
-                despesas.editar_tipo_despesa(dados.get("id"), dados.get("nome"), dados.get("ativo", 1)),
-                criado=False,
-            )
         if rota == "/api/despesas":
             resultado = despesas.cadastrar_despesa(
-                dados.get("setor_id"), dados.get("tipo_despesa_id"), dados.get("descricao"),
+                dados.get("setor_id"), dados.get("descricao"),
                 dados.get("natureza", "VARIAVEL"), str(dados.get("recorrente", "0")) in ("1", "true", "True"),
             )
             return self._resultado_operacao(resultado)
@@ -263,6 +276,7 @@ class Requisicao(BaseHTTPRequestHandler):
             "/api/residentes": listar_residentes,
             "/api/responsaveis": listar_responsaveis,
             "/api/internacoes": listar_internacoes,
+            "/api/convenios": lambda: convenios.listar_convenios(False),
             "/api/colaboradores": listar_colaboradores,
             "/api/carteiras": listar_carteiras,
             "/api/carteiras/detalhe": lambda: cantina.consultar_carteira(_parametro(query, "id")),
@@ -280,11 +294,13 @@ class Requisicao(BaseHTTPRequestHandler):
             "/api/contas-pagar": lambda: _listar_contas_pagar(_parametro(query, "status"), inicio, fim),
             "/api/caixa": lambda: {**caixa.resumo_caixa(inicio, fim), "movimentacoes": caixa.listar_movimentacoes(inicio, fim)},
             "/api/despesas": lambda: despesas.listar_despesas(apenas_ativas=False),
-            "/api/financeiro/cadastros": lambda: {"setores": despesas.listar_setores(False), "tipos": despesas.listar_tipos_despesa(False), "despesas": despesas.listar_despesas(False)},
+            "/api/financeiro/cadastros": lambda: {"setores": despesas.listar_setores(False), "despesas": despesas.listar_despesas(False)},
             "/api/contas-pagar/pagamentos": lambda: pagamentos.listar_pagamentos(_parametro(query, "id")),
             "/api/contas-receber/recebimentos": lambda: recebimentos.buscar_pagamentos(_parametro(query, "id")),
             "/api/configuracoes": configuracoes_financeiras.obter_configuracao,
+            "/api/sincronizacao/status": sincronizacao_nuvem.obter_status,
             "/api/relatorios": lambda: relatorios.gerar(_parametro(query, "tipo", "financeiro"), inicio, fim),
+            "/api/auditoria": lambda: auditoria.listar(_parametro(query, "limite", 500)),
         }
         funcao = rotas.get(rota)
         if funcao is None:
@@ -331,6 +347,24 @@ class Requisicao(BaseHTTPRequestHandler):
             return SESSOES.get(token)
 
     def _json(self, dados, status=HTTPStatus.OK, cookie=None):
+        rota_auditoria = getattr(self, "_rota_auditoria", None)
+        if (
+            rota_auditoria and not getattr(self, "_auditoria_registrada", False)
+            and status < 400 and isinstance(dados, dict) and dados.get("sucesso") is True
+            and rota_auditoria not in (
+                "/api/auth/login", "/api/auth/logout", "/api/sincronizacao/publicar",
+                "/api/sincronizacao/atualizar",
+            )
+        ):
+            self._auditoria_registrada = True
+            try:
+                auditoria.registrar(
+                    "INCLUSAO" if status == HTTPStatus.CREATED else "ALTERACAO",
+                    rota_auditoria.removeprefix("/api/"), dados.get("id"),
+                    getattr(self, "_dados_auditoria", {}), self._sessao(), self.client_address[0],
+                )
+            except Exception as erro:
+                print(f"Falha ao registrar auditoria: {erro}")
         conteudo = json.dumps(dados, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -346,7 +380,24 @@ class Requisicao(BaseHTTPRequestHandler):
 
 
 def executar(host="127.0.0.1", porta=8000, abrir_navegador=False):
+    servidor, endereco, backup = criar_servidor(host, porta)
+    print(f"Controle Financeiro disponível em {endereco}")
+    print(f"Backup diário verificado: {backup}")
+    print("Pressione Ctrl+C para encerrar.")
+    if abrir_navegador:
+        threading.Timer(0.8, webbrowser.open, args=(endereco,)).start()
+    try:
+        servidor.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        servidor.server_close()
+
+
+def criar_servidor(host="127.0.0.1", porta=8000):
+    """Prepara o backend sem iniciar navegador nem bloquear a thread atual."""
     criar_tabelas()
+    backup = criar_backup_diario()
     sincronizar_status_residentes()
     endereco = f"http://{host}:{porta}"
     try:
@@ -357,16 +408,7 @@ def executar(host="127.0.0.1", porta=8000, abrir_navegador=False):
             "Verifique se ele já está aberto em outra janela."
         ) from erro
 
-    print(f"Controle Financeiro disponível em {endereco}")
-    print("Pressione Ctrl+C para encerrar.")
-    if abrir_navegador:
-        threading.Timer(0.8, webbrowser.open, args=(endereco,)).start()
-    try:
-        servidor.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        servidor.server_close()
+    return servidor, endereco, backup
 
 
 if __name__ == "__main__":

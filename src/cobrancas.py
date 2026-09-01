@@ -1,3 +1,6 @@
+from calendar import monthrange
+from datetime import date, timedelta
+
 from .banco import conectar
 from .contas_receber import (
     buscar_cobranca_consolidada,
@@ -6,8 +9,58 @@ from .contas_receber import (
 from .parcelas import calcular_data_vencimento
 
 
-def gerar_cobrancas(internacao_id):
+def _competencias_diarias(inicio, fim, valor_diaria):
+    cursor_data = inicio
+    numero = 1
+    while cursor_data <= fim:
+        ultimo_dia = date(cursor_data.year, cursor_data.month, monthrange(cursor_data.year, cursor_data.month)[1])
+        final_competencia = min(ultimo_dia, fim)
+        dias = (final_competencia - cursor_data).days + 1
+        yield numero, final_competencia, dias * valor_diaria
+        numero += 1
+        cursor_data = final_competencia + timedelta(days=1)
+
+
+def ajustar_convenio_ao_encerrar(internacao_id, data_encerramento):
+    """Ajusta as diárias ainda não recebidas para os dias realmente utilizados."""
     conexao = conectar()
+    try:
+        internacao = conexao.execute(
+            "SELECT data_acolhimento,modalidade,valor_diaria FROM internacoes WHERE id=?",
+            (internacao_id,),
+        ).fetchone()
+        if not internacao or internacao[1] != "CONVENIO":
+            return
+        competencias = {numero: (fim.isoformat(), valor) for numero, fim, valor in _competencias_diarias(
+            date.fromisoformat(internacao[0]), date.fromisoformat(data_encerramento), internacao[2]
+        )}
+        cobrancas = conexao.execute(
+            """SELECT c.id,c.numero_parcela,EXISTS(SELECT 1 FROM recebimentos r WHERE r.cobranca_id=c.id)
+               FROM cobrancas c WHERE c.internacao_id=?""", (internacao_id,)
+        ).fetchall()
+        for cobranca_id, numero, tem_recebimento in cobrancas:
+            if tem_recebimento:
+                continue
+            if numero not in competencias:
+                conexao.execute("DELETE FROM cobrancas WHERE id=?", (cobranca_id,))
+            else:
+                vencimento, valor = competencias[numero]
+                conexao.execute(
+                    "UPDATE cobrancas SET data_vencimento=?,valor=? WHERE id=?",
+                    (vencimento, valor, cobranca_id),
+                )
+        total = conexao.execute(
+            "SELECT COALESCE(SUM(valor),0) FROM cobrancas WHERE internacao_id=?", (internacao_id,)
+        ).fetchone()[0]
+        conexao.execute("UPDATE internacoes SET valor_contrato=? WHERE id=?", (total, internacao_id))
+        conexao.commit()
+    finally:
+        conexao.close()
+
+
+def gerar_cobrancas(internacao_id, conexao=None):
+    conexao_propria = conexao is None
+    conexao = conexao or conectar()
     cursor = conexao.cursor()
 
     internacao = cursor.execute("""
@@ -16,12 +69,14 @@ def gerar_cobrancas(internacao_id):
             periodo_tratamento,
             valor_acolhimento,
             valor_mensalidade
+            ,modalidade,valor_diaria
         FROM internacoes
         WHERE id = ?
     """, (internacao_id,)).fetchone()
 
     if not internacao:
-        conexao.close()
+        if conexao_propria:
+            conexao.close()
         return {
             "sucesso": False,
             "erro": "Internação não encontrada."
@@ -31,6 +86,8 @@ def gerar_cobrancas(internacao_id):
     periodo_tratamento = internacao[1]
     valor_acolhimento = internacao[2]
     valor_mensalidade = internacao[3]
+    modalidade = internacao[4]
+    valor_diaria = internacao[5]
 
     quantidade_existente = cursor.execute("""
         SELECT COUNT(*)
@@ -39,11 +96,36 @@ def gerar_cobrancas(internacao_id):
     """, (internacao_id,)).fetchone()[0]
 
     if quantidade_existente > 0:
-        conexao.close()
+        if conexao_propria:
+            conexao.close()
         return {
             "sucesso": False,
             "erro": "As cobranças desta internação já foram geradas."
         }
+
+    if modalidade in ("SOCIAL", "VOLUNTARIO"):
+        if conexao_propria:
+            conexao.close()
+        return {"sucesso": True, "quantidade": 0}
+
+    if modalidade == "CONVENIO":
+        inicio = date.fromisoformat(data_acolhimento)
+        fim = calcular_data_vencimento(data_acolhimento, periodo_tratamento)
+        total = 0
+        quantidade = 0
+        for numero, final_competencia, valor in _competencias_diarias(inicio, fim, valor_diaria):
+            cursor.execute(
+                """INSERT INTO cobrancas(internacao_id,numero_parcela,tipo,data_vencimento,valor,desconto,status)
+                   VALUES(?,?,?,?,?,0,'ABERTA')""",
+                (internacao_id, numero, "MENSALIDADE", final_competencia.isoformat(), valor),
+            )
+            total += valor
+            quantidade += 1
+        cursor.execute("UPDATE internacoes SET valor_contrato=? WHERE id=?", (total, internacao_id))
+        if conexao_propria:
+            conexao.commit()
+            conexao.close()
+        return {"sucesso": True, "quantidade": quantidade}
 
     # Cobrança do acolhimento
     cursor.execute("""
@@ -95,8 +177,9 @@ def gerar_cobrancas(internacao_id):
             "ABERTA"
         ))
 
-    conexao.commit()
-    conexao.close()
+    if conexao_propria:
+        conexao.commit()
+        conexao.close()
 
     return {
         "sucesso": True,

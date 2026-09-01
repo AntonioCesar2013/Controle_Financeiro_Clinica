@@ -14,7 +14,9 @@ import {
     formatCpf,
     formatDate,
     formatDateTime,
+    formatDocument,
     formatMoney,
+    formatPhone,
     formatOptionalReais,
     formatReais,
     formatReversal,
@@ -22,6 +24,7 @@ import {
     valueOrDash,
     valueOrStatus,
 } from "./utils/formatters.js";
+import { applyInputMask, applyInputMasks } from "./utils/masks.js";
 
 
     const app = document.querySelector("#app");
@@ -30,6 +33,7 @@ import {
     const canteenCart = new Map();
     let canteenState = { wallets: [], products: [] };
     let monthlyState = [];
+    let activePanelName = "dashboard";
 
     const api = createApi({
         onUnauthorized: (message) => showLogin(false, message),
@@ -75,6 +79,7 @@ import {
         // TESTES: reative esta linha para tornar o login obrigatório novamente.
         // checkAccess();
         openGeneralMenu();
+        openMainPanel("dashboard");
     }
 
     async function checkAccess() {
@@ -100,6 +105,7 @@ import {
         if (action === "open-new-product") openProductForm();
         if (action === "open-new-guardian") openGuardianForm();
         if (action === "open-new-internment") openInternmentForm();
+        if (action === "open-new-convenio") openConvenioForm();
         if (action === "toggle-password") togglePassword(trigger);
         if (action === "logout") logout();
         if (action === "apply-report") refreshReport(trigger.closest(".panel"));
@@ -119,6 +125,10 @@ import {
         if (action === "canteen-cart-clear") clearCanteenCart();
         if (action === "open-canteen-resident-search") openCanteenResidentSearch();
         if (action === "select-canteen-resident") selectCanteenResident(trigger.dataset.id);
+        if (action === "open-monthly-resident-search") openMonthlyResidentSearch();
+        if (action === "select-monthly-resident") selectMonthlyResident(trigger.dataset.id);
+        if (action === "cloud-publish") runCloudCommand("/api/sincronizacao/publicar", "Publicar a versão atual na pasta do Google Drive?");
+        if (action === "cloud-update") runCloudCommand("/api/sincronizacao/atualizar", "Atualizar a cópia local com a versão mais recente?");
         if (action === "canteen-sale-reversal") runMaintenanceCommand("/api/cantina/vendas/estornar", { venda_id: trigger.dataset.id, motivo: "Venda estornada no caixa" }, "Estornar o cupom inteiro? O saldo e o estoque serão devolvidos.", "cantina");
     }
 
@@ -134,6 +144,7 @@ import {
         if (event.target.matches("#product-form")) return submitProduct(event.target);
         if (event.target.matches("#guardian-form")) return submitGuardian(event.target);
         if (event.target.matches("#internment-form")) return submitInternment(event.target);
+        if (event.target.matches("#convenio-form")) return submitConvenio(event.target);
         if (event.target.matches(".financial-form")) return submitFinancialForm(event.target);
         if (event.target.matches(".maintenance-form")) return submitMaintenanceForm(event.target);
     }
@@ -142,11 +153,14 @@ import {
         if (event.target.matches("#wallet-resident")) refreshWalletDetail(event.target);
         if (event.target.matches("#canteen-wallet")) refreshCanteenCart();
         if (event.target.matches("#canteen-product-search")) addSearchedCanteenProduct(event.target);
-        if (event.target.matches("#monthly-resident")) refreshMonthlyFees(event.target.value);
+        if (event.target.matches("#monthly-resident, #monthly-status")) refreshMonthlyFees();
+        if (event.target.matches("#internment-modality")) updateInternmentMode(event.target.value);
     }
 
     function handleInput(event) {
+        if (event.target.matches("input[data-mask]")) applyInputMask(event.target);
         if (event.target.matches("#canteen-resident-lookup")) renderCanteenResidentResults(event.target.value);
+        if (event.target.matches("#monthly-resident-lookup")) renderMonthlyResidentResults(event.target.value);
     }
 
     function handleKeydown(event) {
@@ -164,8 +178,8 @@ import {
     function showLogin(firstAccess = false, message = "") {
         ["main", "menu", "auxiliary", "modal"].forEach((name) => closeLayer(name, false));
         const fields = firstAccess
-            ? '<div class="field"><label for="setup-name">Nome</label><input id="setup-name" name="nome" autocomplete="name" required></div><div class="field"><label for="login-user">CPF</label><input id="login-user" name="cpf" inputmode="numeric" autocomplete="username" required></div>'
-            : '<div class="field"><label for="login-user">CPF</label><input id="login-user" name="cpf" inputmode="numeric" autocomplete="username" required></div>';
+            ? '<div class="field"><label for="setup-name">Nome</label><input id="setup-name" name="nome" autocomplete="name" required></div><div class="field"><label for="login-user">CPF</label><input id="login-user" name="cpf" inputmode="numeric" autocomplete="username" data-mask="cpf" maxlength="14" required></div>'
+            : '<div class="field"><label for="login-user">CPF</label><input id="login-user" name="cpf" inputmode="numeric" autocomplete="username" data-mask="cpf" maxlength="14" required></div>';
         const passwordConfirmation = firstAccess
             ? '<div class="field login-password"><label for="login-password-confirmation">Confirmar senha</label><input id="login-password-confirmation" name="confirmacao_senha" type="password" minlength="8" autocomplete="new-password" required><button class="login-password__toggle" type="button" data-action="toggle-password" aria-controls="login-password-confirmation">Mostrar</button></div>'
             : "";
@@ -262,13 +276,24 @@ import {
     }
 
     function renderMenu(title, eyebrow, items, back = false) {
-        const body = `<div class="menu-context">${back ? '<button class="menu-context__back" type="button" data-action="open-general-menu">← Menu geral</button>' : ""}<nav class="menu-grid" aria-label="${title}">${items.map(([id, label, description, action]) => `<button class="menu-item" type="button" data-action="${action}"${id ? ` data-panel="${id}"` : ""}><strong>${label}</strong><span>${description}</span></button>`).join("")}</nav></div>`;
+        const body = `<div class="menu-context">${back ? '<button class="menu-context__back" type="button" data-action="open-general-menu">← Menu geral</button>' : ""}<nav class="menu-grid" aria-label="${title}">${items.map(([id, label, description, action]) => `<button class="menu-item${id === activePanelName ? " is-active" : ""}" type="button" data-action="${action}"${id ? ` data-panel="${id}"` : ""}${id === activePanelName ? ' aria-current="page"' : ""}><strong>${label}</strong><span>${description}</span></button>`).join("")}</nav></div>`;
         layers.menu.replaceChildren(createPanel({ id: back ? "financial-menu" : "general-menu", title, eyebrow, body, size: "menu", closable: false }));
+    }
+
+    function syncMenuSelection() {
+        layers.menu.querySelectorAll(".menu-item[data-panel]").forEach((item) => {
+            const selected = item.dataset.panel === activePanelName;
+            item.classList.toggle("is-active", selected);
+            if (selected) item.setAttribute("aria-current", "page");
+            else item.removeAttribute("aria-current");
+        });
     }
 
     async function openMainPanel(name) {
         const definition = panels[name];
         if (!definition) return;
+        activePanelName = name;
+        syncMenuSelection();
         closeLayer("auxiliary", false);
         closeLayer("modal", false);
         closeLayer("main", false);
@@ -277,12 +302,14 @@ import {
         const panel = layers.main.querySelector(".panel");
         try { panel.querySelector(".panel__body").innerHTML = await renderer(); }
         catch (error) { panel.querySelector(".panel__body").innerHTML = errorState(error.message); }
+        requestAnimationFrame(() => panel.focus({ preventScroll: true }));
     }
 
     function createPanel({ id = `panel-${++panelSequence}`, title, eyebrow, body, footer = "", size = "large", modal = false, closable = true }) {
         const wrapper = document.createElement("div");
         wrapper.innerHTML = `${modal ? '<div class="panel-backdrop panel-backdrop--modal"></div>' : ""}<section class="panel panel--${size}" id="${id}" role="${modal ? "alertdialog" : "dialog"}" aria-labelledby="${id}-title" tabindex="-1"><header class="panel__header"><div class="panel__heading">${eyebrow ? `<p class="panel__eyebrow">${eyebrow}</p>` : ""}<h2 class="panel__title" id="${id}-title">${title}</h2></div>${closable ? `<button class="panel__close" type="button" data-action="close-panel" aria-label="Fechar ${title}">&times;</button>` : ""}</header><div class="panel__body">${body}</div>${footer ? `<footer class="panel__footer">${footer}</footer>` : ""}</section>`;
         const fragment = document.createDocumentFragment();
+        applyInputMasks(wrapper);
         while (wrapper.firstChild) fragment.append(wrapper.firstChild);
         return fragment;
     }
@@ -295,7 +322,7 @@ import {
     }
 
     function openResidentForm() {
-        const body = '<form class="login-form" id="resident-form"><div class="field"><label for="resident-name">Nome</label><input id="resident-name" name="nome" required></div><div class="field"><label for="resident-cpf">CPF</label><input id="resident-cpf" name="cpf" inputmode="numeric" required></div><div class="field"><label for="resident-city">Cidade de origem</label><input id="resident-city" name="cidade_origem"></div><p class="login-error" id="resident-error" role="alert"></p><button class="button" type="submit">Salvar residente</button></form>';
+        const body = '<form class="login-form" id="resident-form"><div class="field"><label for="resident-name">Nome</label><input id="resident-name" name="nome" required></div><div class="field"><label for="resident-cpf">CPF</label><input id="resident-cpf" name="cpf" inputmode="numeric" data-mask="cpf" maxlength="14" placeholder="000.000.000-00" required></div><div class="field"><label for="resident-city">Cidade de origem</label><input id="resident-city" name="cidade_origem"></div><p class="login-error" id="resident-error" role="alert"></p><button class="button" type="submit">Salvar residente</button></form>';
         layers.auxiliary.replaceChildren(createPanel({ title: "Novo residente", eyebrow: "Cadastro", body, size: "medium" }));
     }
 
@@ -303,7 +330,7 @@ import {
         const body = `
             <form class="login-form" id="collaborator-form">
                 <div class="field"><label for="collaborator-name">Nome</label><input id="collaborator-name" name="nome" autocomplete="name" required></div>
-                <div class="field"><label for="collaborator-cpf">CPF</label><input id="collaborator-cpf" name="cpf" inputmode="numeric" autocomplete="off" placeholder="Somente números" required></div>
+                <div class="field"><label for="collaborator-cpf">CPF</label><input id="collaborator-cpf" name="cpf" inputmode="numeric" autocomplete="off" data-mask="cpf" maxlength="14" placeholder="000.000.000-00" required></div>
                 <div class="field"><label for="collaborator-status">Status</label><select id="collaborator-status" name="status" required><option value="ATIVO">Ativo</option><option value="INATIVO">Inativo</option></select></div>
                 <div class="field login-password"><label for="collaborator-password">Senha</label><input id="collaborator-password" name="senha" type="password" minlength="8" autocomplete="new-password" required><button class="login-password__toggle" type="button" data-action="toggle-password" aria-controls="collaborator-password">Mostrar</button></div>
                 <div class="field login-password"><label for="collaborator-password-confirmation">Confirmar senha</label><input id="collaborator-password-confirmation" name="confirmacao_senha" type="password" minlength="8" autocomplete="new-password" required><button class="login-password__toggle" type="button" data-action="toggle-password" aria-controls="collaborator-password-confirmation">Mostrar</button></div>
@@ -334,14 +361,14 @@ import {
     }
 
     function openGuardianForm() {
-        const body = `<form class="login-form" id="guardian-form"><div class="field"><label for="guardian-name">Nome</label><input id="guardian-name" name="nome" required></div><div class="field"><label for="guardian-cpf">CPF</label><input id="guardian-cpf" name="cpf" inputmode="numeric" placeholder="Somente números" required></div><div class="field"><label for="guardian-phone">Telefone</label><input id="guardian-phone" name="telefone" type="tel"></div><div class="field"><label for="guardian-email">E-mail</label><input id="guardian-email" name="email" type="email"></div><p class="login-error" data-guardian-error role="alert"></p><button class="button" type="submit">Salvar responsável</button></form>`;
+        const body = `<form class="login-form" id="guardian-form"><div class="field"><label for="guardian-name">Nome</label><input id="guardian-name" name="nome" required></div><div class="field"><label for="guardian-cpf">CPF ou CNPJ</label><input id="guardian-cpf" name="cpf" inputmode="numeric" data-mask="document" maxlength="18" placeholder="000.000.000-00" required></div><div class="field"><label for="guardian-phone">Telefone</label><input id="guardian-phone" name="telefone" type="tel" inputmode="numeric" data-mask="phone" maxlength="15" placeholder="(00) 00000-0000"></div><div class="field"><label for="guardian-email">E-mail</label><input id="guardian-email" name="email" type="email"></div><p class="login-error" data-guardian-error role="alert"></p><button class="button" type="submit">Salvar responsável</button></form>`;
         layers.auxiliary.replaceChildren(createPanel({ title: "Novo responsável", eyebrow: "Cadastro", body, size: "medium" }));
         requestAnimationFrame(() => document.getElementById("guardian-name")?.focus());
     }
 
     async function openInternmentForm() {
         try {
-            const [residentsResponse, guardiansResponse] = await Promise.all([api("/api/residentes"), api("/api/responsaveis")]);
+            const [residentsResponse, guardiansResponse, agreementsResponse] = await Promise.all([api("/api/residentes"), api("/api/responsaveis"), api("/api/convenios")]);
             const residents = residentsResponse.dados || [];
             const guardians = guardiansResponse.dados || [];
             if (!residents.length || !guardians.length) {
@@ -350,20 +377,42 @@ import {
             }
             const residentOptions = residents.map((item) => `<option value="${item.id}">${escapeHtml(item.nome)}</option>`).join("");
             const guardianOptions = guardians.map((item) => `<option value="${item.id}">${escapeHtml(item.nome)}</option>`).join("");
+            const agreementOptions = (agreementsResponse.dados || []).filter((item) => Number(item.ativo) === 1).map((item) => `<option value="${item.id}">${escapeHtml(item.nome)} — ${formatMoney(item.valor_diaria)} por dia</option>`).join("");
             const today = new Date().toISOString().slice(0, 10);
-            const body = `<form class="login-form" id="internment-form"><div class="field"><label for="internment-resident">Residente</label><select id="internment-resident" name="residente_id" required>${residentOptions}</select></div><div class="field"><label for="internment-guardian">Responsável</label><select id="internment-guardian" name="responsavel_id" required>${guardianOptions}</select></div><div class="field"><label for="internment-date">Data de acolhimento</label><input id="internment-date" name="data_acolhimento" type="date" value="${today}" required></div><div class="field"><label for="internment-period">Período de tratamento (meses)</label><input id="internment-period" name="periodo_tratamento" type="number" min="1" step="1" required></div><div class="field"><label for="internment-contract">Valor do contrato</label><input id="internment-contract" name="valor_contrato" type="number" min="0" step="0.01" value="0" required></div><div class="field"><label for="internment-welcome">Valor do acolhimento</label><input id="internment-welcome" name="valor_acolhimento" type="number" min="0" step="0.01" value="0" required></div><div class="field"><label for="internment-monthly">Mensalidade</label><input id="internment-monthly" name="valor_mensalidade" type="number" min="0" step="0.01" value="0" required></div><p class="form-note">O residente ficará ativo somente enquanto esta internação estiver dentro do período contratado.</p><p class="login-error" data-internment-error role="alert"></p><button class="button" type="submit">Salvar internação</button></form>`;
+            const body = `<form class="login-form" id="internment-form"><div class="field"><label for="internment-resident">Residente</label><select id="internment-resident" name="residente_id" required>${residentOptions}</select></div><div class="field"><label for="internment-guardian">Responsável</label><select id="internment-guardian" name="responsavel_id" required>${guardianOptions}</select></div><div class="field"><label for="internment-modality">Modalidade de residência</label><select id="internment-modality" name="modalidade" required><option value="PARTICULAR">Particular</option><option value="SOCIAL">Social</option><option value="CONVENIO">Convênio</option><option value="VOLUNTARIO">Voluntário</option></select></div><div class="field"><label for="internment-date">Data de acolhimento</label><input id="internment-date" name="data_acolhimento" type="date" value="${today}" required></div><div class="field" data-period-field><label for="internment-period">Período de tratamento (meses)</label><input id="internment-period" name="periodo_tratamento" type="number" min="1" step="1" required></div><div class="field" data-agreement-field hidden><label for="internment-agreement">Convênio</label><select id="internment-agreement" name="convenio_id"><option value="">Selecione</option>${agreementOptions}</select><small>O valor é calculado pela diária e pelos dias de tratamento em cada mês.</small></div><div data-particular-fields><div class="field"><label for="internment-contract">Valor do contrato</label><input id="internment-contract" name="valor_contrato" type="number" min="0" step="0.01" value="0" required></div><div class="field"><label for="internment-welcome">Valor do acolhimento</label><input id="internment-welcome" name="valor_acolhimento" type="number" min="0" step="0.01" value="0" required></div><div class="field"><label for="internment-monthly">Mensalidade</label><input id="internment-monthly" name="valor_mensalidade" type="number" min="0" step="0.01" value="0" required></div></div><div class="field" data-volunteer-field hidden><label for="internment-services">Serviços prestados à clínica</label><textarea id="internment-services" name="servicos_voluntario" rows="4" placeholder="Descreva as atividades combinadas"></textarea></div><p class="form-note" data-internment-note>O residente ficará ativo somente enquanto esta internação estiver dentro do período contratado.</p><p class="login-error" data-internment-error role="alert"></p><button class="button" type="submit">Salvar internação</button></form>`;
             layers.auxiliary.replaceChildren(createPanel({ title: "Nova internação", eyebrow: "Acolhimento e contrato", body, size: "medium" }));
         } catch (error) { showAlert("Não foi possível abrir", error.message); }
+    }
+
+    function updateInternmentMode(mode) {
+        const form = document.querySelector("#internment-form");
+        if (!form) return;
+        const particular = mode === "PARTICULAR";
+        const agreement = mode === "CONVENIO";
+        const volunteer = mode === "VOLUNTARIO";
+        form.querySelector("[data-particular-fields]").hidden = !particular;
+        form.querySelector("[data-agreement-field]").hidden = !agreement;
+        form.querySelector("[data-volunteer-field]").hidden = !volunteer;
+        form.querySelector("[data-period-field]").hidden = volunteer;
+        ["valor_contrato", "valor_acolhimento", "valor_mensalidade"].forEach((name) => form.elements[name].required = particular);
+        form.elements.convenio_id.required = agreement;
+        form.elements.servicos_voluntario.required = volunteer;
+        form.elements.periodo_tratamento.required = !volunteer;
+        form.querySelector("[data-internment-note]").textContent = volunteer ? "A permanência não tem prazo e continuará ativa até o encerramento manual." : mode === "SOCIAL" ? "O contrato terá período definido, sem gerar cobranças." : agreement ? "As cobranças serão separadas por mês conforme as diárias do período." : "O residente ficará ativo somente enquanto esta internação estiver dentro do período contratado.";
+    }
+
+    function openConvenioForm() {
+        const body = `<form class="login-form" id="convenio-form"><div class="field"><label for="agreement-name">Nome do convênio</label><input id="agreement-name" name="nome" required></div><div class="field"><label for="agreement-rate">Valor da diária</label><input id="agreement-rate" name="valor_diaria" type="number" min="0" step="0.01" required></div><p class="login-error" data-agreement-error role="alert"></p><button class="button" type="submit">Salvar convênio</button></form>`;
+        layers.auxiliary.replaceChildren(createPanel({ title: "Novo convênio", eyebrow: "Internações", body, size: "medium" }));
     }
 
     async function openFinancialForm(kind, id = "") {
         try {
             const today = new Date().toISOString().slice(0, 10);
-            const needsRegistrations = ["despesa", "conta", "editar_setor", "editar_tipo"].includes(kind);
+            const needsRegistrations = ["despesa", "conta", "editar_setor"].includes(kind);
             const registrations = needsRegistrations ? (await api("/api/financeiro/cadastros")).dados : null;
             const definitions = {
                 setor: ["Novo setor", "/api/setores", "despesas", '<div class="field"><label for="financial-name">Nome</label><input id="financial-name" name="nome" required></div>'],
-                tipo: ["Novo tipo de despesa", "/api/tipos-despesa", "despesas", '<div class="field"><label for="financial-name">Nome</label><input id="financial-name" name="nome" required></div>'],
                 pagamento: ["Registrar pagamento", "/api/pagamentos-saida", "contas_pagar", `<input type="hidden" name="conta_pagar_id" value="${escapeHtml(id)}"><div class="field"><label for="financial-date">Data</label><input id="financial-date" name="data_pagamento" type="date" value="${today}" required></div>${moneyField("Valor pago")} ${paymentFields()}`],
                 recebimento: ["Registrar recebimento", "/api/recebimentos", "contas_receber", `<input type="hidden" name="cobranca_id" value="${escapeHtml(id)}"><div class="field"><label for="financial-date">Data</label><input id="financial-date" name="data_pagamento" type="date" value="${today}" required></div>${moneyField("Valor recebido")} ${paymentFields()}`],
                 recebimento_mensalidade: ["Receber mensalidade", "/api/recebimentos", "mensalidades", `<input type="hidden" name="cobranca_id" value="${escapeHtml(id)}"><div class="field"><label for="financial-date">Data</label><input id="financial-date" name="data_pagamento" type="date" value="${today}" required></div>${moneyField("Valor recebido")} ${paymentFields()}`],
@@ -372,12 +421,11 @@ import {
 
             if (kind === "despesa") {
                 const sectors = registrations.setores.filter((item) => Number(item.ativo) === 1);
-                const types = registrations.tipos.filter((item) => Number(item.ativo) === 1);
-                if (!sectors.length || !types.length) {
-                    showAlert("Cadastros necessários", "Cadastre ao menos um setor e um tipo de despesa ativos.");
+                if (!sectors.length) {
+                    showAlert("Cadastro necessário", "Cadastre ao menos um setor ativo.");
                     return;
                 }
-                definitions.despesa = ["Nova despesa", "/api/despesas", "despesas", `<div class="field"><label for="expense-sector">Setor</label><select id="expense-sector" name="setor_id" required>${selectOptions(sectors)}</select></div><div class="field"><label for="expense-type">Tipo</label><select id="expense-type" name="tipo_despesa_id" required>${selectOptions(types)}</select></div><div class="field"><label for="expense-description">Descrição</label><input id="expense-description" name="descricao" required></div><div class="field"><label for="expense-nature">Natureza</label><select id="expense-nature" name="natureza"><option value="FIXA">Fixa</option><option value="VARIAVEL">Variável</option><option value="EXTRAORDINARIA">Extraordinária</option></select></div><label class="form-note"><input name="recorrente" type="checkbox" value="1"> Despesa recorrente</label>`];
+                definitions.despesa = ["Nova despesa", "/api/despesas", "despesas", `<div class="field"><label for="expense-sector">Setor</label><select id="expense-sector" name="setor_id" required>${selectOptions(sectors)}</select></div><div class="field"><label for="expense-description">Descrição</label><input id="expense-description" name="descricao" required></div><div class="field"><label for="expense-nature">Natureza</label><select id="expense-nature" name="natureza"><option value="FIXA">Fixa</option><option value="VARIAVEL">Variável</option><option value="EXTRAORDINARIA">Extraordinária</option></select></div><label class="form-note"><input name="recorrente" type="checkbox" value="1"> Despesa recorrente</label>`];
             }
             if (kind === "conta") {
                 const activeExpenses = registrations.despesas.filter((item) => Number(item.ativo) === 1);
@@ -387,11 +435,11 @@ import {
                 }
                 definitions.conta = ["Nova conta a pagar", "/api/contas-pagar", "contas_pagar", `<div class="field"><label for="payable-expense">Despesa</label><select id="payable-expense" name="despesa_id" required>${activeExpenses.map((item) => `<option value="${item.id}">${escapeHtml(item.descricao)} — ${escapeHtml(item.setor_nome)}</option>`).join("")}</select></div><div class="field"><label for="financial-due-date">Vencimento</label><input id="financial-due-date" name="data_vencimento" type="date" value="${today}" required></div>${moneyField("Valor da conta")}`];
             }
-            if (kind === "editar_setor" || kind === "editar_tipo") {
-                const collection = kind === "editar_setor" ? registrations.setores : registrations.tipos;
+            if (kind === "editar_setor") {
+                const collection = registrations.setores;
                 const item = collection.find((entry) => String(entry.id) === String(id));
                 if (!item) throw new Error("Cadastro não encontrado.");
-                definitions[kind] = [kind === "editar_setor" ? "Editar setor" : "Editar tipo de despesa", kind === "editar_setor" ? "/api/setores/editar" : "/api/tipos-despesa/editar", "despesas", `<input type="hidden" name="id" value="${item.id}"><div class="field"><label for="financial-name">Nome</label><input id="financial-name" name="nome" value="${escapeHtml(item.nome)}" required></div><div class="field"><label for="financial-active">Situação</label><select id="financial-active" name="ativo"><option value="1"${Number(item.ativo) === 1 ? " selected" : ""}>Ativo</option><option value="0"${Number(item.ativo) === 0 ? " selected" : ""}>Inativo</option></select></div>`];
+                definitions[kind] = ["Editar setor", "/api/setores/editar", "despesas", `<input type="hidden" name="id" value="${item.id}"><div class="field"><label for="financial-name">Nome</label><input id="financial-name" name="nome" value="${escapeHtml(item.nome)}" required></div><div class="field"><label for="financial-active">Situação</label><select id="financial-active" name="ativo"><option value="1"${Number(item.ativo) === 1 ? " selected" : ""}>Ativo</option><option value="0"${Number(item.ativo) === 0 ? " selected" : ""}>Inativo</option></select></div>`];
             }
 
             const definition = definitions[kind];
@@ -493,11 +541,11 @@ import {
             if (kind === "resident") {
                 const item = (await api("/api/residentes")).dados.find((row) => String(row.id) === String(id));
                 title = "Editar residente"; endpoint = "/api/residentes/editar"; refresh = "residentes";
-                fields = `<input type="hidden" name="id" value="${item.id}"><div class="field"><label>Nome</label><input name="nome" value="${escapeHtml(item.nome)}" required></div><div class="field"><label>CPF</label><input name="cpf" value="${escapeHtml(item.cpf)}" required></div><div class="field"><label>Cidade de origem</label><input name="cidade_origem" value="${escapeHtml(item.cidade_origem || "")}"></div><p class="form-note">A situação é calculada automaticamente pela internação.</p>`;
+                fields = `<input type="hidden" name="id" value="${item.id}"><div class="field"><label>Nome</label><input name="nome" value="${escapeHtml(item.nome)}" required></div><div class="field"><label>CPF</label><input name="cpf" value="${escapeHtml(item.cpf)}" inputmode="numeric" data-mask="cpf" maxlength="14" required></div><div class="field"><label>Cidade de origem</label><input name="cidade_origem" value="${escapeHtml(item.cidade_origem || "")}"></div><p class="form-note">A situação é calculada automaticamente pela internação.</p>`;
             } else if (kind === "guardian") {
                 const item = (await api("/api/responsaveis")).dados.find((row) => String(row.id) === String(id));
                 title = "Editar responsável"; endpoint = "/api/responsaveis/editar"; refresh = "responsaveis";
-                fields = `<input type="hidden" name="id" value="${item.id}"><div class="field"><label>Nome</label><input name="nome" value="${escapeHtml(item.nome)}" required></div><div class="field"><label>CPF</label><input name="cpf" value="${escapeHtml(item.cpf)}" required></div><div class="field"><label>Telefone</label><input name="telefone" value="${escapeHtml(item.telefone || "")}"></div><div class="field"><label>E-mail</label><input name="email" type="email" value="${escapeHtml(item.email || "")}"></div>${activeSelect(item.ativo)}`;
+                fields = `<input type="hidden" name="id" value="${item.id}"><div class="field"><label>Nome</label><input name="nome" value="${escapeHtml(item.nome)}" required></div><div class="field"><label>CPF ou CNPJ</label><input name="cpf" value="${escapeHtml(item.cpf)}" inputmode="numeric" data-mask="document" maxlength="18" required></div><div class="field"><label>Telefone</label><input name="telefone" type="tel" inputmode="numeric" data-mask="phone" maxlength="15" value="${escapeHtml(item.telefone || "")}"></div><div class="field"><label>E-mail</label><input name="email" type="email" value="${escapeHtml(item.email || "")}"></div>${activeSelect(item.ativo)}`;
             } else if (kind === "internment-end") {
                 title = "Encerrar internação"; endpoint = "/api/internacoes/encerrar"; refresh = "internacoes";
                 fields = `<input type="hidden" name="id" value="${escapeHtml(id)}"><div class="field"><label>Data de encerramento</label><input name="data_encerramento" type="date" value="${today}" required></div><div class="field"><label>Motivo</label><textarea name="motivo" rows="3" required></textarea></div>`;
@@ -518,7 +566,7 @@ import {
             } else if (kind === "collaborator") {
                 const item = (await api("/api/colaboradores")).dados.find((row) => String(row.id) === String(id));
                 title = "Editar colaborador"; endpoint = "/api/colaboradores/editar"; refresh = "colaboradores";
-                fields = `<input type="hidden" name="id" value="${item.id}"><div class="field"><label>Nome</label><input name="nome" value="${escapeHtml(item.nome)}" required></div><div class="field"><label>CPF</label><input name="cpf" value="${escapeHtml(item.cpf)}" required></div><div class="field"><label>Status</label><select name="status"><option value="ATIVO"${item.status === "ATIVO" ? " selected" : ""}>Ativo</option><option value="INATIVO"${item.status === "INATIVO" ? " selected" : ""}>Inativo</option></select></div>`;
+                fields = `<input type="hidden" name="id" value="${item.id}"><div class="field"><label>Nome</label><input name="nome" value="${escapeHtml(item.nome)}" required></div><div class="field"><label>CPF</label><input name="cpf" value="${escapeHtml(item.cpf)}" inputmode="numeric" data-mask="cpf" maxlength="14" required></div><div class="field"><label>Status</label><select name="status"><option value="ATIVO"${item.status === "ATIVO" ? " selected" : ""}>Ativo</option><option value="INATIVO"${item.status === "INATIVO" ? " selected" : ""}>Inativo</option></select></div>`;
             } else if (kind === "collaborator-password") {
                 title = "Redefinir senha"; endpoint = "/api/colaboradores/senha"; refresh = "colaboradores";
                 fields = `<input type="hidden" name="id" value="${escapeHtml(id)}"><div class="field"><label>Nova senha</label><input name="senha" type="password" minlength="8" required></div><div class="field"><label>Confirmar senha</label><input name="confirmacao_senha" type="password" minlength="8" required></div>`;
@@ -791,6 +839,18 @@ import {
         finally { setFormBusy(form, false); }
     }
 
+    async function submitConvenio(form) {
+        const data = Object.fromEntries(new FormData(form));
+        setFormBusy(form, true);
+        try {
+            await api("/api/convenios", { method: "POST", body: data });
+            closeLayer("auxiliary");
+            await openMainPanel("internacoes");
+            showAlert("Convênio salvo", "O convênio e o valor da diária foram cadastrados.");
+        } catch (error) { form.querySelector("[data-agreement-error]").textContent = error.message; }
+        finally { setFormBusy(form, false); }
+    }
+
     async function renderDashboard() {
         const { dados } = await api("/api/dashboard");
         return `<div class="metrics">${metric("Entradas do mês", dados.total_entradas, "success")}${metric("Saídas do mês", dados.total_saidas, "danger")}${metric("Resultado", dados.resultado, "primary")}${metric("A receber", dados.total_receber, "warning")}${metric("A pagar", dados.total_pagar, "warning")}</div><h3 class="section-title">Movimentações recentes</h3>${renderTable(dados.movimentacoes_recentes, [["Data", "data", formatDate], ["Descrição", "descricao"], ["Tipo", "tipo"], ["Forma", "forma_pagamento"], ["Valor", "valor", formatMoney]])}`;
@@ -803,12 +863,12 @@ import {
 
     async function renderGuardians() {
         const { dados } = await api("/api/responsaveis");
-        return `<div class="toolbar"><div></div><button class="button" type="button" data-action="open-new-guardian">Novo responsável</button></div>${renderActionTable(dados, [["Nome", "nome"], ["CPF", "cpf", formatCpf], ["Telefone", "telefone"], ["E-mail", "email"], ["Situação", "ativo", formatActive]], (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="guardian" data-id="${row.id}">Editar</button>`)}`;
+        return `<div class="toolbar"><div></div><button class="button" type="button" data-action="open-new-guardian">Novo responsável</button></div>${renderActionTable(dados, [["Nome", "nome"], ["CPF/CNPJ", "cpf", formatDocument], ["Telefone", "telefone", formatPhone], ["E-mail", "email"], ["Situação", "ativo", formatActive]], (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="guardian" data-id="${row.id}">Editar</button>`)}`;
     }
 
     async function renderInternments() {
         const { dados } = await api("/api/internacoes");
-        return `<div class="toolbar"><div></div><button class="button" type="button" data-action="open-new-internment">Nova internação</button></div>${renderActionTable(dados, [["Residente", "residente_nome"], ["Responsável", "responsavel_nome"], ["Acolhimento", "data_acolhimento", formatDate], ["Período (meses)", "periodo_tratamento"], ["Contrato", "valor_contrato", formatMoney], ["Mensalidade", "valor_mensalidade", formatMoney], ["Status", "status"], ["Encerrada em", "encerrada_em", formatDate]], (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-guardian" data-id="${row.id}">Responsável</button>${row.status === "ATIVA" && !row.encerrada_em ? `<button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-id="${row.id}">Encerrar</button>` : ""}`)}`;
+        return `<div class="toolbar"><div></div><div class="report-actions"><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button" type="button" data-action="open-new-internment">Nova internação</button></div></div>${renderActionTable(dados, [["Residente", "residente_nome"], ["Modalidade", "modalidade"], ["Convênio", "convenio_nome"], ["Responsável", "responsavel_nome"], ["Acolhimento", "data_acolhimento", formatDate], ["Período", "periodo_tratamento", (value, row) => row.modalidade === "VOLUNTARIO" ? "Sem prazo" : `${value} meses`], ["Contrato", "valor_contrato", formatMoney], ["Diária", "valor_diaria", (value, row) => row.modalidade === "CONVENIO" ? formatMoney(value) : "—"], ["Status", "status"], ["Encerrada em", "encerrada_em", formatDate]], (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-guardian" data-id="${row.id}">Responsável</button>${row.status === "ATIVA" && !row.encerrada_em ? `<button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-id="${row.id}">Encerrar</button>` : ""}`)}`;
     }
 
     async function renderWallets() {
@@ -861,11 +921,11 @@ import {
     async function renderProducts() {
         const { dados } = await api("/api/itens");
         const active = dados.filter((row) => Number(row.ativo) === 1).length;
-        const low = dados.filter((row) => ["REPOR", "SEM ESTOQUE"].includes(row.situacao_estoque)).length;
+        const low = dados.filter((row) => Number(row.ativo) === 1 && !isCanteenService(row) && ["REPOR", "SEM ESTOQUE"].includes(row.situacao_estoque)).length;
         const units = dados.reduce((total, row) => total + Number(row.estoque_atual || 0), 0);
         const summary = `<div class="inventory-summary"><article><span>Produtos cadastrados</span><strong>${dados.length}</strong></article><article><span>Produtos ativos</span><strong>${active}</strong></article><article><span>Precisam de reposição</span><strong class="${low ? "amount--negative" : "amount--positive"}">${low}</strong></article><article><span>Unidades em estoque</span><strong>${units}</strong></article></div>`;
-        const table = renderActionTable(dados, [["Produto", "nome"], ["Código de barras", "codigo_barras"], ["Categoria", "categoria"], ["Unidade", "unidade_medida"], ["Preço", "valor_atual", formatReais], ["Estoque", "estoque_atual", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Mínimo", "estoque_minimo", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Reposição", "situacao_estoque"], ["Cadastro", "ativo", formatActive]], (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="product" data-id="${row.id}">Editar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="product-price" data-id="${row.id}">Preço</button>${isCanteenService(row) ? "" : `<button class="button" type="button" data-action="open-maintenance-form" data-kind="product-stock" data-id="${row.id}">Movimentar</button>`}<button class="button button--secondary" type="button" data-action="product-history" data-id="${row.id}">Histórico</button>`);
-        return `<div class="toolbar"><div></div><button class="button" type="button" data-action="open-new-product">Novo produto</button></div>${summary}${table}`;
+        const table = renderActionTable(dados, [["Produto", "nome"], ["Código de barras", "codigo_barras"], ["Categoria", "categoria"], ["Unidade", "unidade_medida"], ["Preço", "valor_atual", formatReais], ["Estoque", "estoque_atual", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Mínimo", "estoque_minimo", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Reposição", "situacao_estoque", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Cadastro", "ativo", formatActive]], (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="product" data-id="${row.id}">Editar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="product-price" data-id="${row.id}">Preço</button>${isCanteenService(row) ? "" : `<button class="button" type="button" data-action="open-maintenance-form" data-kind="product-stock" data-id="${row.id}">Movimentar</button>`}<button class="button button--secondary" type="button" data-action="product-history" data-id="${row.id}">Histórico</button>`);
+        return `<div class="toolbar"><div></div><button class="button" type="button" data-action="open-new-product">Novo produto</button></div>${summary}<div class="products-report">${table}</div>`;
     }
 
     async function renderCollaborators() {
@@ -882,23 +942,56 @@ import {
     }
 
     function monthlyStatus(row) {
+        if (row.status === "PARCIAL" || row.status === "DESCONTADA") return row.status;
         if (Number(row.saldo_restante) <= 0 || row.status === "PAGA") return "PAGA";
         return String(row.data_vencimento) < new Date().toISOString().slice(0, 10) ? "VENCIDA" : "A VENCER";
     }
 
-    function monthlyFeesContent(residentId = "") {
-        const rows = residentId ? monthlyState.filter((row) => String(row.residente_id) === String(residentId)) : monthlyState;
-        const paid = rows.filter((row) => monthlyStatus(row) === "PAGA");
-        const overdue = rows.filter((row) => monthlyStatus(row) === "VENCIDA");
-        const upcoming = rows.filter((row) => monthlyStatus(row) === "A VENCER");
-        const totals = `<div class="metrics">${metric(`Pagas (${paid.length})`, paid.reduce((sum, row) => sum + Number(row.total_recebido || 0), 0), "success")}${metric(`A vencer (${upcoming.length})`, upcoming.reduce((sum, row) => sum + Number(row.saldo_restante || 0), 0), "primary")}${metric(`Vencidas (${overdue.length})`, overdue.reduce((sum, row) => sum + Number(row.saldo_restante || 0), 0), "danger")}</div>`;
-        const table = renderActionTable(rows, [["Residente", "residente_nome"], ["Parcela", "numero_parcela"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor_devido", formatMoney], ["Recebido", "total_recebido", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "status", (_, row) => monthlyStatus(row)]], (row) => `${monthlyStatus(row) !== "PAGA" ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-id="${row.id}">Receber</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`);
-        return totals + table;
+    function monthlyFeesContent(residentId = "", status = "") {
+        const residentRows = residentId ? monthlyState.filter((row) => String(row.residente_id) === String(residentId)) : monthlyState;
+        const paid = residentRows.filter((row) => monthlyStatus(row) === "PAGA");
+        const overdue = residentRows.filter((row) => monthlyStatus(row) === "VENCIDA");
+        const upcoming = residentRows.filter((row) => monthlyStatus(row) === "A VENCER");
+        const partial = residentRows.filter((row) => monthlyStatus(row) === "PARCIAL");
+        const discounted = residentRows.filter((row) => monthlyStatus(row) === "DESCONTADA");
+        const rows = status ? residentRows.filter((row) => monthlyStatus(row) === status) : residentRows;
+        const totals = `<div class="metrics">${metric(`Pagas (${paid.length})`, paid.reduce((sum, row) => sum + Number(row.total_recebido || 0), 0), "success")}${metric(`A vencer (${upcoming.length})`, upcoming.reduce((sum, row) => sum + Number(row.saldo_restante || 0), 0), "primary")}${metric(`Vencidas (${overdue.length})`, overdue.reduce((sum, row) => sum + Number(row.saldo_restante || 0), 0), "danger")}${metric(`Parciais (${partial.length})`, partial.reduce((sum, row) => sum + Number(row.saldo_restante || 0), 0), "warning")}${metric(`Descontadas (${discounted.length})`, discounted.reduce((sum, row) => sum + Number(row.desconto || 0), 0), "primary")}</div>`;
+        const table = renderActionTable(rows, [["Residente", "residente_nome"], ["Modalidade", "modalidade"], ["Convênio", "convenio_nome"], ["Parcela", "numero_parcela"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor_devido", formatMoney], ["Recebido", "total_recebido", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "status", (_, row) => monthlyStatus(row)]], (row) => `${monthlyStatus(row) !== "PAGA" ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-id="${row.id}">Receber</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`);
+        return `${totals}<div class="monthly-report">${table}</div>`;
     }
 
-    function refreshMonthlyFees(residentId) {
+    function refreshMonthlyFees() {
         const target = document.querySelector("[data-monthly-results]");
-        if (target) target.innerHTML = monthlyFeesContent(residentId);
+        const residentId = document.querySelector("#monthly-resident")?.value || "";
+        const status = document.querySelector("#monthly-status")?.value || "";
+        if (target) target.innerHTML = monthlyFeesContent(residentId, status);
+    }
+
+    function openMonthlyResidentSearch() {
+        const body = `<div class="field"><label for="monthly-resident-lookup">Pesquisar residente</label><input id="monthly-resident-lookup" type="search" autocomplete="off" placeholder="Digite o nome do residente" autofocus></div><div class="resident-search-results" data-monthly-resident-results></div>`;
+        layers.auxiliary.replaceChildren(createPanel({ id: "monthly-resident-search", title: "Pesquisar residente", eyebrow: "Mensalidades", body, size: "medium" }));
+        renderMonthlyResidentResults("");
+        setTimeout(() => document.querySelector("#monthly-resident-lookup")?.focus(), 0);
+    }
+
+    function renderMonthlyResidentResults(value) {
+        const target = document.querySelector("[data-monthly-resident-results]");
+        if (!target) return;
+        const search = String(value || "").trim().toLocaleLowerCase("pt-BR");
+        const residents = [...new Map(monthlyState.map((row) => [String(row.residente_id), row.residente_nome])).entries()]
+            .filter(([, name]) => String(name || "").toLocaleLowerCase("pt-BR").includes(search))
+            .sort((a, b) => a[1].localeCompare(b[1], "pt-BR"));
+        target.innerHTML = residents.length
+            ? residents.map(([id, name]) => `<button class="resident-search-result" type="button" data-action="select-monthly-resident" data-id="${escapeHtml(id)}"><strong>${escapeHtml(name)}</strong><span>Selecionar</span></button>`).join("")
+            : emptyState("Residente não encontrado", "Revise o nome informado.");
+    }
+
+    function selectMonthlyResident(residentId) {
+        const select = document.querySelector("#monthly-resident");
+        if (!select) return;
+        select.value = String(residentId);
+        closeLayer("auxiliary");
+        refreshMonthlyFees();
     }
 
     async function renderMonthlyFees() {
@@ -907,12 +1000,12 @@ import {
         const residents = [...new Map(monthlyState.map((row) => [String(row.residente_id), row.residente_nome])).entries()]
             .sort((a, b) => a[1].localeCompare(b[1], "pt-BR"));
         const options = residents.map(([id, name]) => `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`).join("");
-        return `<div class="toolbar"><div class="field"><label for="monthly-resident">Residente</label><select id="monthly-resident"><option value="">Todos os residentes</option>${options}</select></div></div><div data-monthly-results>${monthlyFeesContent()}</div>`;
+        return `<div class="monthly-controls"><div class="field"><label for="monthly-resident">Residente</label><select id="monthly-resident"><option value="">Todos os residentes</option>${options}</select></div><button class="monthly-search-button" type="button" data-action="open-monthly-resident-search" aria-label="Pesquisar residente" title="Pesquisar residente">🔍</button><div class="field"><label for="monthly-status">Situação</label><select id="monthly-status"><option value="">Todas as mensalidades</option><option value="A VENCER">A pagar</option><option value="PAGA">Pagas</option><option value="VENCIDA">Vencidas</option><option value="DESCONTADA">Descontadas</option><option value="PARCIAL">Parcialmente pagas</option></select></div></div><div data-monthly-results>${monthlyFeesContent()}</div>`;
     }
 
     async function renderPayables() {
         const { dados } = await api("/api/contas-pagar");
-        const table = renderActionTable(dados, [["Descrição", "despesa_descricao"], ["Setor", "setor_nome"], ["Tipo", "tipo_despesa_nome"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor", formatMoney], ["Pago", "total_pago", formatMoney], ["Restante", "restante", formatMoney], ["Status", "status"]], (row) => {
+        const table = renderActionTable(dados, [["Descrição", "despesa_descricao"], ["Setor", "setor_nome"], ["Natureza", "natureza"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor", formatMoney], ["Pago", "total_pago", formatMoney], ["Restante", "restante", formatMoney], ["Status", "status"]], (row) => {
             const open = Number(row.restante) > 0 && !["PAGA", "CANCELADA"].includes(row.status);
             return `${open ? `<button class="button" type="button" data-action="open-financial-form" data-kind="pagamento" data-id="${row.id}">Pagar</button><button class="button button--danger" type="button" data-action="cancel-payable" data-id="${row.id}">Cancelar</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="saida" data-id="${row.id}">Histórico</button>`;
         });
@@ -922,9 +1015,8 @@ import {
     async function renderExpenses() {
         const { dados } = await api("/api/financeiro/cadastros");
         const sectors = renderActionTable(dados.setores, [["Setor", "nome"], ["Situação", "ativo", formatActive]], (row) => `<button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="editar_setor" data-id="${row.id}">Editar</button>`);
-        const types = renderActionTable(dados.tipos, [["Tipo de despesa", "nome"], ["Situação", "ativo", formatActive]], (row) => `<button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="editar_tipo" data-id="${row.id}">Editar</button>`);
-        const expenses = renderActionTable(dados.despesas, [["Descrição", "descricao"], ["Setor", "setor_nome"], ["Tipo", "tipo_despesa_nome"], ["Natureza", "natureza"], ["Recorrente", "recorrente", formatYesNo], ["Situação", "ativo", formatActive]], (row) => Number(row.ativo) === 1 ? `<button class="button button--danger" type="button" data-action="deactivate-expense" data-id="${row.id}">Inativar</button>` : "");
-        return `<div class="toolbar"><div></div><div class="report-actions"><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="setor">Novo setor</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="tipo">Novo tipo</button><button class="button" type="button" data-action="open-financial-form" data-kind="despesa">Nova despesa</button></div></div><h3 class="section-title">Setores</h3>${sectors}<h3 class="section-title">Tipos de despesa</h3>${types}<h3 class="section-title">Despesas cadastradas</h3>${expenses}`;
+        const expenses = renderActionTable(dados.despesas, [["Descrição", "descricao"], ["Setor", "setor_nome"], ["Natureza", "natureza"], ["Recorrente", "recorrente", formatYesNo], ["Situação", "ativo", formatActive]], (row) => Number(row.ativo) === 1 ? `<button class="button button--danger" type="button" data-action="deactivate-expense" data-id="${row.id}">Inativar</button>` : "");
+        return `<div class="toolbar"><div></div><div class="report-actions"><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="setor">Novo setor</button><button class="button" type="button" data-action="open-financial-form" data-kind="despesa">Nova despesa</button></div></div><h3 class="section-title">Setores</h3>${sectors}<h3 class="section-title">Despesas cadastradas</h3>${expenses}`;
     }
 
     async function renderCashFlow(url = "/api/caixa") {
@@ -969,9 +1061,22 @@ import {
     }
 
     async function renderSettings() {
-        const { dados } = await api("/api/configuracoes");
-        if (!dados) return emptyState();
-        return renderTable([dados], [["Aplicar juros", "aplicar_juros", formatYesNo], ["Tipo de juros", "tipo_juros"], ["Valor dos juros", "valor_juros"], ["Aplicar multa", "aplicar_multa", formatYesNo], ["Tipo da multa", "tipo_multa"], ["Valor da multa", "valor_multa"]]);
+        const [financeResponse, cloudResponse] = await Promise.all([api("/api/configuracoes"), api("/api/sincronizacao/status")]);
+        const dados = financeResponse.dados;
+        const cloud = cloudResponse.dados;
+        const financial = dados ? renderTable([dados], [["Aplicar juros", "aplicar_juros", formatYesNo], ["Tipo de juros", "tipo_juros"], ["Valor dos juros", "valor_juros"], ["Aplicar multa", "aplicar_multa", formatYesNo], ["Tipo da multa", "tipo_multa"], ["Valor da multa", "valor_multa"]]) : emptyState();
+        const actions = cloud.ativa ? `<div class="report-actions">${cloud.modo === "ESCRITA" ? '<button class="button" type="button" data-action="cloud-publish">Publicar versão</button>' : '<button class="button" type="button" data-action="cloud-update">Buscar versão mais recente</button>'}</div>` : "";
+        const cloudTable = renderTable([cloud], [["Situação", "ativa", (value) => value ? "Ativa" : "Desativada"], ["Modo preparado", "modo"], ["Pasta Google Drive", "pasta_google_drive", valueOrDash], ["Última versão", "ultima_versao", valueOrDash], ["Versões disponíveis", "quantidade_versoes"]]);
+        return `<h3 class="section-title">Parâmetros financeiros</h3>${financial}<h3 class="section-title">Sincronização futura com Google Drive</h3><p class="form-note">${escapeHtml(cloud.mensagem)}</p>${actions}${cloudTable}`;
+    }
+
+    async function runCloudCommand(endpoint, message) {
+        if (!window.confirm(message)) return;
+        try {
+            const result = await api(endpoint, { method: "POST", body: {} });
+            await openMainPanel("configuracoes");
+            showAlert("Sincronização concluída", result.arquivo ? `Versão: ${result.arquivo}` : "Operação concluída.");
+        } catch (error) { showAlert("Não foi possível sincronizar", error.message); }
     }
 
     async function renderResource(url, columns) {

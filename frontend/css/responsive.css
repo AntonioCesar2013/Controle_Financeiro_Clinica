@@ -1,8 +1,10 @@
 /* Adaptações para tablets e celulares. */
 
-@media (max-width: 760px) {
+@media (max-width: 560px) {
     .canteen-entry { grid-template-columns: 1fr; }
     .canteen-customer { grid-template-columns: 1fr; gap: 10px; }
+    .monthly-controls { grid-template-columns: minmax(0, 1fr) 42px; }
+    .monthly-controls .field:last-child { grid-column: 1 / -1; }
     .wallet-summary { grid-template-columns: 1fr; }
     .inventory-summary { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
     .metrics { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
@@ -29,7 +31,7 @@
     }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 480px) {
     .panel { width: calc(100vw - 20px); max-height: calc(100vh - 20px); }
     .panel--menu { right: 10px; bottom: auto; width: auto; max-height: none; }
     .panel__body { padding: 15px; }

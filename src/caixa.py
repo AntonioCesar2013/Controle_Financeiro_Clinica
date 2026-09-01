@@ -119,12 +119,11 @@ def listar_movimentacoes(data_inicio=None, data_fim=None):
                 ps.conta_pagar_id AS origem_id,
                 d.descricao,
                 s.nome AS setor,
-                td.nome AS tipo_despesa
+                d.natureza
             FROM pagamentos_saida ps
             INNER JOIN contas_pagar cp ON cp.id = ps.conta_pagar_id
             INNER JOIN despesas d ON d.id = cp.despesa_id
             INNER JOIN setores s ON s.id = d.setor_id
-            INNER JOIN tipos_despesa td ON td.id = d.tipo_despesa_id
             {where_saida}
             """,
             parametros_saida,
@@ -167,7 +166,7 @@ def listar_movimentacoes(data_inicio=None, data_fim=None):
             "forma_pagamento": saida["forma_pagamento"],
             "origem_id": saida["origem_id"],
             "setor": saida["setor"],
-            "tipo_despesa": saida["tipo_despesa"],
+            "natureza": saida["natureza"],
             "observacao": saida["observacao"],
         })
 

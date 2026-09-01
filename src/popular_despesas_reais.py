@@ -67,7 +67,7 @@ TABELAS_DEMONSTRACAO = (
     "recebimentos", "entradas_bancarias", "cobrancas", "vendas_cantina_itens",
     "movimentacoes_carteira", "vendas_cantina", "carteiras",
     "internacoes", "residente_responsavel", "responsaveis", "residentes",
-    "pagamentos_saida", "contas_pagar", "despesas", "tipos_despesa",
+    "pagamentos_saida", "contas_pagar", "despesas",
     "setores", "itens_valores", "itens",
 )
 
@@ -105,17 +105,13 @@ def popular(caminho_banco: Path = CAMINHO_BANCO, fazer_backup: bool = True):
         )
 
         setores = {}
-        tipos = {}
         for compra in COMPRAS_REAIS:
             if compra["setor"] not in setores:
                 cursor = conn.execute("INSERT INTO setores (nome) VALUES (?)", (compra["setor"],))
                 setores[compra["setor"]] = cursor.lastrowid
-            if compra["tipo"] not in tipos:
-                cursor = conn.execute("INSERT INTO tipos_despesa (nome) VALUES (?)", (compra["tipo"],))
-                tipos[compra["tipo"]] = cursor.lastrowid
             cursor = conn.execute(
-                "INSERT INTO despesas (setor_id, tipo_despesa_id, descricao, natureza, recorrente) VALUES (?, ?, ?, 'VARIAVEL', 0)",
-                (setores[compra["setor"]], tipos[compra["tipo"]], compra["descricao"]),
+                "INSERT INTO despesas (setor_id, descricao, natureza, recorrente) VALUES (?, ?, 'VARIAVEL', 0)",
+                (setores[compra["setor"]], compra["descricao"]),
             )
             despesa_id = cursor.lastrowid
             cursor = conn.execute(

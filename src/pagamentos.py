@@ -474,7 +474,7 @@ def listar_pagamentos(conta_pagar_id):
                 c.data_vencimento,
                 d.descricao AS despesa_descricao,
                 s.nome AS setor_nome,
-                td.nome AS tipo_despesa_nome
+                d.natureza
 
             FROM pagamentos_saida p
 
@@ -486,9 +486,6 @@ def listar_pagamentos(conta_pagar_id):
 
             INNER JOIN setores s
                 ON s.id = d.setor_id
-
-            INNER JOIN tipos_despesa td
-                ON td.id = d.tipo_despesa_id
 
             WHERE p.conta_pagar_id = ?
 
@@ -533,7 +530,7 @@ def buscar_pagamento(pagamento_id):
                 cp.data_vencimento,
                 d.descricao AS despesa_descricao,
                 s.nome AS setor_nome,
-                td.nome AS tipo_despesa_nome
+                d.natureza
 
             FROM pagamentos_saida ps
 
@@ -545,9 +542,6 @@ def buscar_pagamento(pagamento_id):
 
             INNER JOIN setores s
                 ON s.id = d.setor_id
-
-            INNER JOIN tipos_despesa td
-                ON td.id = d.tipo_despesa_id
 
             WHERE ps.id = ?
             """,

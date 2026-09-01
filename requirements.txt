@@ -1,1 +1,2 @@
 python-dateutil==2.9.0.post0
+pywebview==6.2.1

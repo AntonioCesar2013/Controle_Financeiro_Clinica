@@ -121,10 +121,11 @@ def gerar(tipo, data_inicio=None, data_fim=None):
             """SELECT i.nome, i.categoria, i.unidade_medida, i.estoque_atual, i.estoque_minimo,
                       (SELECT iv.valor FROM itens_valores iv WHERE iv.item_id=i.id AND iv.ativo=1
                        ORDER BY iv.data_inicio_valor DESC, iv.id DESC LIMIT 1) AS valor_atual,
-                      CASE WHEN i.estoque_atual<=i.estoque_minimo THEN 'REPOR' ELSE 'OK' END AS situacao_estoque,
+                      CASE WHEN UPPER(i.categoria) IN ('SERVIÇO','SERVIÇOS','SERVICO','SERVICOS') THEN 'NÃO SE APLICA'
+                           WHEN i.estoque_atual<=i.estoque_minimo THEN 'REPOR' ELSE 'OK' END AS situacao_estoque,
                       i.ativo FROM itens i ORDER BY i.nome""")
         resumo = [("Produtos", len(linhas), "numero"),
-                  ("Precisam de reposição", sum(1 for x in linhas if x["situacao_estoque"] == "REPOR"), "numero")]
+                  ("Precisam de reposição", sum(1 for x in linhas if x["ativo"] == 1 and x["situacao_estoque"] == "REPOR"), "numero")]
         colunas = [("Produto", "nome", "texto"), ("Categoria", "categoria", "texto"),
                    ("Un.", "unidade_medida", "texto"), ("Estoque", "estoque_atual", "numero"),
                    ("Mínimo", "estoque_minimo", "numero"), ("Preço", "valor_atual", "reais"),

@@ -127,8 +127,7 @@ def buscar_conta(conta_id):
     """
     Busca uma conta a pagar pelo ID.
 
-    Também retorna os dados da despesa,
-    setor e tipo de despesa.
+    Também retorna os dados da despesa e do setor.
     """
 
     conexao = conectar()
@@ -147,9 +146,6 @@ def buscar_conta(conta_id):
                 d.setor_id,
                 s.nome,
 
-                d.tipo_despesa_id,
-                t.nome,
-
                 c.data_vencimento,
                 c.valor,
                 c.status
@@ -161,9 +157,6 @@ def buscar_conta(conta_id):
 
             INNER JOIN setores s
                 ON s.id = d.setor_id
-
-            INNER JOIN tipos_despesa t
-                ON t.id = d.tipo_despesa_id
 
             WHERE c.id = ?
         """, (conta_id,))
@@ -189,12 +182,9 @@ def buscar_conta(conta_id):
             "setor_id": resultado[5],
             "setor_nome": resultado[6],
 
-            "tipo_despesa_id": resultado[7],
-            "tipo_despesa_nome": resultado[8],
-
-            "data_vencimento": resultado[9],
-            "valor": resultado[10],
-            "status": resultado[11],
+            "data_vencimento": resultado[7],
+            "valor": resultado[8],
+            "status": resultado[9],
         }
 
     finally:
@@ -233,8 +223,6 @@ def listar_contas(
 
                 s.nome,
 
-                t.nome,
-
                 d.natureza,
                 d.recorrente,
 
@@ -249,9 +237,6 @@ def listar_contas(
 
             INNER JOIN setores s
                 ON s.id = d.setor_id
-
-            INNER JOIN tipos_despesa t
-                ON t.id = d.tipo_despesa_id
 
             WHERE 1 = 1
         """
@@ -295,7 +280,7 @@ def listar_contas(
             ORDER BY
                 c.data_vencimento,
                 s.nome,
-                t.nome
+                d.descricao
         """
 
         cursor.execute(sql, parametros)
@@ -308,12 +293,11 @@ def listar_contas(
                 "despesa_id": linha[1],
                 "despesa_descricao": linha[2],
                 "setor_nome": linha[3],
-                "tipo_despesa_nome": linha[4],
-                "natureza": linha[5],
-                "recorrente": linha[6],
-                "data_vencimento": linha[7],
-                "valor": linha[8],
-                "status": linha[9],
+                "natureza": linha[4],
+                "recorrente": linha[5],
+                "data_vencimento": linha[6],
+                "valor": linha[7],
+                "status": linha[8],
             }
             for linha in resultados
         ]

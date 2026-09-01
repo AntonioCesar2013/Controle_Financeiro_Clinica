@@ -9,12 +9,16 @@ CAMINHO_BANCO = BASE_DIR / "dados" / "clinica.db"
 
 def conectar():
     CAMINHO_BANCO.parent.mkdir(exist_ok=True)
-    return sqlite3.connect(CAMINHO_BANCO)
+    conexao = sqlite3.connect(CAMINHO_BANCO, timeout=30)
+    conexao.execute("PRAGMA foreign_keys = ON")
+    conexao.execute("PRAGMA busy_timeout = 30000")
+    return conexao
 
 
 def criar_tabelas():
 
     conexao = conectar()
+    conexao.execute("PRAGMA foreign_keys = OFF")
     cursor = conexao.cursor()
 
     # ============================================================
@@ -71,6 +75,21 @@ def criar_tabelas():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS auditoria (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            colaborador_id INTEGER,
+            colaborador_nome TEXT,
+            acao TEXT NOT NULL,
+            entidade TEXT NOT NULL,
+            entidade_id TEXT,
+            detalhes TEXT,
+            endereco_ip TEXT,
+            criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (colaborador_id) REFERENCES colaboradores(id)
+        )
+    """)
+
     # ============================================================
     # RELAÇÃO RESIDENTE x RESPONSÁVEL
     # ============================================================
@@ -97,8 +116,17 @@ def criar_tabelas():
     """)
 
     # ============================================================
-    # INTERNAÇÕES
+    # CONVÊNIOS E INTERNAÇÕES
     # ============================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS convenios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL UNIQUE,
+            valor_diaria INTEGER NOT NULL CHECK (valor_diaria >= 0),
+            ativo INTEGER NOT NULL DEFAULT 1
+        )
+    """)
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS internacoes (
@@ -117,12 +145,19 @@ def criar_tabelas():
             status TEXT NOT NULL DEFAULT 'ATIVA',
             encerrada_em TEXT,
             motivo_encerramento TEXT,
+            modalidade TEXT NOT NULL DEFAULT 'PARTICULAR',
+            convenio_id INTEGER,
+            valor_diaria INTEGER NOT NULL DEFAULT 0,
+            servicos_voluntario TEXT,
 
             FOREIGN KEY (residente_id)
                 REFERENCES residentes (id),
 
             FOREIGN KEY (responsavel_id)
-                REFERENCES responsaveis (id)
+                REFERENCES responsaveis (id),
+
+            FOREIGN KEY (convenio_id)
+                REFERENCES convenios (id)
         )
     """)
 
@@ -181,6 +216,14 @@ def criar_tabelas():
         cursor.execute("ALTER TABLE internacoes ADD COLUMN encerrada_em TEXT")
     if "motivo_encerramento" not in colunas_internacoes:
         cursor.execute("ALTER TABLE internacoes ADD COLUMN motivo_encerramento TEXT")
+    if "modalidade" not in colunas_internacoes:
+        cursor.execute("ALTER TABLE internacoes ADD COLUMN modalidade TEXT NOT NULL DEFAULT 'PARTICULAR'")
+    if "convenio_id" not in colunas_internacoes:
+        cursor.execute("ALTER TABLE internacoes ADD COLUMN convenio_id INTEGER")
+    if "valor_diaria" not in colunas_internacoes:
+        cursor.execute("ALTER TABLE internacoes ADD COLUMN valor_diaria INTEGER NOT NULL DEFAULT 0")
+    if "servicos_voluntario" not in colunas_internacoes:
+        cursor.execute("ALTER TABLE internacoes ADD COLUMN servicos_voluntario TEXT")
 
     # Entradas bancárias que ainda não possuem vínculo comprovado com cobrança.
     cursor.execute("""
@@ -211,20 +254,6 @@ def criar_tabelas():
     """)
 
     # ============================================================
-    # TIPOS DE DESPESA
-    # ============================================================
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS tipos_despesa (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-            nome TEXT NOT NULL UNIQUE,
-
-            ativo INTEGER NOT NULL DEFAULT 1
-        )
-    """)
-
-    # ============================================================
     # DESPESAS
     # ============================================================
 
@@ -233,8 +262,6 @@ def criar_tabelas():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
 
             setor_id INTEGER NOT NULL,
-            tipo_despesa_id INTEGER NOT NULL,
-
             descricao TEXT NOT NULL,
 
             natureza TEXT NOT NULL,
@@ -244,12 +271,29 @@ def criar_tabelas():
             ativo INTEGER NOT NULL DEFAULT 1,
 
             FOREIGN KEY (setor_id)
-                REFERENCES setores (id),
-
-            FOREIGN KEY (tipo_despesa_id)
-                REFERENCES tipos_despesa (id)
+                REFERENCES setores (id)
         )
     """)
+
+    # Migra bancos anteriores preservando as despesas e eliminando o tipo redundante.
+    colunas_despesas = {linha[1] for linha in cursor.execute("PRAGMA table_info(despesas)")}
+    if "tipo_despesa_id" in colunas_despesas:
+        cursor.execute("""
+            CREATE TABLE despesas_sem_tipo (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                setor_id INTEGER NOT NULL,
+                descricao TEXT NOT NULL,
+                natureza TEXT NOT NULL,
+                recorrente INTEGER NOT NULL DEFAULT 0,
+                ativo INTEGER NOT NULL DEFAULT 1,
+                FOREIGN KEY (setor_id) REFERENCES setores (id)
+            )
+        """)
+        cursor.execute("""INSERT INTO despesas_sem_tipo(id,setor_id,descricao,natureza,recorrente,ativo)
+                          SELECT id,setor_id,descricao,natureza,recorrente,ativo FROM despesas""")
+        cursor.execute("DROP TABLE despesas")
+        cursor.execute("ALTER TABLE despesas_sem_tipo RENAME TO despesas")
+    cursor.execute("DROP TABLE IF EXISTS tipos_despesa")
 
     # ============================================================
     # CONTAS A PAGAR
@@ -532,6 +576,7 @@ def criar_tabelas():
             cursor.execute(f"ALTER TABLE movimentacoes_estoque ADD COLUMN {nome_coluna} {definicao}")
 
     conexao.commit()
+    conexao.execute("PRAGMA foreign_keys = ON")
     conexao.close()
 
 

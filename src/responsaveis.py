@@ -9,8 +9,8 @@ def cadastrar_responsavel(nome, cpf, telefone, email):
     email = str(email or "").strip() or None
     if not nome:
         return {"sucesso": False, "erro": "O nome do responsável é obrigatório."}
-    if not cpf.startswith("PENDENTE-") and len(cpf) != 11:
-        return {"sucesso": False, "erro": "O CPF do responsável deve conter 11 números."}
+    if not cpf.startswith("PENDENTE-") and len(cpf) not in (11, 14):
+        return {"sucesso": False, "erro": "O CPF ou CNPJ do responsável deve conter 11 ou 14 números."}
     if email and "@" not in email:
         return {"sucesso": False, "erro": "O e-mail informado é inválido."}
     conexao = conectar()
@@ -107,8 +107,8 @@ def editar_responsavel(id_responsavel, nome, cpf, telefone, email, ativo=1):
         ativo = -1
     if not nome:
         return {"sucesso": False, "erro": "O nome do responsável é obrigatório."}
-    if len(cpf) != 11:
-        return {"sucesso": False, "erro": "O CPF do responsável deve conter 11 números."}
+    if len(cpf) not in (11, 14):
+        return {"sucesso": False, "erro": "O CPF ou CNPJ do responsável deve conter 11 ou 14 números."}
     if email and "@" not in email:
         return {"sucesso": False, "erro": "O e-mail informado é inválido."}
     if ativo not in (0, 1):
@@ -125,7 +125,7 @@ def editar_responsavel(id_responsavel, nome, cpf, telefone, email, ativo=1):
         return {"sucesso": True, "id": id_responsavel, "nome": nome, "cpf": cpf, "ativo": ativo}
     except Exception as erro:
         if "UNIQUE" in str(erro).upper():
-            return {"sucesso": False, "erro": "Já existe um responsável com esse CPF."}
+            return {"sucesso": False, "erro": "Já existe um responsável com esse CPF ou CNPJ."}
         raise
     finally:
         conexao.close()

@@ -3,7 +3,8 @@
 .canteen-entry { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; align-items: stretch; }
 .canteen-checkout { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--color-border); border-radius: 16px; background: var(--color-surface); }
 .canteen-customer { display: grid; grid-template-columns: minmax(0, 75fr) 42px minmax(150px, 20fr); gap: 10px; margin-bottom: 18px; align-items: end; }
-.canteen-resident-search-button { display: grid; width: 42px; height: 40px; padding: 0; place-items: center; border: 1px solid var(--color-primary); border-radius: 8px; background: var(--color-primary); color: #fff; font-size: 1.1rem; }
+.canteen-resident-search-button { display: grid; width: 42px; height: 40px; padding: 0; place-items: center; border: 1px solid var(--color-action); border-radius: 8px; background: var(--color-action); color: #fff; font-size: 1.1rem; }
+.canteen-resident-search-button:hover, .canteen-resident-search-button:focus-visible { border-color: var(--color-action-dark); background: var(--color-action-dark); }
 .canteen-balance { display: grid; padding: 10px 14px; align-content: center; gap: 5px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-primary-soft); }
 .canteen-balance span { color: var(--color-text-muted); font-size: .74rem; font-weight: 700; }
 .canteen-balance strong { color: var(--color-primary-dark); font-size: 1.18rem; }
@@ -27,6 +28,18 @@
 .resident-search-result { display: flex; width: 100%; padding: 12px 14px; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--color-border); border-radius: 9px; background: #fff; color: var(--color-text); text-align: left; }
 .resident-search-result:hover, .resident-search-result:focus-visible { border-color: var(--color-primary); background: var(--color-primary-soft); }
 .resident-search-result span { color: var(--color-text-muted); font-size: .8rem; }
+.monthly-controls { display: grid; grid-template-columns: minmax(320px, 1fr) 42px minmax(220px, 34%); gap: 10px; margin-bottom: 18px; align-items: end; }
+.monthly-search-button { display: grid; width: 42px; height: 40px; padding: 0; place-items: center; border: 1px solid var(--color-action); border-radius: 8px; background: var(--color-action); color: #fff; font-size: 1.05rem; }
+.monthly-search-button:hover, .monthly-search-button:focus-visible { border-color: var(--color-action-dark); background: var(--color-action-dark); }
+.monthly-report table { min-width: 0; table-layout: auto; font-size: .76rem; }
+.monthly-report th, .monthly-report td { padding: 9px 10px; white-space: normal; line-height: 1.35; }
+.monthly-report th:nth-child(1) { min-width: 130px; }
+.monthly-report th:nth-child(2) { width: 65px; }
+.monthly-report th:nth-child(3) { width: 88px; }
+.monthly-report th:nth-child(4), .monthly-report th:nth-child(5), .monthly-report th:nth-child(6) { width: 94px; }
+.monthly-report th:nth-child(7) { width: 95px; }
+.monthly-report .report-actions { flex-wrap: wrap; }
+.monthly-report .button { min-height: 32px; padding: 5px 8px; font-size: .72rem; }
 .wallet-selector { max-width: 480px; margin-bottom: 18px; }
 .wallet-summary { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 12px; }
 .wallet-summary article { display: grid; gap: 7px; padding: 18px; border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-surface-muted); }
@@ -36,4 +49,8 @@
 .inventory-summary article { display: grid; gap: 6px; padding: 15px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface-muted); }
 .inventory-summary span { color: var(--color-text-muted); font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; }
 .inventory-summary strong { font-size: 1.25rem; }
+.products-report table { min-width: 980px; font-size: .8rem; }
+.products-report th, .products-report td { padding: 9px 10px; }
+.products-report td:last-child { min-width: 180px; }
+.products-report td:last-child .report-actions { flex-wrap: wrap; }
 .report-actions { display: flex; gap: 8px; align-items: end; }
