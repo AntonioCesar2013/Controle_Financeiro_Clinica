@@ -107,3 +107,53 @@ def autenticar_colaborador(cpf, senha):
         return None
     return {chave: colaborador[chave] for chave in ("id", "nome", "cpf", "status")}
 
+
+def editar_colaborador(colaborador_id, nome, cpf, status):
+    nome = str(nome or "").strip()
+    cpf = _normalizar_cpf(cpf)
+    status = str(status or "").strip().upper()
+    if not nome:
+        return {"sucesso": False, "erro": "O nome é obrigatório."}
+    if len(cpf) != 11:
+        return {"sucesso": False, "erro": "O CPF deve conter 11 dígitos."}
+    if status not in ("ATIVO", "INATIVO"):
+        return {"sucesso": False, "erro": "Status inválido."}
+    conexao = conectar()
+    try:
+        atual = conexao.execute("SELECT status FROM colaboradores WHERE id=?", (colaborador_id,)).fetchone()
+        if not atual:
+            return {"sucesso": False, "erro": "Colaborador não encontrado."}
+        if atual[0] == "ATIVO" and status == "INATIVO":
+            ativos = conexao.execute("SELECT COUNT(*) FROM colaboradores WHERE status='ATIVO'").fetchone()[0]
+            if ativos <= 1:
+                return {"sucesso": False, "erro": "Mantenha pelo menos um colaborador ativo."}
+        cursor = conexao.execute(
+            """UPDATE colaboradores SET nome=?,cpf=?,status=?,atualizado_em=CURRENT_TIMESTAMP
+               WHERE id=?""",
+            (nome, cpf, status, colaborador_id),
+        )
+        conexao.commit()
+        return {"sucesso": True, "id": colaborador_id, "nome": nome, "cpf": cpf, "status": status}
+    except sqlite3.IntegrityError:
+        return {"sucesso": False, "erro": "Já existe um colaborador com esse CPF."}
+    finally:
+        conexao.close()
+
+
+def redefinir_senha(colaborador_id, nova_senha):
+    try:
+        senha_hash = gerar_hash_senha(nova_senha)
+    except ValueError as erro:
+        return {"sucesso": False, "erro": str(erro)}
+    conexao = conectar()
+    try:
+        cursor = conexao.execute(
+            "UPDATE colaboradores SET senha_hash=?,atualizado_em=CURRENT_TIMESTAMP WHERE id=?",
+            (senha_hash, colaborador_id),
+        )
+        if cursor.rowcount == 0:
+            return {"sucesso": False, "erro": "Colaborador não encontrado."}
+        conexao.commit()
+        return {"sucesso": True, "id": colaborador_id}
+    finally:
+        conexao.close()

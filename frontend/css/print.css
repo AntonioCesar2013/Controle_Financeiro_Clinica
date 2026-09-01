@@ -1,0 +1,19 @@
+/* Impressão em papel A4. */
+
+@page { size: A4 portrait; margin: 12mm; }
+
+@media print {
+    body { background: #fff !important; }
+    .panel-layer--menu, .panel__header, .report-controls, .panel-backdrop { display: none !important; }
+    .panel-layer--main, .panel-layer--main .panel, #app:has(.panel-layer--menu .panel) .panel-layer--main .panel { position: static !important; width: auto !important; height: auto !important; max-height: none !important; margin: 0 !important; border: 0 !important; box-shadow: none !important; overflow: visible !important; }
+    .panel__body { padding: 0 !important; overflow: visible !important; }
+    .print-report { width: 100%; max-width: none; }
+    .print-report__table { overflow: visible; }
+    .print-report table { width: 100%; table-layout: auto; font-size: 8pt; }
+    .print-report th, .print-report td { padding: 5px 6px; }
+    .print-report tr { break-inside: avoid; page-break-inside: avoid; }
+    .print-report thead { display: table-header-group; }
+    .print-report__summary article { break-inside: avoid; }
+    .print-report__footer { break-inside: avoid; }
+}
+

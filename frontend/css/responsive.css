@@ -1,0 +1,45 @@
+/* Adaptações para tablets e celulares. */
+
+@media (max-width: 760px) {
+    .canteen-entry { grid-template-columns: 1fr; }
+    .canteen-customer { grid-template-columns: 1fr; gap: 10px; }
+    .wallet-summary { grid-template-columns: 1fr; }
+    .inventory-summary { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+    .metrics { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+    .panel--menu {
+        top: 10px;
+        right: 10px;
+        bottom: auto;
+        left: 10px;
+        width: auto;
+        height: 38vh;
+    }
+
+    #app:has(.panel-layer--menu .panel) .panel-layer--main .panel,
+    #app:has(.panel-layer--menu .panel) .panel-layer--main .panel--medium {
+        top: calc(38vh + 20px);
+        right: 10px;
+        bottom: 10px;
+        left: 10px;
+        width: auto;
+    }
+
+    .panel-layer--menu:has(.panel) .panel-backdrop {
+        display: block;
+    }
+}
+
+@media (max-width: 600px) {
+    .panel { width: calc(100vw - 20px); max-height: calc(100vh - 20px); }
+    .panel--menu { right: 10px; bottom: auto; width: auto; max-height: none; }
+    .panel__body { padding: 15px; }
+    .panel__footer { padding: 12px 15px; }
+    .menu-grid,
+    .metrics { grid-template-columns: 1fr; }
+    .toolbar__group { flex-basis: 100%; }
+    .field { flex: 1 1 100%; }
+    .canteen-scanner form,
+    .canteen-checkout__details,
+    .canteen-totals { grid-template-columns: 1fr; }
+    .inventory-summary { grid-template-columns: 1fr; }
+}

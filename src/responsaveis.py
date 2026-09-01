@@ -96,27 +96,36 @@ def buscar_responsavel_por_cpf(cpf):
     }
 
 
-def editar_responsavel(id_responsavel, nome, cpf, telefone, email, ativo):
+def editar_responsavel(id_responsavel, nome, cpf, telefone, email, ativo=1):
+    nome = str(nome or "").strip()
+    cpf = "".join(x for x in str(cpf or "") if x.isdigit())
+    telefone = str(telefone or "").strip() or None
+    email = str(email or "").strip() or None
+    try:
+        ativo = int(ativo)
+    except (TypeError, ValueError):
+        ativo = -1
+    if not nome:
+        return {"sucesso": False, "erro": "O nome do responsável é obrigatório."}
+    if len(cpf) != 11:
+        return {"sucesso": False, "erro": "O CPF do responsável deve conter 11 números."}
+    if email and "@" not in email:
+        return {"sucesso": False, "erro": "O e-mail informado é inválido."}
+    if ativo not in (0, 1):
+        return {"sucesso": False, "erro": "Situação inválida."}
     conexao = conectar()
-    cursor = conexao.cursor()
-
-    cursor.execute(
-        """
-        UPDATE responsaveis
-        SET nome = ?,
-            cpf = ?,
-            telefone = ?,
-            email = ?,
-            ativo = ?
-        WHERE id = ?
-        """,
-        (nome, cpf, telefone, email, ativo, id_responsavel)
-    )
-
-    conexao.commit()
-
-    alterado = cursor.rowcount
-
-    conexao.close()
-
-    return alterado > 0
+    try:
+        cursor = conexao.execute(
+            "UPDATE responsaveis SET nome=?,cpf=?,telefone=?,email=?,ativo=? WHERE id=?",
+            (nome, cpf, telefone, email, ativo, id_responsavel),
+        )
+        if cursor.rowcount == 0:
+            return {"sucesso": False, "erro": "Responsável não encontrado."}
+        conexao.commit()
+        return {"sucesso": True, "id": id_responsavel, "nome": nome, "cpf": cpf, "ativo": ativo}
+    except Exception as erro:
+        if "UNIQUE" in str(erro).upper():
+            return {"sucesso": False, "erro": "Já existe um responsável com esse CPF."}
+        raise
+    finally:
+        conexao.close()

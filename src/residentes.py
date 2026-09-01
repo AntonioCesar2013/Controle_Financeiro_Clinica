@@ -89,26 +89,27 @@ def buscar_residente_por_cpf(cpf):
     }
 
 
-def editar_residente(id_residente, nome, cpf, cidade_origem, ativo):
+def editar_residente(id_residente, nome, cpf, cidade_origem, ativo=None):
+    nome = str(nome or "").strip()
+    cpf = "".join(x for x in str(cpf or "") if x.isdigit())
+    cidade_origem = str(cidade_origem or "").strip() or None
+    if not nome:
+        return {"sucesso": False, "erro": "O nome do residente é obrigatório."}
+    if len(cpf) != 11:
+        return {"sucesso": False, "erro": "O CPF do residente deve conter 11 números."}
     conexao = conectar()
-    cursor = conexao.cursor()
-
-    cursor.execute(
-        """
-        UPDATE residentes
-        SET nome = ?,
-            cpf = ?,
-            cidade_origem = ?,
-            ativo = ?
-        WHERE id = ?
-        """,
-        (nome, cpf, cidade_origem, ativo, id_residente)
-    )
-
-    conexao.commit()
-
-    alterado = cursor.rowcount
-
-    conexao.close()
-
-    return alterado > 0
+    try:
+        cursor = conexao.execute(
+            "UPDATE residentes SET nome=?,cpf=?,cidade_origem=? WHERE id=?",
+            (nome, cpf, cidade_origem, id_residente),
+        )
+        if cursor.rowcount == 0:
+            return {"sucesso": False, "erro": "Residente não encontrado."}
+        conexao.commit()
+        return {"sucesso": True, "id": id_residente, "nome": nome, "cpf": cpf}
+    except Exception as erro:
+        if "UNIQUE" in str(erro).upper():
+            return {"sucesso": False, "erro": "Já existe um residente com esse CPF."}
+        raise
+    finally:
+        conexao.close()

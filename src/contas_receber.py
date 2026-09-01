@@ -163,3 +163,23 @@ def listar_cobrancas_consolidadas(internacao_id=None, data_referencia=None):
         consolidar_cobranca(cobranca, data_referencia)
         for cobranca in cobrancas
     ]
+
+
+def listar_mensalidades(data_referencia=None):
+    """Lista as mensalidades com a identificação do residente."""
+    mensalidades = [
+        cobranca for cobranca in listar_cobrancas_consolidadas(data_referencia=data_referencia)
+        if cobranca["tipo"] == "MENSALIDADE"
+    ]
+    conexao = conectar()
+    try:
+        residentes = {
+            linha[0]: {"residente_id": linha[1], "residente_nome": linha[2]}
+            for linha in conexao.execute(
+                """SELECT i.id,r.id,r.nome FROM internacoes i
+                   JOIN residentes r ON r.id=i.residente_id"""
+            )
+        }
+    finally:
+        conexao.close()
+    return [{**mensalidade, **residentes.get(mensalidade["internacao_id"], {})} for mensalidade in mensalidades]

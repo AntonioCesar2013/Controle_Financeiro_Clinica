@@ -47,10 +47,23 @@ do item e desconta imediatamente o total da carteira do residente. O sistema
 impede compras sem saldo e mantém no histórico o produto, a quantidade e o
 preço utilizado na operação.
 
+O caixa aceita leitores de código de barras configurados no modo teclado: basta
+manter o campo de leitura selecionado e ler o produto. O Enter enviado pelo
+leitor adiciona o item ao carrinho; leituras repetidas aumentam a quantidade.
+Também é possível adicionar produtos manualmente, conferir saldo e total e
+finalizar todos os itens em um único cupom. O estorno é feito pelo cupom inteiro,
+devolvendo o saldo à carteira e as quantidades ao estoque na mesma operação.
+
 O cadastro de produtos reúne nome, código de barras, descrição, categoria,
 unidade de medida, preço vigente, estoque inicial, estoque mínimo e status. As
 vendas baixam o estoque automaticamente e são recusadas quando não há unidades
 suficientes.
+
+O módulo Produtos da Cantina também controla entradas e saídas manuais. Cada
+movimentação guarda data, motivo e, quando informado, custo de aquisição,
+fornecedor, documento, lote e validade. O histórico inclui o saldo inicial,
+reposições, perdas, vendas e estornos, e o painel destaca produtos sem estoque
+ou abaixo do estoque mínimo.
 
 ## Relatórios
 
@@ -71,3 +84,15 @@ encerradas mantêm o residente inativo.
 
 O arquivo local `dados/clinica.db` é criado automaticamente e não é enviado ao
 Git, pois cada instalação deve possuir seu próprio banco.
+
+## Carteiras e manutenção
+
+O módulo Carteiras permite criar a carteira de um residente ativo, adicionar e
+corrigir créditos, consultar créditos e compras separadamente, estornar uma
+compra com devolução do saldo e do estoque e ativar ou inativar a carteira.
+Movimentações estornadas permanecem no histórico para auditoria.
+
+As telas de cadastro permitem editar residentes e responsáveis, alterar o
+responsável principal ou encerrar uma internação antecipadamente, editar
+produtos, registrar novos preços sem apagar o histórico, ajustar estoque com
+motivo, ativar ou inativar cadastros e redefinir a senha de colaboradores.

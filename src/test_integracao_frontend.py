@@ -11,6 +11,7 @@ from src import banco
 from src import colaboradores
 from src import consultas_interface
 from src import itens
+from src import recebimentos
 from src.servidor import Requisicao, SESSOES
 
 
@@ -22,10 +23,13 @@ class TestIntegracaoFrontend(unittest.TestCase):
         self.patch_caminho.start()
         self.patch_itens = patch.object(itens, "CAMINHO_BANCO", self.caminho_banco)
         self.patch_itens.start()
+        self.patch_recebimentos = patch.object(recebimentos, "CAMINHO_BANCO", self.caminho_banco)
+        self.patch_recebimentos.start()
         banco.criar_tabelas()
 
     def tearDown(self):
         SESSOES.clear()
+        self.patch_recebimentos.stop()
         self.patch_itens.stop()
         self.patch_caminho.stop()
         self.diretorio.cleanup()
@@ -182,6 +186,51 @@ class TestIntegracaoFrontend(unittest.TestCase):
                 "valor_contrato": 3000, "valor_acolhimento": 500, "valor_mensalidade": 1000,
             })
             self.assertEqual(4, internacao["cobrancas"])
+            conexao.request("GET", "/api/mensalidades")
+            resposta = conexao.getresponse(); mensalidades = json.loads(resposta.read())["dados"]
+            self.assertEqual(200, resposta.status)
+            self.assertEqual(3, len(mensalidades))
+            self.assertEqual("Residente Cadastro", mensalidades[0]["residente_nome"])
+            setor = post("/api/setores", {"nome": "Administrativo"})
+            tipo = post("/api/tipos-despesa", {"nome": "Serviços"})
+            post("/api/setores/editar", {"id": setor["id"], "nome": "Administração", "ativo": 1}, esperado=200)
+            post("/api/tipos-despesa/editar", {"id": tipo["id"], "nome": "Prestação de serviços", "ativo": 1}, esperado=200)
+            despesa = post("/api/despesas", {
+                "setor_id": setor["id"], "tipo_despesa_id": tipo["id"],
+                "descricao": "Manutenção mensal", "natureza": "FIXA", "recorrente": 1,
+            })
+            conta = post("/api/contas-pagar", {
+                "despesa_id": despesa["id"], "data_vencimento": "2026-09-10", "valor": 100,
+            })
+            pagamento = post("/api/pagamentos-saida", {
+                "conta_pagar_id": conta["id"], "data_pagamento": "2026-09-01",
+                "valor": 40, "forma_pagamento": "PIX", "observacao": "Parcial",
+            })
+            self.assertEqual("PARCIAL", pagamento["status"])
+            conexao.request("GET", f"/api/contas-pagar/pagamentos?id={conta['id']}")
+            resposta = conexao.getresponse(); historico_saida = json.loads(resposta.read())
+            self.assertEqual(200, resposta.status)
+            self.assertEqual(1, len(historico_saida["dados"]))
+
+            conexao.request("GET", "/api/contas-receber")
+            resposta = conexao.getresponse(); cobrancas = json.loads(resposta.read())["dados"]
+            cobranca = cobrancas[0]
+            recebimento = post("/api/recebimentos", {
+                "cobranca_id": cobranca["id"], "data_pagamento": "2026-09-01",
+                "valor": 100, "observacao": "Recebimento parcial",
+            })
+            self.assertEqual("PIX", recebimentos.buscar_recebimento(recebimento["id"])["forma_recebimento"])
+            desconto = post("/api/cobrancas/desconto", {
+                "cobranca_id": cobranca["id"], "valor": 50,
+            })
+            self.assertEqual("PARCIAL", desconto["status"])
+            conexao.request("GET", f"/api/contas-receber/recebimentos?id={cobranca['id']}")
+            resposta = conexao.getresponse(); historico_entrada = json.loads(resposta.read())
+            self.assertEqual(1, len(historico_entrada["dados"]))
+
+            post("/api/pagamentos-saida/excluir", {"pagamento_id": pagamento["id"]}, esperado=200)
+            post("/api/recebimentos/excluir", {"recebimento_id": recebimento["id"]}, esperado=200)
+            post("/api/contas-pagar/cancelar", {"conta_id": conta["id"]}, esperado=200)
             produto = post("/api/itens", {
                 "nome": "Suco", "codigo_barras": "7890000000001", "categoria": "Bebidas",
                 "unidade_medida": "UN", "valor": 5, "estoque_inicial": 10,
@@ -189,15 +238,74 @@ class TestIntegracaoFrontend(unittest.TestCase):
             })
             carteira = post("/api/carteiras", {"residente_id": residente["id"], "saldo_inicial": 20})
             post("/api/carteiras/credito", {"carteira_id": carteira["id"], "valor": 10, "data_movimentacao": "2026-08-28"})
-            venda = post("/api/cantina/vendas", {
-                "carteira_id": carteira["id"], "item_id": produto["id"],
-                "quantidade": 2, "data_movimentacao": "2026-08-28",
+            conexao.request("GET", "/api/cantina/produto?codigo=7890000000001&data=2026-08-28")
+            resposta = conexao.getresponse(); produto_lido = json.loads(resposta.read())
+            self.assertEqual(200, resposta.status)
+            self.assertTrue(produto_lido["dados"]["sucesso"])
+            self.assertEqual(produto["id"], produto_lido["dados"]["id"])
+            venda = post("/api/cantina/checkout", {
+                "carteira_id": carteira["id"],
+                "produtos": [
+                    {"item_id": produto["id"], "quantidade": 1},
+                    {"item_id": produto["id"], "quantidade": 1},
+                ],
+                "data_movimentacao": "2026-08-28",
             })
             self.assertEqual(10, venda["valor_total"])
-            post("/api/colaboradores", {
+            self.assertEqual(2, venda["quantidade_itens"])
+            post("/api/cantina/vendas/estornar", {"venda_id": venda["id"], "motivo": "Correção"}, esperado=200)
+            post("/api/carteiras/status", {"carteira_id": carteira["id"], "ativo": 0}, esperado=200)
+            post("/api/carteiras/status", {"carteira_id": carteira["id"], "ativo": 1}, esperado=200)
+            post("/api/itens/editar", {
+                "id": produto["id"], "nome": "Suco natural", "categoria": "Bebidas",
+                "unidade_medida": "UN", "estoque_minimo": 3, "ativo": 1,
+            }, esperado=200)
+            post("/api/itens/estoque", {
+                "item_id": produto["id"], "tipo": "ENTRADA", "quantidade": 5,
+                "motivo": "Reposição", "data_movimentacao": "2026-08-29",
+                "custo_unitario": 3, "fornecedor": "Fornecedor Teste",
+                "documento": "NF-456", "lote": "LOTE-02", "data_validade": "2027-02-01",
+            })
+            post("/api/itens/precos", {
+                "item_id": produto["id"], "valor": 6, "data_inicio_valor": "2026-08-29",
+            })
+            conexao.request("GET", f"/api/itens/historico?id={produto['id']}")
+            resposta = conexao.getresponse(); historico_produto = json.loads(resposta.read())
+            self.assertEqual(2, len(historico_produto["dados"]["precos"]))
+            entrada_estoque = next(
+                movimento for movimento in historico_produto["dados"]["estoque"]
+                if movimento["tipo"] == "ENTRADA"
+            )
+            self.assertEqual("Fornecedor Teste", entrada_estoque["fornecedor"])
+            self.assertEqual("NF-456", entrada_estoque["documento"])
+            post("/api/residentes/editar", {
+                "id": residente["id"], "nome": "Residente Editado",
+                "cpf": "11122233344", "cidade_origem": "Toledo",
+            }, esperado=200)
+            post("/api/responsaveis/editar", {
+                "id": responsavel["id"], "nome": "Responsável Editado", "cpf": "55566677788",
+                "telefone": "45999990000", "email": "responsavel@example.com", "ativo": 1,
+            }, esperado=200)
+            outro_responsavel = post("/api/responsaveis", {
+                "nome": "Responsável Alternativo", "cpf": "22233344455",
+            })
+            post("/api/internacoes/responsavel", {
+                "id": internacao["id"], "responsavel_id": outro_responsavel["id"],
+            }, esperado=200)
+            colaborador = post("/api/colaboradores", {
                 "nome": "Colaborador Cadastro", "cpf": "99988877766",
                 "senha": "senha-segura", "status": "ATIVO",
             })
+            post("/api/colaboradores/editar", {
+                "id": colaborador["id"], "nome": "Colaborador Editado",
+                "cpf": "99988877766", "status": "ATIVO",
+            }, esperado=200)
+            post("/api/colaboradores/senha", {
+                "id": colaborador["id"], "senha": "nova-senha-segura",
+            }, esperado=200)
+            post("/api/internacoes/encerrar", {
+                "id": internacao["id"], "data_encerramento": "2026-08-29", "motivo": "Alta",
+            }, esperado=200)
         finally:
             conexao.close(); servidor.shutdown(); servidor.server_close(); thread.join(timeout=2)
 

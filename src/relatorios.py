@@ -95,7 +95,8 @@ def gerar(tipo, data_inicio=None, data_fim=None):
                FROM movimentacoes_carteira m JOIN carteiras c ON c.id=m.carteira_id
                JOIN residentes r ON r.id=c.residente_id JOIN itens i ON i.id=m.item_id
                JOIN itens_valores iv ON iv.id=m.item_valor_id
-               WHERE m.tipo='COMPRA_CANTINA' AND m.data_movimentacao BETWEEN ? AND ?
+               WHERE m.tipo='COMPRA_CANTINA' AND m.estornada=0
+                 AND m.data_movimentacao BETWEEN ? AND ?
                ORDER BY m.data_movimentacao, m.id""", (inicio, fim))
         resumo = [("Vendas", len(linhas), "numero"),
                   ("Total vendido", sum(x["valor_total"] for x in linhas), "reais")]
@@ -105,8 +106,8 @@ def gerar(tipo, data_inicio=None, data_fim=None):
     elif tipo == "carteiras":
         linhas = _consulta(
             """SELECT r.nome AS residente_nome, c.saldo, c.ativo,
-                      COUNT(CASE WHEN m.tipo='COMPRA_CANTINA' THEN 1 END) AS compras,
-                      COALESCE(SUM(CASE WHEN m.tipo='COMPRA_CANTINA' THEN m.valor_total ELSE 0 END),0) AS total_compras
+                      COUNT(CASE WHEN m.tipo='COMPRA_CANTINA' AND m.estornada=0 THEN 1 END) AS compras,
+                      COALESCE(SUM(CASE WHEN m.tipo='COMPRA_CANTINA' AND m.estornada=0 THEN m.valor_total ELSE 0 END),0) AS total_compras
                FROM carteiras c JOIN residentes r ON r.id=c.residente_id
                LEFT JOIN movimentacoes_carteira m ON m.carteira_id=c.id
                GROUP BY c.id ORDER BY r.nome""")

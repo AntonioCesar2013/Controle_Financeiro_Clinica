@@ -35,7 +35,7 @@ def cadastrar_setor(nome):
         }
     """
 
-    nome = nome.strip()
+    nome = str(nome or "").strip()
 
     if not nome:
         return {
@@ -193,6 +193,32 @@ def desativar_setor(setor_id):
         conexao.close()
 
 
+def editar_setor(setor_id, nome, ativo=1):
+    nome = str(nome or "").strip()
+    if not nome:
+        return {"sucesso": False, "erro": "O nome do setor é obrigatório."}
+
+    conexao = conectar()
+    try:
+        existente = conexao.execute("SELECT id FROM setores WHERE id = ?", (setor_id,)).fetchone()
+        if not existente:
+            return {"sucesso": False, "erro": "Setor não encontrado."}
+        duplicado = conexao.execute(
+            "SELECT id FROM setores WHERE LOWER(nome) = LOWER(?) AND id <> ?",
+            (nome, setor_id),
+        ).fetchone()
+        if duplicado:
+            return {"sucesso": False, "erro": "Já existe um setor com esse nome."}
+        conexao.execute(
+            "UPDATE setores SET nome = ?, ativo = ? WHERE id = ?",
+            (nome, 1 if str(ativo) in ("1", "true", "True") else 0, setor_id),
+        )
+        conexao.commit()
+        return {"sucesso": True, "id": setor_id, "nome": nome}
+    finally:
+        conexao.close()
+
+
 # ============================================================
 # TIPOS DE DESPESA
 # ============================================================
@@ -202,7 +228,7 @@ def cadastrar_tipo_despesa(nome):
     Cadastra um novo tipo de despesa.
     """
 
-    nome = nome.strip()
+    nome = str(nome or "").strip()
 
     if not nome:
         return {
@@ -360,6 +386,34 @@ def desativar_tipo_despesa(tipo_despesa_id):
         conexao.close()
 
 
+def editar_tipo_despesa(tipo_despesa_id, nome, ativo=1):
+    nome = str(nome or "").strip()
+    if not nome:
+        return {"sucesso": False, "erro": "O nome do tipo de despesa é obrigatório."}
+
+    conexao = conectar()
+    try:
+        existente = conexao.execute(
+            "SELECT id FROM tipos_despesa WHERE id = ?", (tipo_despesa_id,)
+        ).fetchone()
+        if not existente:
+            return {"sucesso": False, "erro": "Tipo de despesa não encontrado."}
+        duplicado = conexao.execute(
+            "SELECT id FROM tipos_despesa WHERE LOWER(nome) = LOWER(?) AND id <> ?",
+            (nome, tipo_despesa_id),
+        ).fetchone()
+        if duplicado:
+            return {"sucesso": False, "erro": "Já existe um tipo de despesa com esse nome."}
+        conexao.execute(
+            "UPDATE tipos_despesa SET nome = ?, ativo = ? WHERE id = ?",
+            (nome, 1 if str(ativo) in ("1", "true", "True") else 0, tipo_despesa_id),
+        )
+        conexao.commit()
+        return {"sucesso": True, "id": tipo_despesa_id, "nome": nome}
+    finally:
+        conexao.close()
+
+
 # ============================================================
 # DESPESAS
 # ============================================================
@@ -383,8 +437,8 @@ def cadastrar_despesa(
         True / False
     """
 
-    descricao = descricao.strip()
-    natureza = natureza.strip().upper()
+    descricao = str(descricao or "").strip()
+    natureza = str(natureza or "").strip().upper()
 
     if not descricao:
         return {

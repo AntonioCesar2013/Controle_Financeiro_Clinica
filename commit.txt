@@ -1,0 +1,1 @@
+.\commit.ps1 -Mensagem "Descrição do commit"

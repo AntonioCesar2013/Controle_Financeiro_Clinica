@@ -165,7 +165,11 @@ def aplicar_desconto(cobranca_id, valor_desconto):
             "erro": "O valor do desconto deve ser maior que zero."
         }
 
-    desconto_disponivel = valor - desconto_atual
+    total_recebido = cursor.execute(
+        "SELECT COALESCE(SUM(valor), 0) FROM recebimentos WHERE cobranca_id = ?",
+        (cobranca_id,),
+    ).fetchone()[0]
+    desconto_disponivel = valor - desconto_atual - total_recebido
 
     if valor_desconto > desconto_disponivel:
         conexao.close()
@@ -173,15 +177,19 @@ def aplicar_desconto(cobranca_id, valor_desconto):
             "sucesso": False,
             "erro": (
                 f"O desconto não pode ser maior que o valor restante "
-                f"da cobrança. Disponível para desconto: R$ {desconto_disponivel}"
+                f"da cobrança. Disponível para desconto: R$ {desconto_disponivel / 100:.2f}"
             )
         }
 
     novo_desconto = desconto_atual + valor_desconto
     valor_devido = valor - novo_desconto
 
-    if valor_devido == 0:
+    if valor_devido == 0 and total_recebido == 0:
         novo_status = "DESCONTADA"
+    elif total_recebido == valor_devido:
+        novo_status = "PAGA"
+    elif total_recebido > 0:
+        novo_status = "PARCIAL"
     else:
         novo_status = "ABERTA"
 

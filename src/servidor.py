@@ -10,9 +10,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from src import caixa, cantina, configuracoes_financeiras, contas_pagar, contas_receber, despesas, itens, relatorios
+from src import caixa, cantina, configuracoes_financeiras, contas_pagar, contas_receber, despesas, itens, relatorios, pagamentos, recebimentos
 from src.banco import criar_tabelas
-from src.colaboradores import autenticar_colaborador, cadastrar_colaborador, possui_colaboradores
+from src.colaboradores import (
+    autenticar_colaborador, cadastrar_colaborador, editar_colaborador,
+    possui_colaboradores, redefinir_senha,
+)
 from src.consultas_interface import (
     listar_carteiras,
     listar_colaboradores,
@@ -20,10 +23,13 @@ from src.consultas_interface import (
     listar_residentes,
     listar_responsaveis,
 )
-from src.residentes import cadastrar_residente
-from src.responsaveis import cadastrar_responsavel
-from src.internacoes import cadastrar_internacao, sincronizar_status_residentes
-from src.cobrancas import gerar_cobrancas
+from src.residentes import cadastrar_residente, editar_residente
+from src.responsaveis import cadastrar_responsavel, editar_responsavel
+from src.internacoes import (
+    alterar_responsavel_principal, cadastrar_internacao, encerrar_internacao,
+    sincronizar_status_residentes,
+)
+from src.cobrancas import aplicar_desconto, gerar_cobrancas
 
 
 RAIZ_PROJETO = Path(__file__).resolve().parent.parent
@@ -62,6 +68,14 @@ def _dashboard():
         "total_pagar": total_pagar,
         "movimentacoes_recentes": list(reversed(movimentacoes[-10:])),
     }
+
+
+def _listar_contas_pagar(status=None, inicio=None, fim=None):
+    resultado = []
+    for conta in contas_pagar.listar_contas(status, inicio, fim):
+        resumo = contas_pagar.calcular_total_pago(conta["id"])
+        resultado.append({**conta, "total_pago": resumo.get("total_pago", 0), "restante": resumo.get("restante", conta["valor"])})
+    return resultado
 
 
 class Requisicao(BaseHTTPRequestHandler):
@@ -138,12 +152,107 @@ class Requisicao(BaseHTTPRequestHandler):
         if rota == "/api/cantina/vendas":
             resultado = cantina.registrar_venda(dados.get("carteira_id"), dados.get("item_id"), dados.get("quantidade", 1), dados.get("data_movimentacao"))
             return self._json(resultado, HTTPStatus.CREATED if resultado.get("sucesso") else HTTPStatus.BAD_REQUEST)
+        if rota == "/api/cantina/checkout":
+            resultado = cantina.registrar_compra(dados.get("carteira_id"), dados.get("produtos"), dados.get("data_movimentacao"))
+            return self._resultado_operacao(resultado)
+        if rota == "/api/cantina/vendas/estornar":
+            return self._resultado_operacao(cantina.estornar_compra(dados.get("venda_id"), dados.get("motivo")), criado=False)
         if rota == "/api/carteiras":
             resultado = cantina.criar_carteira(dados.get("residente_id"), dados.get("saldo_inicial", 0))
             return self._json(resultado, HTTPStatus.CREATED if resultado.get("sucesso") else HTTPStatus.BAD_REQUEST)
         if rota == "/api/carteiras/credito":
             resultado = cantina.adicionar_credito(dados.get("carteira_id"), dados.get("valor"), dados.get("data_movimentacao"))
             return self._json(resultado, HTTPStatus.CREATED if resultado.get("sucesso") else HTTPStatus.BAD_REQUEST)
+        if rota == "/api/carteiras/status":
+            return self._resultado_operacao(cantina.alterar_status_carteira(dados.get("carteira_id"), dados.get("ativo")), criado=False)
+        if rota == "/api/carteiras/movimentacoes/estornar":
+            return self._resultado_operacao(cantina.estornar_movimentacao(dados.get("movimentacao_id"), dados.get("motivo")), criado=False)
+        if rota == "/api/carteiras/movimentacoes/corrigir":
+            return self._resultado_operacao(cantina.corrigir_credito(dados.get("movimentacao_id"), dados.get("valor"), dados.get("data_movimentacao"), dados.get("motivo")), criado=False)
+        if rota == "/api/residentes/editar":
+            return self._resultado_operacao(editar_residente(dados.get("id"), dados.get("nome"), dados.get("cpf"), dados.get("cidade_origem")), criado=False)
+        if rota == "/api/responsaveis/editar":
+            return self._resultado_operacao(editar_responsavel(dados.get("id"), dados.get("nome"), dados.get("cpf"), dados.get("telefone"), dados.get("email"), dados.get("ativo", 1)), criado=False)
+        if rota == "/api/internacoes/encerrar":
+            return self._resultado_operacao(encerrar_internacao(dados.get("id"), dados.get("data_encerramento"), dados.get("motivo")), criado=False)
+        if rota == "/api/internacoes/responsavel":
+            return self._resultado_operacao(alterar_responsavel_principal(dados.get("id"), dados.get("responsavel_id")), criado=False)
+        if rota == "/api/itens/editar":
+            return self._resultado_operacao(itens.editar_produto(
+                dados.get("id"), dados.get("nome"), dados.get("codigo_barras"), dados.get("descricao"),
+                dados.get("categoria"), dados.get("unidade_medida", "UN"), dados.get("estoque_minimo", 0), dados.get("ativo", 1),
+            ), criado=False)
+        if rota == "/api/itens/estoque":
+            return self._resultado_operacao(itens.ajustar_estoque(
+                dados.get("item_id"), dados.get("quantidade"), dados.get("motivo"),
+                dados.get("data_movimentacao"), dados.get("tipo"), dados.get("custo_unitario"),
+                dados.get("fornecedor"), dados.get("documento"), dados.get("lote"),
+                dados.get("data_validade"),
+            ))
+        if rota == "/api/itens/precos":
+            try:
+                resultado = itens.cadastrar_valor_item(dados.get("item_id"), float(dados.get("valor")), dados.get("data_inicio_valor"))
+            except (TypeError, ValueError) as erro:
+                resultado = {"sucesso": False, "erro": "Preço inválido."}
+            return self._resultado_operacao(resultado)
+        if rota == "/api/colaboradores/editar":
+            return self._resultado_operacao(editar_colaborador(dados.get("id"), dados.get("nome"), dados.get("cpf"), dados.get("status")), criado=False)
+        if rota == "/api/colaboradores/senha":
+            return self._resultado_operacao(redefinir_senha(dados.get("id"), dados.get("senha")), criado=False)
+        if rota == "/api/setores":
+            resultado = despesas.cadastrar_setor(dados.get("nome"))
+            return self._resultado_operacao(resultado)
+        if rota == "/api/tipos-despesa":
+            resultado = despesas.cadastrar_tipo_despesa(dados.get("nome"))
+            return self._resultado_operacao(resultado)
+        if rota == "/api/setores/editar":
+            return self._resultado_operacao(
+                despesas.editar_setor(dados.get("id"), dados.get("nome"), dados.get("ativo", 1)),
+                criado=False,
+            )
+        if rota == "/api/tipos-despesa/editar":
+            return self._resultado_operacao(
+                despesas.editar_tipo_despesa(dados.get("id"), dados.get("nome"), dados.get("ativo", 1)),
+                criado=False,
+            )
+        if rota == "/api/despesas":
+            resultado = despesas.cadastrar_despesa(
+                dados.get("setor_id"), dados.get("tipo_despesa_id"), dados.get("descricao"),
+                dados.get("natureza", "VARIAVEL"), str(dados.get("recorrente", "0")) in ("1", "true", "True"),
+            )
+            return self._resultado_operacao(resultado)
+        if rota == "/api/contas-pagar":
+            try:
+                resultado = contas_pagar.cadastrar_conta(dados.get("despesa_id"), dados.get("data_vencimento"), _centavos(dados.get("valor")))
+            except ValueError as erro:
+                resultado = {"sucesso": False, "erro": str(erro)}
+            return self._resultado_operacao(resultado)
+        if rota == "/api/pagamentos-saida":
+            try:
+                resultado = pagamentos.registrar_pagamento(dados.get("conta_pagar_id"), dados.get("data_pagamento"), _centavos(dados.get("valor")), dados.get("forma_pagamento"), dados.get("observacao"))
+            except ValueError as erro:
+                resultado = {"sucesso": False, "erro": str(erro)}
+            return self._resultado_operacao(resultado)
+        if rota == "/api/recebimentos":
+            try:
+                resultado = recebimentos.registrar_pagamento(dados.get("cobranca_id"), dados.get("data_pagamento"), _centavos(dados.get("valor")), dados.get("forma_pagamento"), dados.get("observacao"))
+            except (TypeError, ValueError) as erro:
+                resultado = {"sucesso": False, "erro": str(erro)}
+            return self._resultado_operacao(resultado)
+        if rota == "/api/cobrancas/desconto":
+            try:
+                resultado = aplicar_desconto(dados.get("cobranca_id"), _centavos(dados.get("valor")))
+            except (TypeError, ValueError) as erro:
+                resultado = {"sucesso": False, "erro": str(erro)}
+            return self._resultado_operacao(resultado)
+        if rota == "/api/contas-pagar/cancelar":
+            return self._resultado_operacao(contas_pagar.cancelar_conta(dados.get("conta_id")), criado=False)
+        if rota == "/api/pagamentos-saida/excluir":
+            return self._resultado_operacao(pagamentos.excluir_pagamento(dados.get("pagamento_id")), criado=False)
+        if rota == "/api/recebimentos/excluir":
+            return self._resultado_operacao(recebimentos.excluir_recebimento(dados.get("recebimento_id")), criado=False)
+        if rota == "/api/despesas/desativar":
+            return self._resultado_operacao(despesas.desativar_despesa(dados.get("id")), criado=False)
         return self._json({"erro": "Rota não encontrada."}, HTTPStatus.NOT_FOUND)
 
     def _get_api(self, rota, query):
@@ -158,11 +267,22 @@ class Requisicao(BaseHTTPRequestHandler):
             "/api/carteiras": listar_carteiras,
             "/api/carteiras/detalhe": lambda: cantina.consultar_carteira(_parametro(query, "id")),
             "/api/cantina": cantina.consultar_cantina,
+            "/api/cantina/produto": lambda: cantina.buscar_produto_codigo(
+                _parametro(query, "codigo"), _parametro(query, "data")
+            ),
             "/api/itens": lambda: itens.listar_itens(apenas_ativos=False),
+            "/api/itens/historico": lambda: {
+                "precos": itens.listar_valores_item(_parametro(query, "id"), apenas_ativos=False),
+                "estoque": itens.listar_movimentacoes_estoque(_parametro(query, "id")),
+            },
             "/api/contas-receber": lambda: contas_receber.listar_cobrancas_consolidadas(data_referencia=date.today().isoformat()),
-            "/api/contas-pagar": lambda: contas_pagar.listar_contas(_parametro(query, "status"), inicio, fim),
+            "/api/mensalidades": lambda: contas_receber.listar_mensalidades(data_referencia=date.today().isoformat()),
+            "/api/contas-pagar": lambda: _listar_contas_pagar(_parametro(query, "status"), inicio, fim),
             "/api/caixa": lambda: {**caixa.resumo_caixa(inicio, fim), "movimentacoes": caixa.listar_movimentacoes(inicio, fim)},
             "/api/despesas": lambda: despesas.listar_despesas(apenas_ativas=False),
+            "/api/financeiro/cadastros": lambda: {"setores": despesas.listar_setores(False), "tipos": despesas.listar_tipos_despesa(False), "despesas": despesas.listar_despesas(False)},
+            "/api/contas-pagar/pagamentos": lambda: pagamentos.listar_pagamentos(_parametro(query, "id")),
+            "/api/contas-receber/recebimentos": lambda: recebimentos.buscar_pagamentos(_parametro(query, "id")),
             "/api/configuracoes": configuracoes_financeiras.obter_configuracao,
             "/api/relatorios": lambda: relatorios.gerar(_parametro(query, "tipo", "financeiro"), inicio, fim),
         }
@@ -173,6 +293,10 @@ class Requisicao(BaseHTTPRequestHandler):
             return self._json({"dados": funcao()})
         except (TypeError, ValueError) as erro:
             return self._json({"erro": str(erro)}, HTTPStatus.BAD_REQUEST)
+
+    def _resultado_operacao(self, resultado, criado=True):
+        status = HTTPStatus.CREATED if criado else HTTPStatus.OK
+        return self._json(resultado, status if resultado.get("sucesso") else HTTPStatus.BAD_REQUEST)
 
     def _arquivo_estatico(self, rota):
         relativo = "index.html" if rota in ("", "/") else rota.lstrip("/")

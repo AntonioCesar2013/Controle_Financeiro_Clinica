@@ -29,7 +29,8 @@ def listar_internacoes():
         """
         SELECT i.id, r.nome AS residente_nome, rp.nome AS responsavel_nome,
                i.data_acolhimento, i.periodo_tratamento, i.valor_contrato,
-               i.valor_acolhimento, i.valor_mensalidade, i.status
+               i.valor_acolhimento, i.valor_mensalidade, i.status,
+               i.residente_id,i.responsavel_id,i.encerrada_em,i.motivo_encerramento
         FROM internacoes i
         INNER JOIN residentes r ON r.id = i.residente_id
         INNER JOIN responsaveis rp ON rp.id = i.responsavel_id

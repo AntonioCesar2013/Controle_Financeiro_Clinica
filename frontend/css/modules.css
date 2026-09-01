@@ -1,0 +1,39 @@
+/* Cantina, carteiras e estoque. */
+
+.canteen-entry { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; align-items: stretch; }
+.canteen-checkout { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--color-border); border-radius: 16px; background: var(--color-surface); }
+.canteen-customer { display: grid; grid-template-columns: minmax(0, 75fr) 42px minmax(150px, 20fr); gap: 10px; margin-bottom: 18px; align-items: end; }
+.canteen-resident-search-button { display: grid; width: 42px; height: 40px; padding: 0; place-items: center; border: 1px solid var(--color-primary); border-radius: 8px; background: var(--color-primary); color: #fff; font-size: 1.1rem; }
+.canteen-balance { display: grid; padding: 10px 14px; align-content: center; gap: 5px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-primary-soft); }
+.canteen-balance span { color: var(--color-text-muted); font-size: .74rem; font-weight: 700; }
+.canteen-balance strong { color: var(--color-primary-dark); font-size: 1.18rem; }
+.canteen-checkout h3,
+.canteen-scanner h3,
+.canteen-product-search h3 { margin: 0; }
+.canteen-scanner,
+.canteen-product-search { display: grid; gap: 14px; padding: 18px; border: 2px solid var(--color-primary); border-radius: 16px; background: var(--color-primary-soft); }
+.canteen-scanner form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
+.canteen-scanner form .login-error { grid-column: 1 / -1; margin: 0; }
+.canteen-scanner input { font-size: 1.12rem; font-weight: 700; letter-spacing: .04em; }
+.canteen-checkout__details { display: grid; grid-template-columns: minmax(0, 1fr) minmax(135px, 180px); gap: 10px; align-items: end; }
+.canteen-totals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.canteen-totals article { display: grid; gap: 5px; padding: 12px; border-radius: 10px; background: var(--color-surface-muted); }
+.canteen-totals span { color: var(--color-text-muted); font-size: .72rem; text-transform: uppercase; }
+.canteen-totals strong { font-size: 1.05rem; }
+.canteen-quantity { display: inline-grid; grid-template-columns: 32px minmax(28px, auto) 32px; gap: 5px; align-items: center; text-align: center; }
+.canteen-quantity button { width: 32px; height: 32px; border: 1px solid var(--color-border); border-radius: 7px; background: #fff; color: var(--color-text); font-size: 1.1rem; }
+.canteen-cart-table { min-width: 620px; }
+.resident-search-results { display: grid; gap: 8px; margin-top: 16px; }
+.resident-search-result { display: flex; width: 100%; padding: 12px 14px; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--color-border); border-radius: 9px; background: #fff; color: var(--color-text); text-align: left; }
+.resident-search-result:hover, .resident-search-result:focus-visible { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.resident-search-result span { color: var(--color-text-muted); font-size: .8rem; }
+.wallet-selector { max-width: 480px; margin-bottom: 18px; }
+.wallet-summary { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 12px; }
+.wallet-summary article { display: grid; gap: 7px; padding: 18px; border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-surface-muted); }
+.wallet-summary span { color: var(--color-text-muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; }
+.wallet-summary strong { font-size: 1.2rem; }
+.inventory-summary { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.inventory-summary article { display: grid; gap: 6px; padding: 15px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface-muted); }
+.inventory-summary span { color: var(--color-text-muted); font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; }
+.inventory-summary strong { font-size: 1.25rem; }
+.report-actions { display: flex; gap: 8px; align-items: end; }

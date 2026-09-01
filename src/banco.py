@@ -115,6 +115,8 @@ def criar_tabelas():
             valor_mensalidade INTEGER NOT NULL,
 
             status TEXT NOT NULL DEFAULT 'ATIVA',
+            encerrada_em TEXT,
+            motivo_encerramento TEXT,
 
             FOREIGN KEY (residente_id)
                 REFERENCES residentes (id),
@@ -174,6 +176,11 @@ def criar_tabelas():
                 REFERENCES cobrancas (id)
         )
     """)
+    colunas_internacoes = {linha[1] for linha in cursor.execute("PRAGMA table_info(internacoes)")}
+    if "encerrada_em" not in colunas_internacoes:
+        cursor.execute("ALTER TABLE internacoes ADD COLUMN encerrada_em TEXT")
+    if "motivo_encerramento" not in colunas_internacoes:
+        cursor.execute("ALTER TABLE internacoes ADD COLUMN motivo_encerramento TEXT")
 
     # Entradas bancárias que ainda não possuem vínculo comprovado com cobrança.
     cursor.execute("""
@@ -407,6 +414,40 @@ def criar_tabelas():
     """)
 
     # ============================================================
+    # VENDAS DA CANTINA (CUPOM E ITENS)
+    # ============================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS vendas_cantina (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            carteira_id INTEGER NOT NULL,
+            data_movimentacao TEXT NOT NULL,
+            valor_total REAL NOT NULL,
+            status TEXT NOT NULL DEFAULT 'FINALIZADA'
+                CHECK (status IN ('FINALIZADA', 'ESTORNADA')),
+            criada_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            estornada_em TEXT,
+            motivo_estorno TEXT,
+            FOREIGN KEY (carteira_id) REFERENCES carteiras (id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS vendas_cantina_itens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            venda_id INTEGER NOT NULL,
+            item_id INTEGER NOT NULL,
+            item_valor_id INTEGER NOT NULL,
+            quantidade INTEGER NOT NULL CHECK (quantidade > 0),
+            valor_unitario REAL NOT NULL,
+            valor_total REAL NOT NULL,
+            FOREIGN KEY (venda_id) REFERENCES vendas_cantina (id),
+            FOREIGN KEY (item_id) REFERENCES itens (id),
+            FOREIGN KEY (item_valor_id) REFERENCES itens_valores (id)
+        )
+    """)
+
+    # ============================================================
     # MOVIMENTAÇÕES DAS CARTEIRAS
     # ============================================================
 
@@ -427,6 +468,10 @@ def criar_tabelas():
             valor_total REAL NOT NULL,
 
             data_movimentacao TEXT NOT NULL,
+            venda_id INTEGER,
+            estornada INTEGER NOT NULL DEFAULT 0,
+            estornada_em TEXT,
+            motivo_estorno TEXT,
 
             FOREIGN KEY (carteira_id)
                 REFERENCES carteiras (id),
@@ -435,9 +480,56 @@ def criar_tabelas():
                 REFERENCES itens (id),
 
             FOREIGN KEY (item_valor_id)
-                REFERENCES itens_valores (id)
+                REFERENCES itens_valores (id),
+
+            FOREIGN KEY (venda_id)
+                REFERENCES vendas_cantina (id)
         )
     """)
+    colunas_movimentacoes = {linha[1] for linha in cursor.execute("PRAGMA table_info(movimentacoes_carteira)")}
+    for nome_coluna, definicao in {
+        "venda_id": "INTEGER",
+        "estornada": "INTEGER NOT NULL DEFAULT 0",
+        "estornada_em": "TEXT",
+        "motivo_estorno": "TEXT",
+    }.items():
+        if nome_coluna not in colunas_movimentacoes:
+            cursor.execute(f"ALTER TABLE movimentacoes_carteira ADD COLUMN {nome_coluna} {definicao}")
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS movimentacoes_estoque (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id INTEGER NOT NULL,
+            quantidade_anterior INTEGER NOT NULL,
+            quantidade_movimentada INTEGER NOT NULL,
+            quantidade_atual INTEGER NOT NULL,
+            motivo TEXT NOT NULL,
+            data_movimentacao TEXT NOT NULL,
+            tipo TEXT NOT NULL DEFAULT 'AJUSTE',
+            venda_id INTEGER,
+            custo_unitario REAL,
+            fornecedor TEXT,
+            documento TEXT,
+            lote TEXT,
+            data_validade TEXT,
+            criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (item_id) REFERENCES itens (id),
+            FOREIGN KEY (venda_id) REFERENCES vendas_cantina (id)
+        )
+    """)
+    colunas_estoque = {linha[1] for linha in cursor.execute("PRAGMA table_info(movimentacoes_estoque)")}
+    for nome_coluna, definicao in {
+        "tipo": "TEXT NOT NULL DEFAULT 'AJUSTE'",
+        "venda_id": "INTEGER",
+        "custo_unitario": "REAL",
+        "fornecedor": "TEXT",
+        "documento": "TEXT",
+        "lote": "TEXT",
+        "data_validade": "TEXT",
+        "criado_em": "TEXT",
+    }.items():
+        if nome_coluna not in colunas_estoque:
+            cursor.execute(f"ALTER TABLE movimentacoes_estoque ADD COLUMN {nome_coluna} {definicao}")
 
     conexao.commit()
     conexao.close()

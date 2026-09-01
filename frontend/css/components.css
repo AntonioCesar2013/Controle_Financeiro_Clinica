@@ -1,0 +1,198 @@
+/* Formulários, botões, indicadores, tabelas e mensagens. */
+
+.toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.toolbar__group {
+    display: flex;
+    flex: 1 1 360px;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.field {
+    display: grid;
+    min-width: 150px;
+    gap: 6px;
+}
+
+.field label {
+    color: var(--color-text-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.field input,
+.field select,
+.field textarea {
+    min-height: 40px;
+    padding: 8px 11px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    outline: 0;
+    background: #fff;
+    color: var(--color-text);
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.button {
+    display: inline-flex;
+    min-height: 40px;
+    padding: 8px 14px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: var(--color-primary);
+    color: #fff;
+    font-weight: 700;
+}
+
+.button:hover,
+.button:focus-visible { background: var(--color-primary-dark); }
+.button--secondary { border-color: var(--color-border); background: #fff; color: var(--color-text); }
+.button--secondary:hover,
+.button--secondary:focus-visible { background: #edf2f7; }
+.button--danger { background: var(--color-danger); }
+
+.metrics {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.metric {
+    min-width: 0;
+    padding: 16px;
+    border: 1px solid var(--color-border);
+    border-radius: 11px;
+    background: var(--color-surface-muted);
+}
+
+.metric__label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--color-text-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.metric__value {
+    font-size: clamp(1.05rem, 2vw, 1.45rem);
+    font-weight: 750;
+    white-space: nowrap;
+}
+
+.metric--success { border-top: 3px solid var(--color-success); }
+.metric--danger { border-top: 3px solid var(--color-danger); }
+.metric--primary { border-top: 3px solid var(--color-primary); }
+.metric--warning { border-top: 3px solid #f59e0b; }
+
+.section-title {
+    margin: 0 0 11px;
+    font-size: 0.9rem;
+}
+
+.table-wrap {
+    max-width: 100%;
+    overflow: auto;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+}
+
+table {
+    width: 100%;
+    min-width: 680px;
+    border-collapse: collapse;
+    background: #fff;
+}
+
+th,
+td {
+    padding: 12px 14px;
+    border-bottom: 1px solid #e8edf3;
+    text-align: left;
+    white-space: nowrap;
+}
+
+th {
+    position: sticky;
+    top: 0;
+    background: var(--color-surface-muted);
+    color: var(--color-text-muted);
+    font-size: 0.74rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+tbody tr:last-child td { border-bottom: 0; }
+.amount--positive { color: var(--color-success); font-weight: 700; }
+.amount--negative { color: var(--color-danger); font-weight: 700; }
+
+.status {
+    display: inline-flex;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: #e8f7ed;
+    color: var(--color-success);
+    font-size: 0.72rem;
+    font-weight: 750;
+}
+
+.status--warning { background: #fff5db; color: var(--color-warning); }
+
+.placeholder {
+    display: grid;
+    min-height: 260px;
+    place-items: center;
+    padding: 28px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 11px;
+    background: var(--color-surface-muted);
+    text-align: center;
+}
+
+.placeholder h3 { margin: 0 0 7px; }
+.placeholder p { max-width: 520px; margin: 0; color: var(--color-text-muted); line-height: 1.55; }
+
+.modal-message {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    line-height: 1.55;
+}
+
+.modal-message__icon {
+    display: grid;
+    flex: 0 0 38px;
+    width: 38px;
+    height: 38px;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    font-weight: 800;
+}
+
+.modal-message p { margin: 0; }
+
+.demo-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 18px;
+}
+

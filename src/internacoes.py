@@ -11,13 +11,13 @@ def sincronizar_status_residentes(data_referencia=None):
     conexao = conectar()
     try:
         internacoes = conexao.execute(
-            "SELECT id,residente_id,data_acolhimento,periodo_tratamento FROM internacoes"
+            "SELECT id,residente_id,data_acolhimento,periodo_tratamento,encerrada_em FROM internacoes"
         ).fetchall()
         ativas = set()
-        for internacao_id, residente_id, inicio, periodo in internacoes:
+        for internacao_id, residente_id, inicio, periodo, encerrada_em in internacoes:
             inicio_data = date.fromisoformat(inicio)
             fim = calcular_data_vencimento(inicio, int(periodo))
-            status = "ATIVA" if inicio_data <= referencia <= fim else "ENCERRADA"
+            status = "ATIVA" if not encerrada_em and inicio_data <= referencia <= fim else "ENCERRADA"
             conexao.execute("UPDATE internacoes SET status=? WHERE id=?", (status, internacao_id))
             if status == "ATIVA":
                 ativas.add(residente_id)
@@ -166,3 +166,63 @@ def buscar_internacao(internacao_id):
         return None
 
     return dict(resultado)
+
+
+def encerrar_internacao(internacao_id, data_encerramento=None, motivo=None):
+    data_encerramento = data_encerramento or date.today().isoformat()
+    motivo = str(motivo or "Encerramento antecipado").strip()
+    try:
+        date.fromisoformat(data_encerramento)
+    except (TypeError, ValueError):
+        return {"sucesso": False, "erro": "Data de encerramento inválida."}
+    conexao = conectar()
+    try:
+        internacao = conexao.execute(
+            "SELECT data_acolhimento,encerrada_em FROM internacoes WHERE id=?", (internacao_id,)
+        ).fetchone()
+        if not internacao:
+            return {"sucesso": False, "erro": "Internação não encontrada."}
+        if internacao[1]:
+            return {"sucesso": False, "erro": "A internação já foi encerrada antecipadamente."}
+        if data_encerramento < internacao[0]:
+            return {"sucesso": False, "erro": "O encerramento não pode ser anterior ao acolhimento."}
+        conexao.execute(
+            "UPDATE internacoes SET status='ENCERRADA',encerrada_em=?,motivo_encerramento=? WHERE id=?",
+            (data_encerramento, motivo, internacao_id),
+        )
+        conexao.commit()
+    finally:
+        conexao.close()
+    sincronizar_status_residentes()
+    return {"sucesso": True, "id": internacao_id, "status": "ENCERRADA", "encerrada_em": data_encerramento}
+
+
+def alterar_responsavel_principal(internacao_id, responsavel_id):
+    conexao = conectar()
+    try:
+        internacao = conexao.execute(
+            "SELECT residente_id FROM internacoes WHERE id=?", (internacao_id,)
+        ).fetchone()
+        if not internacao:
+            return {"sucesso": False, "erro": "Internação não encontrada."}
+        responsavel = conexao.execute(
+            "SELECT id,ativo FROM responsaveis WHERE id=?", (responsavel_id,)
+        ).fetchone()
+        if not responsavel:
+            return {"sucesso": False, "erro": "Responsável não encontrado."}
+        if not responsavel[1]:
+            return {"sucesso": False, "erro": "O responsável está inativo."}
+        residente_id = internacao[0]
+        conexao.execute("BEGIN")
+        conexao.execute("UPDATE internacoes SET responsavel_id=? WHERE id=?", (responsavel_id, internacao_id))
+        conexao.execute("UPDATE residente_responsavel SET principal=0 WHERE residente_id=?", (residente_id,))
+        conexao.execute(
+            """INSERT INTO residente_responsavel(residente_id,responsavel_id,relacao,principal)
+               VALUES(?,?,?,1) ON CONFLICT(residente_id,responsavel_id)
+               DO UPDATE SET principal=1""",
+            (residente_id, responsavel_id, "Responsável principal"),
+        )
+        conexao.commit()
+        return {"sucesso": True, "id": internacao_id, "responsavel_id": responsavel_id}
+    finally:
+        conexao.close()
