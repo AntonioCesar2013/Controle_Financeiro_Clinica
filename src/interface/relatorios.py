@@ -3,8 +3,8 @@
 from datetime import date, datetime
 import sqlite3
 
-from src import caixa
-from src.banco import conectar
+from src.financeiro import caixa
+from src.infraestrutura.banco import conectar
 
 
 TIPOS = {

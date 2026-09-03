@@ -3,6 +3,13 @@
 Atualizado em: 31/08/2026  
 Objetivo: permitir que outra IA ou outro desenvolvedor compreenda rapidamente a arquitetura, o que já funciona, o estado dos dados, os riscos conhecidos e a ordem recomendada para continuar o desenvolvimento.
 
+> Atualização de arquitetura (03/09/2026): o backend foi organizado nos pacotes
+> `src.infraestrutura`, `src.cadastros`, `src.financeiro`, `src.cantina`,
+> `src.interface` e `src.scripts`. Consulte a seção "Organização do backend" do
+> README para os caminhos atuais. Referências abaixo à estrutura plana e aos
+> antigos testes descrevem um estado histórico; atualmente permanece apenas
+> `src/test.py`, que altera dados e não deve ser usado contra o banco real.
+
 ## 1. Instruções importantes para a próxima IA
 
 1. Leia este relatório e o `README.md` antes de alterar o projeto.

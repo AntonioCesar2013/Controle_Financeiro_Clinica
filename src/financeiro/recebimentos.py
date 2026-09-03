@@ -1,8 +1,8 @@
 import sqlite3
 
-from src.banco import CAMINHO_BANCO
+from src.infraestrutura.banco import CAMINHO_BANCO
 
-from src.regras_financeiras import (
+from src.financeiro.regras_financeiras import (
     calcular_saldo_restante,
     calcular_valor_devido,
 )

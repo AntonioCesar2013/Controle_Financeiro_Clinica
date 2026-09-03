@@ -1,6 +1,35 @@
 # Controle_Financeiro_Clinica
 Sistema de controle financeiro de clinica de recuperacao
 
+## Organização do backend
+
+O código Python está separado por responsabilidade:
+
+```text
+src/
+├── infraestrutura/  # Banco, backups, auditoria, configuração e sincronização
+├── cadastros/       # Residentes, responsáveis, colaboradores, convênios e internações
+├── financeiro/      # Cobranças, parcelas, contas, pagamentos, recebimentos e caixa
+├── cantina/         # vendas.py: caixa/carteiras; produtos.py: catálogo e estoque
+├── interface/       # Servidor HTTP, consultas para o frontend e relatórios
+├── scripts/         # Populadores fictícios e importadores de dados reais
+└── test.py          # Teste manual existente (altera dados; não executar em produção)
+```
+
+Novos módulos devem importar diretamente dos pacotes, por exemplo:
+`from src.infraestrutura.banco import conectar`. Os `__init__.py` não executam
+inicialização do banco nem importam antecipadamente os módulos dos pacotes.
+
+`main.py` continua sendo a entrada da aplicação WebView2. Também continuam
+funcionando `python -m src.servidor`, `python -m src.banco`,
+`python -m src.backup_banco` e os três comandos `src.popular_*`, por meio de
+arquivos pequenos de compatibilidade na raiz de `src`. Os mesmos arquivos
+podem ser executados diretamente pelo VS Code. A implementação deve ser
+alterada dentro dos pacotes, não nesses arquivos de entrada.
+
+Os dados permanecem em `dados/clinica.db`, o frontend em `frontend/` e a
+configuração local na raiz do projeto. A reorganização não move o banco.
+
 ## Executar a aplicação
 
 ### Windows — modo recomendado
@@ -8,7 +37,7 @@ Sistema de controle financeiro de clinica de recuperacao
 Dê dois cliques em `iniciar.cmd`.
 
 O iniciador localiza o Python instalado, prepara as tabelas necessárias e abre
-o sistema no navegador padrão.
+o sistema em sua janela WebView2, sem abrir o navegador padrão.
 
 ### Terminal
 

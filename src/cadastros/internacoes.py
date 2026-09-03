@@ -1,8 +1,8 @@
 from datetime import date
 import sqlite3
 
-from src.banco import conectar
-from src.parcelas import calcular_data_vencimento
+from src.infraestrutura.banco import conectar
+from src.financeiro.parcelas import calcular_data_vencimento
 
 
 def sincronizar_status_residentes(data_referencia=None):
@@ -198,7 +198,7 @@ def cadastrar_internacao(
 
 def cadastrar_internacao_com_cobrancas(*args, **kwargs):
     """Grava internação, vínculo e cobranças em uma única transação."""
-    from src.cobrancas import gerar_cobrancas
+    from src.financeiro.cobrancas import gerar_cobrancas
     conexao = conectar()
     try:
         conexao.execute("BEGIN IMMEDIATE")
@@ -288,7 +288,7 @@ def encerrar_internacao(internacao_id, data_encerramento=None, motivo=None):
         conexao.commit()
     finally:
         conexao.close()
-    from src.cobrancas import ajustar_convenio_ao_encerrar
+    from src.financeiro.cobrancas import ajustar_convenio_ao_encerrar
     ajustar_convenio_ao_encerrar(internacao_id, data_encerramento)
     sincronizar_status_residentes()
     return {"sucesso": True, "id": internacao_id, "status": "ENCERRADA", "encerrada_em": data_encerramento}

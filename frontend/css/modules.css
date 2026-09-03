@@ -8,6 +8,8 @@
 .canteen-balance { display: grid; padding: 10px 14px; align-content: center; gap: 5px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-primary-soft); }
 .canteen-balance span { color: var(--color-text-muted); font-size: .74rem; font-weight: 700; }
 .canteen-balance strong { color: var(--color-primary-dark); font-size: 1.18rem; }
+.canteen-balance strong.amount--positive { color: var(--color-success); }
+.canteen-balance strong.amount--negative { color: var(--color-danger); }
 .canteen-checkout h3,
 .canteen-scanner h3,
 .canteen-product-search h3 { margin: 0; }
@@ -28,6 +30,8 @@
 .resident-search-result { display: flex; width: 100%; padding: 12px 14px; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--color-border); border-radius: 9px; background: #fff; color: var(--color-text); text-align: left; }
 .resident-search-result:hover, .resident-search-result:focus-visible { border-color: var(--color-primary); background: var(--color-primary-soft); }
 .resident-search-result span { color: var(--color-text-muted); font-size: .8rem; }
+.resident-search-result span.amount--positive { color: var(--color-success); }
+.resident-search-result span.amount--negative { color: var(--color-danger); }
 .monthly-controls { display: grid; grid-template-columns: minmax(320px, 1fr) 42px minmax(220px, 34%); gap: 10px; margin-bottom: 18px; align-items: end; }
 .monthly-search-button { display: grid; width: 42px; height: 40px; padding: 0; place-items: center; border: 1px solid var(--color-action); border-radius: 8px; background: var(--color-action); color: #fff; font-size: 1.05rem; }
 .monthly-search-button:hover, .monthly-search-button:focus-visible { border-color: var(--color-action-dark); background: var(--color-action-dark); }
@@ -40,7 +44,7 @@
 .monthly-report th:nth-child(7) { width: 95px; }
 .monthly-report .report-actions { flex-wrap: wrap; }
 .monthly-report .button { min-height: 32px; padding: 5px 8px; font-size: .72rem; }
-.wallet-selector { max-width: 480px; margin-bottom: 18px; }
+.wallet-selector { display: grid; grid-template-columns: minmax(0, 1fr) 42px; gap: 10px; align-items: end; margin-bottom: 18px; }
 .wallet-summary { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 12px; }
 .wallet-summary article { display: grid; gap: 7px; padding: 18px; border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-surface-muted); }
 .wallet-summary span { color: var(--color-text-muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; }

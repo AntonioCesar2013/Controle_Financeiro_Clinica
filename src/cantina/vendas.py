@@ -4,8 +4,8 @@ from datetime import date, datetime
 import sqlite3
 import unicodedata
 
-from src.banco import conectar
-from src.internacoes import sincronizar_status_residentes
+from src.infraestrutura.banco import conectar
+from src.cadastros.internacoes import sincronizar_status_residentes
 
 
 def _eh_servico(categoria):

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 
-RAIZ_PROJETO = Path(__file__).resolve().parent.parent
+RAIZ_PROJETO = Path(__file__).resolve().parents[2]
 ARQUIVO_CONFIGURACAO = RAIZ_PROJETO / "configuracao_local.json"
 PADRAO = {
     "sincronizacao_nuvem_ativa": False,

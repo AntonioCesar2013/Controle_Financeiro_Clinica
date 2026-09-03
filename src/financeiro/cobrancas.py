@@ -1,12 +1,12 @@
 from calendar import monthrange
 from datetime import date, timedelta
 
-from .banco import conectar
-from .contas_receber import (
+from src.infraestrutura.banco import conectar
+from src.financeiro.contas_receber import (
     buscar_cobranca_consolidada,
     listar_cobrancas_consolidadas,
 )
-from .parcelas import calcular_data_vencimento
+from src.financeiro.parcelas import calcular_data_vencimento
 
 
 def _competencias_diarias(inicio, fim, valor_diaria):

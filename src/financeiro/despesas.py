@@ -1,6 +1,6 @@
 """Cadastros de setores e despesas, classificados somente pela natureza."""
 
-from src.banco import conectar
+from src.infraestrutura.banco import conectar
 
 
 NATUREZAS_VALIDAS = {"FIXA", "VARIAVEL", "EXTRAORDINARIA"}

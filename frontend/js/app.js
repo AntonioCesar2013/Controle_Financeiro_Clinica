@@ -32,6 +32,9 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
     let panelSequence = 0;
     const canteenCart = new Map();
     let canteenState = { wallets: [], products: [] };
+    let selectedCanteenWalletId = "";
+    let selectedWalletId = "";
+    let walletResidents = [];
     let monthlyState = [];
     let activePanelName = "dashboard";
 
@@ -116,6 +119,8 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         if (action === "delete-financial-entry") runFinancialCommand(trigger.dataset.kind === "saida" ? "/api/pagamentos-saida/excluir" : "/api/recebimentos/excluir", trigger.dataset.kind === "saida" ? { pagamento_id: trigger.dataset.id } : { recebimento_id: trigger.dataset.id }, "Estornar este lançamento?", trigger.dataset.kind === "saida" ? "contas_pagar" : "contas_receber");
         if (action === "deactivate-expense") runFinancialCommand("/api/despesas/desativar", { id: trigger.dataset.id }, "Inativar esta despesa?", "despesas");
         if (action === "open-wallet-form") openWalletForm(trigger.dataset.kind, trigger.dataset.id, trigger.dataset.value, trigger.dataset.date);
+        if (action === "open-wallet-resident-search") openWalletResidentSearch();
+        if (action === "select-wallet-resident") selectWalletResident(trigger.dataset.id);
         if (action === "wallet-status") runMaintenanceCommand("/api/carteiras/status", { carteira_id: trigger.dataset.id, ativo: trigger.dataset.ativo }, "Alterar a situação desta carteira?", "carteiras");
         if (action === "wallet-reversal") runMaintenanceCommand("/api/carteiras/movimentacoes/estornar", { movimentacao_id: trigger.dataset.id, motivo: "Estorno realizado pela tela" }, "Estornar esta movimentação? O saldo e o estoque serão recalculados.", "carteiras");
         if (action === "open-maintenance-form") openMaintenanceForm(trigger.dataset.kind, trigger.dataset.id);
@@ -158,6 +163,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
     }
 
     function handleInput(event) {
+        if (event.target.matches("#wallet-resident-lookup")) renderWalletResidentResults(event.target.value);
         if (event.target.matches("input[data-mask]")) applyInputMask(event.target);
         if (event.target.matches("#canteen-resident-lookup")) renderCanteenResidentResults(event.target.value);
         if (event.target.matches("#monthly-resident-lookup")) renderMonthlyResidentResults(event.target.value);
@@ -289,9 +295,11 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         });
     }
 
-    async function openMainPanel(name) {
+    async function openMainPanel(name, { preserveCanteenResident = false, preserveWalletResident = false } = {}) {
         const definition = panels[name];
         if (!definition) return;
+        if (name === "cantina" && !preserveCanteenResident) selectedCanteenWalletId = "";
+        if (name === "carteiras" && !preserveWalletResident) selectedWalletId = "";
         activePanelName = name;
         syncMenuSelection();
         closeLayer("auxiliary", false);
@@ -472,7 +480,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
             await api(form.dataset.endpoint, { method: "POST", body: data });
             const refresh = form.dataset.refresh;
             closeLayer("auxiliary");
-            await openMainPanel(refresh);
+            await openMainPanel(refresh, { preserveWalletResident: refresh === "carteiras" });
             showAlert("Operação concluída", "O registro financeiro foi salvo com sucesso.");
         } catch (error) { errorElement.textContent = error.message; }
         finally { setFormBusy(form, false); }
@@ -483,7 +491,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         try {
             await api(endpoint, { method: "POST", body });
             closeLayer("auxiliary");
-            await openMainPanel(refreshPanel);
+            await openMainPanel(refreshPanel, { preserveWalletResident: refreshPanel === "carteiras" });
             showAlert("Operação concluída", "O lançamento foi atualizado com sucesso.");
         } catch (error) { showAlert("Não foi possível concluir", error.message); }
     }
@@ -596,7 +604,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
             await api(form.dataset.endpoint, { method: "POST", body: data });
             const refresh = form.dataset.refresh;
             closeLayer("auxiliary");
-            await openMainPanel(refresh);
+            await openMainPanel(refresh, { preserveWalletResident: refresh === "carteiras" });
             showAlert("Cadastro atualizado", "A alteração foi salva com sucesso.");
         } catch (error) { errorElement.textContent = error.message; }
         finally { setFormBusy(form, false); }
@@ -607,7 +615,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         try {
             await api(endpoint, { method: "POST", body });
             closeLayer("auxiliary");
-            await openMainPanel(refreshPanel);
+            await openMainPanel(refreshPanel, { preserveWalletResident: refreshPanel === "carteiras" });
             showAlert("Operação concluída", "O registro foi atualizado com sucesso.");
         } catch (error) { showAlert("Não foi possível concluir", error.message); }
     }
@@ -659,7 +667,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         setFormBusy(form, true);
         try {
             const resultado = await api("/api/cantina/vendas", { method: "POST", body: data });
-            await openMainPanel("cantina");
+            await openMainPanel("cantina", { preserveCanteenResident: true });
             showAlert("Compra concluída", `${resultado.residente} comprou ${resultado.quantidade}x ${resultado.item}. Saldo atual: ${formatReais(resultado.saldo)}.`);
         } catch (error) { errorElement.textContent = error.message; }
         finally { setFormBusy(form, false); }
@@ -768,6 +776,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         const total = items.reduce((sum, item) => sum + Number(item.valor) * item.quantity, 0);
         const walletId = document.querySelector("#canteen-wallet")?.value;
         const wallet = canteenState.wallets.find((item) => String(item.id) === String(walletId));
+        selectedCanteenWalletId = wallet ? String(wallet.id) : "";
         const balance = Number(wallet?.saldo || 0);
         const remaining = balance - total;
         const rows = items.map((item) => `<tr><td>${escapeHtml(item.nome)}</td><td>${escapeHtml(formatReais(item.valor))}</td><td><div class="canteen-quantity"><button type="button" data-action="canteen-cart-change" data-id="${item.id}" data-delta="-1">−</button><strong>${item.quantity}</strong><button type="button" data-action="canteen-cart-change" data-id="${item.id}" data-delta="1">+</button></div></td><td>${escapeHtml(formatReais(Number(item.valor) * item.quantity))}</td><td><button class="button button--danger" type="button" data-action="canteen-cart-remove" data-id="${item.id}">Remover</button></td></tr>`).join("");
@@ -776,10 +785,14 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         const balanceElement = document.querySelector("[data-canteen-balance]");
         const remainingElement = document.querySelector("[data-canteen-remaining]");
         if (totalElement) totalElement.textContent = formatReais(total);
-        if (balanceElement) balanceElement.textContent = formatReais(balance);
+        if (balanceElement) {
+            balanceElement.textContent = wallet ? formatReais(balance) : "—";
+            balanceElement.classList.toggle("amount--positive", Boolean(wallet) && balance > 0);
+            balanceElement.classList.toggle("amount--negative", Boolean(wallet) && balance <= 0);
+        }
         if (remainingElement) {
-            remainingElement.textContent = formatReais(remaining);
-            remainingElement.classList.toggle("amount--negative", remaining < 0);
+            remainingElement.textContent = wallet ? formatReais(remaining) : "—";
+            remainingElement.classList.toggle("amount--negative", Boolean(wallet) && remaining < 0);
         }
         const button = document.querySelector("#canteen-checkout-button");
         if (button) button.disabled = !items.length || !walletId;
@@ -787,6 +800,11 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
 
     async function submitCanteenCheckout(form) {
         const errorElement = form.querySelector("[data-canteen-error]");
+        const walletId = form.elements.carteira_id.value;
+        if (!walletId) {
+            errorElement.textContent = "Selecione um residente antes de finalizar a compra.";
+            return;
+        }
         const products = [...canteenCart.values()].map((item) => ({ item_id: item.id, quantidade: item.quantity }));
         if (!products.length) {
             errorElement.textContent = "Adicione produtos ao carrinho.";
@@ -796,10 +814,11 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         try {
             const result = await api("/api/cantina/checkout", {
                 method: "POST",
-                body: { carteira_id: form.elements.carteira_id.value, data_movimentacao: form.elements.data_movimentacao.value, produtos: products },
+                body: { carteira_id: walletId, data_movimentacao: form.elements.data_movimentacao.value, produtos: products },
             });
+            selectedCanteenWalletId = String(walletId);
             canteenCart.clear();
-            await openMainPanel("cantina");
+            await openMainPanel("cantina", { preserveCanteenResident: true });
             showAlert("Compra finalizada", `Cupom nº ${result.id}: ${result.quantidade_itens} item(ns), total ${formatReais(result.valor_total)}. Saldo atual: ${formatReais(result.saldo)}.`);
         } catch (error) { errorElement.textContent = error.message; }
         finally { setFormBusy(form, false); }
@@ -873,18 +892,57 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
 
     async function renderWallets() {
         const { dados } = await api("/api/carteiras");
+        walletResidents = dados || [];
         const toolbar = '<div class="toolbar"><div></div><button class="button" type="button" data-action="open-wallet-form" data-kind="create">Nova carteira</button></div>';
         if (!dados?.length) return `${toolbar}${emptyState("Nenhuma carteira cadastrada", "Crie uma carteira para o residente antes de consultar saldo e compras.")}`;
-        const options = dados.map((wallet) => `<option value="${wallet.id}">${escapeHtml(wallet.residente_nome)}</option>`).join("");
-        const first = await renderWalletDetail(dados[0].id);
-        return `${toolbar}<div class="wallet-selector"><div class="field"><label for="wallet-resident">Residente</label><select id="wallet-resident">${options}</select></div></div><div data-wallet-detail>${first}</div>`;
+        const selected = dados.find((wallet) => String(wallet.id) === selectedWalletId);
+        selectedWalletId = selected ? String(selected.id) : "";
+        const options = `<option value=""${selected ? "" : " selected"}>Selecione um residente</option>` + dados.map((wallet) => `<option value="${wallet.id}"${String(wallet.id) === selectedWalletId ? " selected" : ""}>${escapeHtml(wallet.residente_nome)}</option>`).join("");
+        const detail = selected ? await renderWalletDetail(selected.id) : walletSelectionPlaceholder();
+        return `${toolbar}<div class="wallet-selector"><div class="field"><label for="wallet-resident">Residente</label><select id="wallet-resident">${options}</select></div><button class="canteen-resident-search-button" type="button" data-action="open-wallet-resident-search" aria-label="Pesquisar residente" title="Pesquisar residente">🔍</button></div><div data-wallet-detail>${detail}</div>`;
+    }
+
+    function walletSelectionPlaceholder() {
+        return emptyState("Selecione um residente", "Escolha no seletor ou use a lupa para consultar o saldo e o histórico da carteira.");
+    }
+
+    function openWalletResidentSearch() {
+        const body = '<div class="field"><label for="wallet-resident-lookup">Pesquisar residente</label><input id="wallet-resident-lookup" type="search" autocomplete="off" placeholder="Digite o nome do residente"></div><div class="resident-search-results" data-wallet-resident-results></div>';
+        layers.auxiliary.replaceChildren(createPanel({ title: "Pesquisar residente", eyebrow: "Carteiras", body, size: "medium" }));
+        renderWalletResidentResults("");
+        requestAnimationFrame(() => document.querySelector("#wallet-resident-lookup")?.focus());
+    }
+
+    function renderWalletResidentResults(value) {
+        const target = document.querySelector("[data-wallet-resident-results]");
+        if (!target) return;
+        const search = String(value || "").trim().toLocaleLowerCase("pt-BR");
+        const matches = walletResidents.filter((wallet) => String(wallet.residente_nome || "").toLocaleLowerCase("pt-BR").includes(search));
+        target.innerHTML = matches.length ? matches.map((wallet) => `<button class="resident-search-result" type="button" data-action="select-wallet-resident" data-id="${wallet.id}"><strong>${escapeHtml(wallet.residente_nome)}</strong><span class="${Number(wallet.saldo) > 0 ? "amount--positive" : "amount--negative"}">Saldo ${escapeHtml(formatReais(wallet.saldo))}</span></button>`).join("") : emptyState("Residente não encontrado", "Revise o nome informado.");
+    }
+
+    function selectWalletResident(walletId) {
+        const select = document.querySelector("#wallet-resident");
+        if (!select) return;
+        select.value = String(walletId);
+        closeLayer("auxiliary");
+        refreshWalletDetail(select);
     }
 
     async function refreshWalletDetail(select) {
         const target = select.closest(".panel__body").querySelector("[data-wallet-detail]");
+        const walletId = select.value;
+        selectedWalletId = walletId;
+        if (!walletId) {
+            target.innerHTML = walletSelectionPlaceholder();
+            return;
+        }
         target.innerHTML = loadingState();
-        try { target.innerHTML = await renderWalletDetail(select.value); }
-        catch (error) { target.innerHTML = errorState(error.message); }
+        try {
+            const detail = await renderWalletDetail(walletId);
+            if (select.value === walletId) target.innerHTML = detail;
+        }
+        catch (error) { if (select.value === walletId) target.innerHTML = errorState(error.message); }
     }
 
     async function renderWalletDetail(walletId) {
@@ -895,7 +953,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         const credits = renderActionTable(dados.creditos, [["Data", "data_movimentacao", formatDate], ["Valor", "valor_total", formatReais], ["Situação", "estornada", formatReversal], ["Motivo do estorno", "motivo_estorno"]], (row) => Number(row.estornada) === 0 ? `<button class="button button--secondary" type="button" data-action="open-wallet-form" data-kind="correct" data-id="${row.id}" data-value="${row.valor_total}" data-date="${row.data_movimentacao}">Corrigir</button><button class="button button--danger" type="button" data-action="wallet-reversal" data-id="${row.id}">Estornar</button>` : "");
         const purchases = renderActionTable(dados.compras, [["Cupom", "venda_id"], ["Data", "data_movimentacao", formatDate], ["Produto", "item_nome"], ["Quantidade", "quantidade"], ["Valor unitário", "valor_unitario", formatReais], ["Total descontado", "valor_total", formatReais], ["Situação", "estornada", formatReversal]], (row) => Number(row.estornada) === 0 && !row.venda_id ? `<button class="button button--danger" type="button" data-action="wallet-reversal" data-id="${row.id}">Estornar compra</button>` : "");
         const walletActions = Number(wallet.ativo) === 1 ? `<button class="button" type="button" data-action="open-wallet-form" data-kind="credit" data-id="${wallet.id}">Adicionar crédito</button><button class="button button--danger" type="button" data-action="wallet-status" data-id="${wallet.id}" data-ativo="0">Inativar carteira</button>` : `<button class="button" type="button" data-action="wallet-status" data-id="${wallet.id}" data-ativo="1">Reativar carteira</button>`;
-        return `<div class="toolbar"><div></div><div class="report-actions">${walletActions}</div></div><div class="wallet-summary"><article><span>Residente</span><strong>${escapeHtml(wallet.residente_nome)}</strong></article><article><span>Saldo disponível</span><strong>${escapeHtml(formatReais(wallet.saldo))}</strong></article><article><span>Situação</span><strong>${escapeHtml(formatActive(wallet.ativo))}</strong></article></div><h3 class="section-title">Créditos</h3>${credits}<h3 class="section-title">Compras na Cantina</h3>${purchases}`;
+        return `<div class="toolbar"><div></div><div class="report-actions">${walletActions}</div></div><div class="wallet-summary"><article><span>Residente</span><strong>${escapeHtml(wallet.residente_nome)}</strong></article><article><span>Saldo disponível</span><strong class="${Number(wallet.saldo) > 0 ? "amount--positive" : "amount--negative"}">${escapeHtml(formatReais(wallet.saldo))}</strong></article><article><span>Situação</span><strong>${escapeHtml(formatActive(wallet.ativo))}</strong></article></div><h3 class="section-title">Créditos</h3>${credits}<h3 class="section-title">Compras na Cantina</h3>${purchases}`;
     }
 
     async function renderCantina() {
@@ -908,12 +966,16 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
             const missing = [!wallets.length ? "uma carteira ativa para o residente" : "", !products.length ? "itens ativos com preço vigente" : ""].filter(Boolean).join(" e ");
             return `<div class="placeholder"><div><h3>Cantina aguardando cadastro</h3><p>Cadastre ${escapeHtml(missing)} antes de registrar vendas.</p></div></div>`;
         }
-        const walletOptions = wallets.map((wallet) => `<option value="${wallet.id}">${escapeHtml(wallet.residente_nome)}</option>`).join("");
+        const selectedWallet = wallets.find((wallet) => String(wallet.id) === selectedCanteenWalletId);
+        selectedCanteenWalletId = selectedWallet ? String(selectedWallet.id) : "";
+        const selectedBalance = selectedWallet ? formatReais(selectedWallet.saldo) : "—";
+        const balanceClass = selectedWallet ? (Number(selectedWallet.saldo) > 0 ? "amount--positive" : "amount--negative") : "";
+        const walletOptions = `<option value=""${selectedWallet ? "" : " selected"}>Selecione um residente</option>` + wallets.map((wallet) => `<option value="${wallet.id}"${String(wallet.id) === selectedCanteenWalletId ? " selected" : ""}>${escapeHtml(wallet.residente_nome)}</option>`).join("");
         const productSearchOptions = products.map((product) => `<option value="${escapeHtml(product.nome)} — ${escapeHtml(product.codigo_barras || "sem código")}">${escapeHtml(formatReais(product.valor))} — ${isCanteenService(product) ? "serviço sem estoque" : `estoque ${product.estoque_atual}`}</option>`).join("");
-        const customer = `<section class="canteen-customer"><div class="field"><label for="canteen-wallet">Residente</label><select id="canteen-wallet" name="carteira_id" form="canteen-checkout-form" required>${walletOptions}</select></div><button class="canteen-resident-search-button" type="button" data-action="open-canteen-resident-search" aria-label="Pesquisar residente" title="Pesquisar residente">🔍</button><div class="canteen-balance"><span>Saldo da carteira</span><strong data-canteen-balance>${formatReais(wallets[0].saldo)}</strong></div></section>`;
+        const customer = `<section class="canteen-customer"><div class="field"><label for="canteen-wallet">Residente</label><select id="canteen-wallet" name="carteira_id" form="canteen-checkout-form" required>${walletOptions}</select></div><button class="canteen-resident-search-button" type="button" data-action="open-canteen-resident-search" aria-label="Pesquisar residente" title="Pesquisar residente">🔍</button><div class="canteen-balance"><span>Saldo da carteira</span><strong data-canteen-balance class="${balanceClass}">${selectedBalance}</strong></div></section>`;
         const scanner = `<section class="canteen-scanner"><h3>Leitor de código de barras</h3><form id="canteen-scan-form"><div class="field"><label for="canteen-barcode">Código</label><input id="canteen-barcode" name="codigo_barras" autocomplete="off" inputmode="numeric" placeholder="Leia o código e pressione Enter" autofocus required></div><p class="login-error" data-canteen-scan-error role="alert"></p><button class="button" type="submit">Adicionar código</button></form></section>`;
         const productSearch = `<section class="canteen-product-search"><h3>Pesquisa manual do produto</h3><div class="field"><label for="canteen-product-search">Produto</label><input id="canteen-product-search" type="search" list="canteen-product-options" autocomplete="off" placeholder="Nome ou código de barras"><datalist id="canteen-product-options">${productSearchOptions}</datalist></div><small>Selecione uma sugestão ou pressione Enter para adicionar ao cupom.</small></section>`;
-        const checkout = `<form class="canteen-checkout" id="canteen-checkout-form"><div class="canteen-checkout__details"><h3>Carrinho de compras</h3><div class="field"><label for="canteen-sale-date">Data</label><input id="canteen-sale-date" name="data_movimentacao" type="date" value="${new Date().toISOString().slice(0, 10)}" required></div></div><div data-canteen-cart>${emptyState("Carrinho vazio", "Leia um código de barras ou pesquise um produto.")}</div><div class="canteen-totals"><article><span>Total</span><strong data-canteen-total>${formatReais(0)}</strong></article><article><span>Saldo após compra</span><strong data-canteen-remaining>${formatReais(wallets[0].saldo)}</strong></article></div><p class="login-error" data-canteen-error role="alert"></p><div class="report-actions"><button class="button button--secondary" type="button" data-action="canteen-cart-clear">Limpar</button><button class="button" id="canteen-checkout-button" type="submit" disabled>Finalizar compra</button></div></form>`;
+        const checkout = `<form class="canteen-checkout" id="canteen-checkout-form"><div class="canteen-checkout__details"><h3>Carrinho de compras</h3><div class="field"><label for="canteen-sale-date">Data</label><input id="canteen-sale-date" name="data_movimentacao" type="date" value="${new Date().toISOString().slice(0, 10)}" required></div></div><div data-canteen-cart>${emptyState("Carrinho vazio", "Leia um código de barras ou pesquise um produto.")}</div><div class="canteen-totals"><article><span>Total</span><strong data-canteen-total>${formatReais(0)}</strong></article><article><span>Saldo após compra</span><strong data-canteen-remaining>${selectedBalance}</strong></article></div><p class="login-error" data-canteen-error role="alert"></p><div class="report-actions"><button class="button button--secondary" type="button" data-action="canteen-cart-clear">Limpar</button><button class="button" id="canteen-checkout-button" type="submit" disabled>Finalizar compra</button></div></form>`;
         setTimeout(() => { refreshCanteenCart(); document.querySelector("#canteen-barcode")?.focus(); }, 0);
         return `${customer}<div class="canteen-entry">${scanner}${productSearch}</div>${checkout}`;
     }

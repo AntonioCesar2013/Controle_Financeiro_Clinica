@@ -1,4 +1,4 @@
-from src.banco import conectar
+from src.infraestrutura.banco import conectar
 
 
 def cadastrar_responsavel(nome, cpf, telefone, email):

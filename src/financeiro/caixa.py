@@ -7,7 +7,7 @@ dos recebimentos e pagamentos de saída já registrados no banco.
 from datetime import date, datetime, timedelta
 import sqlite3
 
-from src.banco import conectar
+from src.infraestrutura.banco import conectar
 
 
 def _validar_data(data_texto, nome="data"):

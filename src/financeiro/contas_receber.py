@@ -7,9 +7,9 @@ entrou), sem alterar dados persistidos, vencimentos ou status financeiro.
 
 from datetime import date
 
-from .banco import conectar
-from .parcelas import calcular_status_parcela
-from .regras_financeiras import (
+from src.infraestrutura.banco import conectar
+from src.financeiro.parcelas import calcular_status_parcela
+from src.financeiro.regras_financeiras import (
     calcular_saldo_restante,
     calcular_valor_devido,
 )

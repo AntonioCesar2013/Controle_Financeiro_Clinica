@@ -1,6 +1,6 @@
 import threading
 
-from src.servidor import criar_servidor
+from src.interface.servidor import criar_servidor
 
 
 def main():

@@ -1,4 +1,4 @@
-from src.cobrancas import (
+from src.financeiro.cobrancas import (
     aplicar_desconto,
     listar_cobrancas
 )

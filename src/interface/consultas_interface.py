@@ -1,6 +1,6 @@
 import sqlite3
 
-from src.banco import conectar
+from src.infraestrutura.banco import conectar
 
 
 def _listar(sql, parametros=()):
@@ -13,7 +13,7 @@ def _listar(sql, parametros=()):
 
 
 def listar_residentes():
-    from src.internacoes import sincronizar_status_residentes
+    from src.cadastros.internacoes import sincronizar_status_residentes
     sincronizar_status_residentes()
     return _listar("SELECT id, nome, cpf, cidade_origem, ativo FROM residentes ORDER BY nome")
 
@@ -23,7 +23,7 @@ def listar_responsaveis():
 
 
 def listar_internacoes():
-    from src.internacoes import sincronizar_status_residentes
+    from src.cadastros.internacoes import sincronizar_status_residentes
     sincronizar_status_residentes()
     return _listar(
         """

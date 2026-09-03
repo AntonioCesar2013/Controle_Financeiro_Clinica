@@ -6,9 +6,9 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from src import banco
-from src.backup_banco import _validar_banco, criar_backup
-from src.configuracao_instalacao import carregar_configuracao
+from src.infraestrutura import banco
+from src.infraestrutura.backup_banco import _validar_banco, criar_backup
+from src.infraestrutura.configuracao_instalacao import carregar_configuracao
 
 
 def _pasta(configuracao):

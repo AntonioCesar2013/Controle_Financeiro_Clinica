@@ -1,4 +1,4 @@
-from .banco import conectar
+from src.infraestrutura.banco import conectar
 
 
 def obter_configuracao():

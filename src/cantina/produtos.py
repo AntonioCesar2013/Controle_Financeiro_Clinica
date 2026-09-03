@@ -2,7 +2,7 @@ import sqlite3
 import unicodedata
 from datetime import date, datetime
 
-from src.banco import CAMINHO_BANCO
+from src.infraestrutura.banco import CAMINHO_BANCO
 
 
 def _eh_servico(categoria):

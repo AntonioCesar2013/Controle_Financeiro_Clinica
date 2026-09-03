@@ -1,6 +1,6 @@
 import sqlite3
 
-from src.banco import conectar
+from src.infraestrutura.banco import conectar
 
 
 def cadastrar_convenio(nome, valor_diaria, ativo=1):

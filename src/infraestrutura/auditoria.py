@@ -1,6 +1,6 @@
 import json
 
-from src.banco import conectar
+from src.infraestrutura.banco import conectar
 
 
 CAMPOS_SIGILOSOS = {"senha", "confirmacao_senha", "senha_hash"}
