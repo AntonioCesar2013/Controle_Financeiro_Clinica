@@ -1,3 +1,4 @@
+from src.financeiro.moeda import validar_centavos
 import sqlite3
 import unicodedata
 from datetime import date, datetime
@@ -178,7 +179,7 @@ def cadastrar_valor_item(item_id, valor, data_inicio_valor):
     """
 
     try:
-        valor = round(float(valor), 2)
+        valor = validar_centavos(valor)
         if datetime.strptime(data_inicio_valor, "%Y-%m-%d").strftime("%Y-%m-%d") != data_inicio_valor:
             raise ValueError
     except (TypeError, ValueError):
@@ -422,7 +423,7 @@ def cadastrar_produto(nome, valor, estoque_inicial=0, estoque_minimo=0,
     if not nome:
         return {"sucesso": False, "erro": "O nome do produto é obrigatório."}
     try:
-        valor = round(float(valor), 2)
+        valor = validar_centavos(valor)
         estoque_inicial = int(estoque_inicial)
         estoque_minimo = int(estoque_minimo)
         ativo = int(ativo)
@@ -554,7 +555,7 @@ def ajustar_estoque(item_id, quantidade, motivo, data_movimentacao=None, tipo=No
     if not motivo:
         return {"sucesso": False, "erro": "Informe o motivo do ajuste de estoque."}
     try:
-        custo_unitario = None if custo_unitario in (None, "") else round(float(custo_unitario), 2)
+        custo_unitario = None if custo_unitario in (None, "") else validar_centavos(custo_unitario)
     except (TypeError, ValueError):
         return {"sucesso": False, "erro": "O custo unitário é inválido."}
     if custo_unitario is not None and custo_unitario < 0:

@@ -1,3 +1,4 @@
+from src.financeiro.moeda import validar_centavos
 """Operações da cantina vinculadas às carteiras dos residentes."""
 
 from datetime import date, datetime
@@ -23,7 +24,7 @@ def _data_valida(valor):
 def criar_carteira(residente_id, saldo_inicial=0):
     sincronizar_status_residentes()
     try:
-        saldo_inicial = round(float(saldo_inicial), 2)
+        saldo_inicial = validar_centavos(saldo_inicial)
     except (TypeError, ValueError):
         return {"sucesso": False, "erro": "O saldo inicial deve ser numérico."}
     if saldo_inicial < 0:
@@ -53,7 +54,7 @@ def criar_carteira(residente_id, saldo_inicial=0):
 
 def adicionar_credito(carteira_id, valor, data_movimentacao=None):
     try:
-        valor = round(float(valor), 2)
+        valor = validar_centavos(valor)
     except (TypeError, ValueError):
         return {"sucesso": False, "erro": "O valor deve ser numérico."}
     data_movimentacao = data_movimentacao or date.today().isoformat()
@@ -69,7 +70,7 @@ def adicionar_credito(carteira_id, valor, data_movimentacao=None):
             return {"sucesso": False, "erro": "Carteira não encontrada."}
         if not carteira[1]:
             return {"sucesso": False, "erro": "A carteira está inativa."}
-        conn.execute("UPDATE carteiras SET saldo=ROUND(saldo + ?, 2) WHERE id=?", (valor, carteira_id))
+        conn.execute("UPDATE carteiras SET saldo=saldo + ? WHERE id=?", (valor, carteira_id))
         conn.execute(
             "INSERT INTO movimentacoes_carteira (carteira_id, tipo, quantidade, valor_total, data_movimentacao) VALUES (?, 'CREDITO', 1, ?, ?)",
             (carteira_id, valor, data_movimentacao),
@@ -124,12 +125,12 @@ def estornar_movimentacao(movimentacao_id, motivo=None):
             if saldo < movimento["valor_total"]:
                 return {"sucesso": False, "erro": "O saldo atual não permite estornar este crédito."}
             conn.execute(
-                "UPDATE carteiras SET saldo=ROUND(saldo-?,2) WHERE id=?",
+                "UPDATE carteiras SET saldo=saldo-? WHERE id=?",
                 (movimento["valor_total"], movimento["carteira_id"]),
             )
         elif movimento["tipo"] == "COMPRA_CANTINA":
             conn.execute(
-                "UPDATE carteiras SET saldo=ROUND(saldo+?,2) WHERE id=?",
+                "UPDATE carteiras SET saldo=saldo+? WHERE id=?",
                 (movimento["valor_total"], movimento["carteira_id"]),
             )
             item = conn.execute(
@@ -167,7 +168,7 @@ def estornar_movimentacao(movimentacao_id, motivo=None):
 
 def corrigir_credito(movimentacao_id, novo_valor, data_movimentacao=None, motivo=None):
     try:
-        novo_valor = round(float(novo_valor), 2)
+        novo_valor = validar_centavos(novo_valor)
     except (TypeError, ValueError):
         return {"sucesso": False, "erro": "O novo valor deve ser numérico."}
     if novo_valor <= 0:
@@ -191,12 +192,10 @@ def corrigir_credito(movimentacao_id, novo_valor, data_movimentacao=None, motivo
         data_movimentacao = data_movimentacao or movimento["data_movimentacao"]
         if not _data_valida(data_movimentacao):
             return {"sucesso": False, "erro": "Data inválida. Use YYYY-MM-DD."}
-        saldo_sem_original = round(movimento["saldo"] - movimento["valor_total"], 2)
-        if saldo_sem_original < 0:
-            return {"sucesso": False, "erro": "O saldo atual não permite corrigir este crédito."}
+        saldo_sem_original = movimento["saldo"] - movimento["valor_total"]
         conn.execute(
             "UPDATE carteiras SET saldo=? WHERE id=?",
-            (round(saldo_sem_original + novo_valor, 2), movimento["carteira_id"]),
+            (saldo_sem_original + novo_valor, movimento["carteira_id"]),
         )
         conn.execute(
             """UPDATE movimentacoes_carteira SET estornada=1,estornada_em=?,motivo_estorno=?
@@ -258,7 +257,7 @@ def registrar_venda(carteira_id, item_id, quantidade=1, data_movimentacao=None):
         ).fetchone()
         if not valor:
             return {"sucesso": False, "erro": "O item não possui preço vigente para a data da venda."}
-        total = round(valor["valor"] * quantidade, 2)
+        total = valor["valor"] * quantidade
         if not _eh_servico(item["categoria"]):
             estoque = conn.execute(
                 "UPDATE itens SET estoque_atual=estoque_atual-? WHERE id=? AND estoque_atual>=?",
@@ -267,7 +266,7 @@ def registrar_venda(carteira_id, item_id, quantidade=1, data_movimentacao=None):
             if estoque.rowcount == 0:
                 return {"sucesso": False, "erro": "Estoque insuficiente para esta venda."}
         conn.execute(
-            "UPDATE carteiras SET saldo=ROUND(saldo - ?, 2) WHERE id=?",
+            "UPDATE carteiras SET saldo=saldo - ? WHERE id=?",
             (total, carteira_id),
         )
         cursor = conn.execute(
@@ -360,7 +359,7 @@ def registrar_compra(carteira_id, produtos, data_movimentacao=None):
             return {"sucesso": False, "erro": "Carteira ou residente inativo."}
 
         itens_venda = []
-        total_venda = 0.0
+        total_venda = 0
         for item_id, quantidade in agrupados.items():
             item = conn.execute(
                 """SELECT i.id,i.nome,i.categoria,i.ativo,i.estoque_atual,
@@ -380,8 +379,8 @@ def registrar_compra(carteira_id, produtos, data_movimentacao=None):
                 return {"sucesso": False, "erro": f"O produto {item['nome']} não possui preço vigente."}
             if not _eh_servico(item["categoria"]) and item["estoque_atual"] < quantidade:
                 return {"sucesso": False, "erro": f"Estoque insuficiente para {item['nome']}."}
-            subtotal = round(item["valor"] * quantidade, 2)
-            total_venda = round(total_venda + subtotal, 2)
+            subtotal = item["valor"] * quantidade
+            total_venda = total_venda + subtotal
             itens_venda.append({**dict(item), "quantidade": quantidade, "subtotal": subtotal})
         venda = conn.execute(
             """INSERT INTO vendas_cantina(carteira_id,data_movimentacao,valor_total)
@@ -420,7 +419,7 @@ def registrar_compra(carteira_id, produtos, data_movimentacao=None):
                 (carteira_id, item["id"], item["quantidade"], item["item_valor_id"], item["subtotal"], data_movimentacao, venda_id),
             )
             movimento_ids.append(movimento.lastrowid)
-        conn.execute("UPDATE carteiras SET saldo=ROUND(saldo-?,2) WHERE id=?", (total_venda, carteira_id))
+        conn.execute("UPDATE carteiras SET saldo=saldo-? WHERE id=?", (total_venda, carteira_id))
         saldo = conn.execute("SELECT saldo FROM carteiras WHERE id=?", (carteira_id,)).fetchone()[0]
         conn.commit()
         return {"sucesso": True, "id": venda_id, "residente": carteira["nome"],
@@ -472,7 +471,7 @@ def estornar_compra(venda_id, motivo=None):
                  date.today().isoformat(), venda_id),
             )
         conn.execute(
-            "UPDATE carteiras SET saldo=ROUND(saldo+?,2) WHERE id=?",
+            "UPDATE carteiras SET saldo=saldo+? WHERE id=?",
             (venda["valor_total"], venda["carteira_id"]),
         )
         agora = datetime.now().isoformat(timespec="seconds")

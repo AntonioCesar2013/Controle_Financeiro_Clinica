@@ -9,7 +9,7 @@ from src.infraestrutura.banco import conectar
 
 TIPOS = {
     "financeiro": "Financeiro - fluxo de caixa",
-    "despesas_setor": "Despesas por setor",
+    "despesas_setor": "Despesas por setor — contas por vencimento e pagamentos no período",
     "internacoes": "Internações",
     "residentes": "Residentes",
     "cantina": "Cantina - vendas",
@@ -42,6 +42,9 @@ def _consulta(sql, parametros=()):
 def gerar(tipo, data_inicio=None, data_fim=None):
     if tipo not in TIPOS:
         raise ValueError("Tipo de relatório inválido.")
+    if tipo in {"residentes", "internacoes"}:
+        from src.cadastros.internacoes import sincronizar_status_residentes
+        sincronizar_status_residentes()
     inicio, fim = _periodo(data_inicio, data_fim)
     resumo = []
     colunas = []
@@ -61,15 +64,20 @@ def gerar(tipo, data_inicio=None, data_fim=None):
         linhas = _consulta(
             """SELECT s.nome AS setor, COUNT(cp.id) AS quantidade,
                       COALESCE(SUM(cp.valor),0) AS total_previsto,
-                      COALESCE(SUM((SELECT SUM(ps.valor) FROM pagamentos_saida ps WHERE ps.conta_pagar_id=cp.id)),0) AS total_pago
+                      (SELECT COALESCE(SUM(ps.valor),0) FROM pagamentos_saida ps
+                       JOIN contas_pagar pcp ON pcp.id=ps.conta_pagar_id
+                       JOIN despesas pd ON pd.id=pcp.despesa_id
+                       WHERE pd.setor_id=s.id AND pcp.status!='CANCELADA'
+                         AND ps.data_pagamento BETWEEN ? AND ?) AS total_pago
                FROM setores s LEFT JOIN despesas d ON d.setor_id=s.id
-               LEFT JOIN contas_pagar cp ON cp.despesa_id=d.id AND cp.data_vencimento BETWEEN ? AND ?
-               GROUP BY s.id ORDER BY s.nome""", (inicio, fim))
+               LEFT JOIN contas_pagar cp ON cp.despesa_id=d.id AND cp.status!='CANCELADA'
+                 AND cp.data_vencimento BETWEEN ? AND ?
+               GROUP BY s.id ORDER BY s.nome""", (inicio, fim, inicio, fim))
         resumo = [("Setores", len(linhas), "numero"),
                   ("Total pago", sum(x["total_pago"] for x in linhas), "centavos")]
-        colunas = [("Setor", "setor", "texto"), ("Lançamentos", "quantidade", "numero"),
-                   ("Total previsto", "total_previsto", "centavos"),
-                   ("Total pago", "total_pago", "centavos")]
+        colunas = [("Setor", "setor", "texto"), ("Contas a vencer no período", "quantidade", "numero"),
+                   ("Previsto por vencimento", "total_previsto", "centavos"),
+                   ("Pago no período", "total_pago", "centavos")]
     elif tipo == "internacoes":
         linhas = _consulta(
             """SELECT r.nome AS residente_nome, rp.nome AS responsavel_nome,
@@ -99,10 +107,10 @@ def gerar(tipo, data_inicio=None, data_fim=None):
                  AND m.data_movimentacao BETWEEN ? AND ?
                ORDER BY m.data_movimentacao, m.id""", (inicio, fim))
         resumo = [("Vendas", len(linhas), "numero"),
-                  ("Total vendido", sum(x["valor_total"] for x in linhas), "reais")]
+                  ("Total vendido", sum(x["valor_total"] for x in linhas), "centavos")]
         colunas = [("Data", "data_movimentacao", "data"), ("Residente", "residente_nome", "texto"),
                    ("Produto", "item_nome", "texto"), ("Qtd.", "quantidade", "numero"),
-                   ("Unitário", "valor_unitario", "reais"), ("Total", "valor_total", "reais")]
+                   ("Unitário", "valor_unitario", "centavos"), ("Total", "valor_total", "centavos")]
     elif tipo == "carteiras":
         linhas = _consulta(
             """SELECT r.nome AS residente_nome, c.saldo, c.ativo,
@@ -112,14 +120,15 @@ def gerar(tipo, data_inicio=None, data_fim=None):
                LEFT JOIN movimentacoes_carteira m ON m.carteira_id=c.id
                GROUP BY c.id ORDER BY r.nome""")
         resumo = [("Carteiras", len(linhas), "numero"),
-                  ("Saldo total", sum(x["saldo"] for x in linhas), "reais")]
-        colunas = [("Residente", "residente_nome", "texto"), ("Saldo", "saldo", "reais"),
-                   ("Compras", "compras", "numero"), ("Total consumido", "total_compras", "reais"),
+                  ("Saldo total", sum(x["saldo"] for x in linhas), "centavos")]
+        colunas = [("Residente", "residente_nome", "texto"), ("Saldo", "saldo", "centavos"),
+                   ("Compras", "compras", "numero"), ("Total consumido", "total_compras", "centavos"),
                    ("Situação", "ativo", "ativo")]
     elif tipo == "estoque":
         linhas = _consulta(
             """SELECT i.nome, i.categoria, i.unidade_medida, i.estoque_atual, i.estoque_minimo,
                       (SELECT iv.valor FROM itens_valores iv WHERE iv.item_id=i.id AND iv.ativo=1
+                       AND iv.data_inicio_valor<=date('now','localtime')
                        ORDER BY iv.data_inicio_valor DESC, iv.id DESC LIMIT 1) AS valor_atual,
                       CASE WHEN UPPER(i.categoria) IN ('SERVIÇO','SERVIÇOS','SERVICO','SERVICOS') THEN 'NÃO SE APLICA'
                            WHEN i.estoque_atual<=i.estoque_minimo THEN 'REPOR' ELSE 'OK' END AS situacao_estoque,
@@ -128,7 +137,7 @@ def gerar(tipo, data_inicio=None, data_fim=None):
                   ("Precisam de reposição", sum(1 for x in linhas if x["ativo"] == 1 and x["situacao_estoque"] == "REPOR"), "numero")]
         colunas = [("Produto", "nome", "texto"), ("Categoria", "categoria", "texto"),
                    ("Un.", "unidade_medida", "texto"), ("Estoque", "estoque_atual", "numero"),
-                   ("Mínimo", "estoque_minimo", "numero"), ("Preço", "valor_atual", "reais"),
+                   ("Mínimo", "estoque_minimo", "numero"), ("Preço", "valor_atual", "centavos"),
                    ("Estoque", "situacao_estoque", "texto")]
     elif tipo == "colaboradores":
         linhas = _consulta("SELECT nome,cpf,status,criado_em FROM colaboradores ORDER BY nome")

@@ -64,6 +64,7 @@ COMPRAS_REAIS = (
 
 
 TABELAS_DEMONSTRACAO = (
+    "recibos", "estornos_financeiros", "ajustes_cobrancas", "movimentacoes_estoque",
     "recebimentos", "entradas_bancarias", "cobrancas", "vendas_cantina_itens",
     "movimentacoes_carteira", "vendas_cantina", "carteiras",
     "internacoes", "residente_responsavel", "responsaveis", "residentes",

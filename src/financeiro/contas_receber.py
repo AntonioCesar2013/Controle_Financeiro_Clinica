@@ -64,6 +64,8 @@ def consolidar_cobranca(cobranca, data_referencia=None):
     return {
         "id": cobranca["id"],
         "internacao_id": cobranca["internacao_id"],
+        "residente_nome": cobranca.get("residente_nome"),
+        "responsavel_nome": cobranca.get("responsavel_nome"),
         "numero_parcela": cobranca["numero_parcela"],
         "tipo": cobranca["tipo"],
         "data_vencimento": cobranca["data_vencimento"],
@@ -112,8 +114,12 @@ def _consultar_cobrancas(cobranca_id=None, internacao_id=None):
             c.desconto,
             c.status,
             COALESCE(SUM(r.valor), 0) AS total_recebido,
-            MAX(r.data_recebimento) AS data_pagamento
+            MAX(r.data_recebimento) AS data_pagamento,
+            res.nome AS residente_nome, rp.nome AS responsavel_nome
         FROM cobrancas c
+        JOIN internacoes i ON i.id=c.internacao_id
+        JOIN residentes res ON res.id=i.residente_id
+        JOIN responsaveis rp ON rp.id=i.responsavel_id
         LEFT JOIN recebimentos r
             ON r.cobranca_id = c.id
         {where}
@@ -137,6 +143,8 @@ def _consultar_cobrancas(cobranca_id=None, internacao_id=None):
             "status": cobranca[7],
             "total_recebido": cobranca[8],
             "data_pagamento": cobranca[9],
+            "residente_nome": cobranca[10],
+            "responsavel_nome": cobranca[11],
         }
         for cobranca in cobrancas
     ]

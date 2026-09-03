@@ -1,3 +1,5 @@
+import { applyTableFilters, normalizeSearch } from "./components/filters.js";
+import { createResidentDocuments, printDocument } from "./components/resident-documents.js";
 import { createApi } from "./core/api.js";
 import { setFormBusy } from "./components/forms.js";
 import {
@@ -10,6 +12,7 @@ import {
 } from "./components/renderers.js";
 import {
     escapeHtml,
+    localDate,
     formatActive,
     formatCpf,
     formatDate,
@@ -17,8 +20,7 @@ import {
     formatDocument,
     formatMoney,
     formatPhone,
-    formatOptionalReais,
-    formatReais,
+    formatOptionalMoney,
     formatReversal,
     formatYesNo,
     valueOrDash,
@@ -36,10 +38,15 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
     let selectedWalletId = "";
     let walletResidents = [];
     let monthlyState = [];
-    let activePanelName = "dashboard";
+    let activePanelName = null;
 
     const api = createApi({
         onUnauthorized: (message) => showLogin(false, message),
+    });
+
+    const residentDocuments = createResidentDocuments({
+        api, showAlert,
+        showPanel: (title, body) => layers.auxiliary.replaceChildren(createPanel({title, eyebrow: "Financeiro do residente", body, size: "large"})),
     });
 
     const panels = {
@@ -82,7 +89,6 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         // TESTES: reative esta linha para tornar o login obrigatório novamente.
         // checkAccess();
         openGeneralMenu();
-        openMainPanel("dashboard");
     }
 
     async function checkAccess() {
@@ -112,9 +118,17 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         if (action === "toggle-password") togglePassword(trigger);
         if (action === "logout") logout();
         if (action === "apply-report") refreshReport(trigger.closest(".panel"));
-        if (action === "print-report") window.print();
+        if (action === "print-report") { document.querySelector("#document-print-target")?.remove(); window.print(); }
+        if (action === "open-statement") residentDocuments.openStatement(trigger.dataset.id);
+        if (action === "generate-receipt") residentDocuments.openReceipt(trigger.dataset.id);
+        if (action === "print-document") printDocument(trigger.closest(".panel"));
+        if (action === "filter-statement") {
+            const panel = trigger.closest(".panel");
+            residentDocuments.openStatement(trigger.dataset.id, panel.querySelector("[data-statement-start]").value, panel.querySelector("[data-statement-end]").value);
+        }
         if (action === "open-financial-form") openFinancialForm(trigger.dataset.kind, trigger.dataset.id);
         if (action === "financial-history") openFinancialHistory(trigger.dataset.kind, trigger.dataset.id);
+        if (action === "cancel-internment") runMaintenanceCommand("/api/internacoes/cancelar", { id: trigger.dataset.id, motivo: "Agendamento cancelado pelo operador" }, "Cancelar este agendamento e suas cobranças?", "internacoes");
         if (action === "cancel-payable") runFinancialCommand("/api/contas-pagar/cancelar", { conta_id: trigger.dataset.id }, "Cancelar esta conta?", "contas_pagar");
         if (action === "delete-financial-entry") runFinancialCommand(trigger.dataset.kind === "saida" ? "/api/pagamentos-saida/excluir" : "/api/recebimentos/excluir", trigger.dataset.kind === "saida" ? { pagamento_id: trigger.dataset.id } : { recebimento_id: trigger.dataset.id }, "Estornar este lançamento?", trigger.dataset.kind === "saida" ? "contas_pagar" : "contas_receber");
         if (action === "deactivate-expense") runFinancialCommand("/api/despesas/desativar", { id: trigger.dataset.id }, "Inativar esta despesa?", "despesas");
@@ -155,6 +169,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
     }
 
     function handleChange(event) {
+        if (event.target.matches("[data-filter-status], [data-filter-start], [data-filter-end]")) applyTableFilters(event.target);
         if (event.target.matches("#wallet-resident")) refreshWalletDetail(event.target);
         if (event.target.matches("#canteen-wallet")) refreshCanteenCart();
         if (event.target.matches("#canteen-product-search")) addSearchedCanteenProduct(event.target);
@@ -163,7 +178,9 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
     }
 
     function handleInput(event) {
+        if (event.target.matches("[data-filter-search], [data-filter-start], [data-filter-end]")) applyTableFilters(event.target);
         if (event.target.matches("#wallet-resident-lookup")) renderWalletResidentResults(event.target.value);
+        if (event.target.matches("#internment-period, #internment-welcome, #internment-monthly")) updateContractTotal();
         if (event.target.matches("input[data-mask]")) applyInputMask(event.target);
         if (event.target.matches("#canteen-resident-lookup")) renderCanteenResidentResults(event.target.value);
         if (event.target.matches("#monthly-resident-lookup")) renderMonthlyResidentResults(event.target.value);
@@ -350,7 +367,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
     }
 
     function openProductForm() {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = localDate();
         const body = `<form class="login-form" id="product-form">
             <div class="field"><label for="product-name">Nome do produto</label><input id="product-name" name="nome" required></div>
             <div class="field"><label for="product-barcode">Código de barras</label><input id="product-barcode" name="codigo_barras" inputmode="numeric"></div>
@@ -386,8 +403,8 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
             const residentOptions = residents.map((item) => `<option value="${item.id}">${escapeHtml(item.nome)}</option>`).join("");
             const guardianOptions = guardians.map((item) => `<option value="${item.id}">${escapeHtml(item.nome)}</option>`).join("");
             const agreementOptions = (agreementsResponse.dados || []).filter((item) => Number(item.ativo) === 1).map((item) => `<option value="${item.id}">${escapeHtml(item.nome)} — ${formatMoney(item.valor_diaria)} por dia</option>`).join("");
-            const today = new Date().toISOString().slice(0, 10);
-            const body = `<form class="login-form" id="internment-form"><div class="field"><label for="internment-resident">Residente</label><select id="internment-resident" name="residente_id" required>${residentOptions}</select></div><div class="field"><label for="internment-guardian">Responsável</label><select id="internment-guardian" name="responsavel_id" required>${guardianOptions}</select></div><div class="field"><label for="internment-modality">Modalidade de residência</label><select id="internment-modality" name="modalidade" required><option value="PARTICULAR">Particular</option><option value="SOCIAL">Social</option><option value="CONVENIO">Convênio</option><option value="VOLUNTARIO">Voluntário</option></select></div><div class="field"><label for="internment-date">Data de acolhimento</label><input id="internment-date" name="data_acolhimento" type="date" value="${today}" required></div><div class="field" data-period-field><label for="internment-period">Período de tratamento (meses)</label><input id="internment-period" name="periodo_tratamento" type="number" min="1" step="1" required></div><div class="field" data-agreement-field hidden><label for="internment-agreement">Convênio</label><select id="internment-agreement" name="convenio_id"><option value="">Selecione</option>${agreementOptions}</select><small>O valor é calculado pela diária e pelos dias de tratamento em cada mês.</small></div><div data-particular-fields><div class="field"><label for="internment-contract">Valor do contrato</label><input id="internment-contract" name="valor_contrato" type="number" min="0" step="0.01" value="0" required></div><div class="field"><label for="internment-welcome">Valor do acolhimento</label><input id="internment-welcome" name="valor_acolhimento" type="number" min="0" step="0.01" value="0" required></div><div class="field"><label for="internment-monthly">Mensalidade</label><input id="internment-monthly" name="valor_mensalidade" type="number" min="0" step="0.01" value="0" required></div></div><div class="field" data-volunteer-field hidden><label for="internment-services">Serviços prestados à clínica</label><textarea id="internment-services" name="servicos_voluntario" rows="4" placeholder="Descreva as atividades combinadas"></textarea></div><p class="form-note" data-internment-note>O residente ficará ativo somente enquanto esta internação estiver dentro do período contratado.</p><p class="login-error" data-internment-error role="alert"></p><button class="button" type="submit">Salvar internação</button></form>`;
+            const today = localDate();
+            const body = `<form class="login-form" id="internment-form"><div class="field"><label for="internment-resident">Residente</label><select id="internment-resident" name="residente_id" required>${residentOptions}</select></div><div class="field"><label for="internment-guardian">Responsável</label><select id="internment-guardian" name="responsavel_id" required>${guardianOptions}</select></div><div class="field"><label for="internment-modality">Modalidade de residência</label><select id="internment-modality" name="modalidade" required><option value="PARTICULAR">Particular</option><option value="SOCIAL">Social</option><option value="CONVENIO">Convênio</option><option value="VOLUNTARIO">Voluntário</option></select></div><div class="field"><label for="internment-date">Data de acolhimento</label><input id="internment-date" name="data_acolhimento" type="date" value="${today}" required></div><div class="field" data-period-field><label for="internment-period">Período de tratamento (meses)</label><input id="internment-period" name="periodo_tratamento" type="number" min="1" step="1" required></div><div class="field" data-agreement-field hidden><label for="internment-agreement">Convênio</label><select id="internment-agreement" name="convenio_id"><option value="">Selecione</option>${agreementOptions}</select><small>O valor é calculado pela diária e pelos dias de tratamento em cada mês.</small></div><div data-particular-fields><div class="field"><label for="internment-contract">Valor do contrato</label><input id="internment-contract" name="valor_contrato" readonly title="Acolhimento + mensalidades do período" type="number" min="0" step="0.01" value="0" required></div><div class="field"><label for="internment-welcome">Valor do acolhimento</label><input id="internment-welcome" name="valor_acolhimento" type="number" min="0" step="0.01" value="0" required></div><div class="field"><label for="internment-monthly">Mensalidade</label><input id="internment-monthly" name="valor_mensalidade" type="number" min="0" step="0.01" value="0" required></div></div><div class="field" data-volunteer-field hidden><label for="internment-services">Serviços prestados à clínica</label><textarea id="internment-services" name="servicos_voluntario" rows="4" placeholder="Descreva as atividades combinadas"></textarea></div><p class="form-note" data-internment-note>O residente ficará ativo somente enquanto esta internação estiver dentro do período contratado.</p><p class="login-error" data-internment-error role="alert"></p><button class="button" type="submit">Salvar internação</button></form>`;
             layers.auxiliary.replaceChildren(createPanel({ title: "Nova internação", eyebrow: "Acolhimento e contrato", body, size: "medium" }));
         } catch (error) { showAlert("Não foi possível abrir", error.message); }
     }
@@ -416,7 +433,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
 
     async function openFinancialForm(kind, id = "") {
         try {
-            const today = new Date().toISOString().slice(0, 10);
+            const today = localDate();
             const needsRegistrations = ["despesa", "conta", "editar_setor"].includes(kind);
             const registrations = needsRegistrations ? (await api("/api/financeiro/cadastros")).dados : null;
             const definitions = {
@@ -488,6 +505,11 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
 
     async function runFinancialCommand(endpoint, body, confirmation, refreshPanel) {
         if (confirmation && !window.confirm(confirmation)) return;
+        if (endpoint.endsWith("/excluir")) {
+            const motivo = window.prompt("Motivo do estorno:");
+            if (!motivo?.trim()) return;
+            body.motivo = motivo.trim();
+        }
         try {
             await api(endpoint, { method: "POST", body });
             closeLayer("auxiliary");
@@ -504,14 +526,19 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
             const columns = isOutgoing
                 ? [["Data", "data_pagamento", formatDate], ["Valor", "valor", formatMoney], ["Forma", "forma_pagamento"], ["Observação", "observacao"]]
                 : [["Data", "data_recebimento", formatDate], ["Valor", "valor", formatMoney], ["Forma", "forma_recebimento"], ["Observação", "observacao"]];
-            const body = renderActionTable(dados, columns, (row) => `<button class="button button--danger" type="button" data-action="delete-financial-entry" data-kind="${isOutgoing ? "saida" : "entrada"}" data-id="${row.id}">Estornar</button>`);
+            columns.push(["Situação", "estornada", (value) => value ? "ESTORNADO" : "EFETIVO"], ["Estornado em", "estornada_em", formatDateTime], ["Motivo do estorno", "motivo_estorno"]);
+            let body = renderActionTable(dados, columns, (row) => row.estornada ? "" : `<button class="button button--danger" type="button" data-action="delete-financial-entry" data-kind="${isOutgoing ? "saida" : "entrada"}" data-id="${row.id}">Estornar</button>${!isOutgoing && row.tipo === "MENSALIDADE" ? `<button class="button button--secondary" data-action="generate-receipt" data-id="${row.id}">Gerar recibo</button>` : ""}`);
+            if (!isOutgoing) {
+                const { dados: ajustes } = await api(`/api/cobrancas/ajustes?id=${encodeURIComponent(id)}`);
+                if (ajustes.length) body += `<h3>Ajustes da cobrança</h3>${renderTable(ajustes, [["Data", "criado_em", formatDateTime], ["Valor anterior", "valor_anterior", formatMoney], ["Valor ajustado", "valor_novo", formatMoney], ["Desconto anterior", "desconto_anterior", formatMoney], ["Desconto ajustado", "desconto_novo", formatMoney], ["Motivo", "motivo"]])}`;
+            }
             layers.auxiliary.replaceChildren(createPanel({ title: isOutgoing ? "Pagamentos da conta" : "Recebimentos da cobrança", eyebrow: "Histórico individual", body, size: "large" }));
         } catch (error) { showAlert("Não foi possível consultar", error.message); }
     }
 
     async function openWalletForm(kind, id = "", value = "", movementDate = "") {
         try {
-            const today = new Date().toISOString().slice(0, 10);
+            const today = localDate();
             let title;
             let endpoint;
             let fields;
@@ -532,7 +559,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
             } else {
                 title = "Corrigir crédito"; endpoint = "/api/carteiras/movimentacoes/corrigir";
                 fields = `<input type="hidden" name="movimentacao_id" value="${escapeHtml(id)}">${moneyField("Valor corrigido")}<div class="field"><label for="wallet-date">Data</label><input id="wallet-date" name="data_movimentacao" type="date" value="${escapeHtml(movementDate || today)}" required></div><div class="field"><label for="wallet-reason">Motivo</label><input id="wallet-reason" name="motivo" value="Correção de crédito" required></div>`;
-                fields = fields.replace('name="valor"', `name="valor" value="${escapeHtml(value)}"`);
+                fields = fields.replace('name="valor"', `name="valor" value="${(Number(value) / 100).toFixed(2)}"`);
             }
             const body = `<form class="login-form maintenance-form" data-endpoint="${endpoint}" data-refresh="carteiras">${fields}<p class="login-error" data-maintenance-error role="alert"></p><button class="button" type="submit">Salvar</button></form>`;
             layers.auxiliary.replaceChildren(createPanel({ title, eyebrow: "Carteiras", body, size: "medium" }));
@@ -541,7 +568,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
 
     async function openMaintenanceForm(kind, id) {
         try {
-            const today = new Date().toISOString().slice(0, 10);
+            const today = localDate();
             let title;
             let endpoint;
             let refresh;
@@ -556,7 +583,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
                 fields = `<input type="hidden" name="id" value="${item.id}"><div class="field"><label>Nome</label><input name="nome" value="${escapeHtml(item.nome)}" required></div><div class="field"><label>CPF ou CNPJ</label><input name="cpf" value="${escapeHtml(item.cpf)}" inputmode="numeric" data-mask="document" maxlength="18" required></div><div class="field"><label>Telefone</label><input name="telefone" type="tel" inputmode="numeric" data-mask="phone" maxlength="15" value="${escapeHtml(item.telefone || "")}"></div><div class="field"><label>E-mail</label><input name="email" type="email" value="${escapeHtml(item.email || "")}"></div>${activeSelect(item.ativo)}`;
             } else if (kind === "internment-end") {
                 title = "Encerrar internação"; endpoint = "/api/internacoes/encerrar"; refresh = "internacoes";
-                fields = `<input type="hidden" name="id" value="${escapeHtml(id)}"><div class="field"><label>Data de encerramento</label><input name="data_encerramento" type="date" value="${today}" required></div><div class="field"><label>Motivo</label><textarea name="motivo" rows="3" required></textarea></div>`;
+                fields = `<input type="hidden" name="id" value="${escapeHtml(id)}"><div class="field"><label>Data de encerramento</label><input name="data_encerramento" type="date" max="${today}" value="${today}" required></div><div class="field"><label>Motivo</label><textarea name="motivo" rows="3" required></textarea></div><label class="form-note"><input type="checkbox" name="autorizar_ajuste_desconto" value="1"> Autorizar a redução dos descontos de convênio que ultrapassem o saldo após o encerramento. O ajuste ficará registrado no histórico.</label><p class="form-note">Em contratos particulares, as mensalidades permanecem devidas; eventuais descontos devem ser lançados nas cobranças.</p>`;
             } else if (kind === "internment-guardian") {
                 const guardians = (await api("/api/responsaveis")).dados.filter((row) => Number(row.ativo) === 1);
                 title = "Alterar responsável principal"; endpoint = "/api/internacoes/responsavel"; refresh = "internacoes";
@@ -623,8 +650,8 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
     async function openProductHistory(id) {
         try {
             const { dados } = await api(`/api/itens/historico?id=${encodeURIComponent(id)}`);
-            const prices = renderTable(dados.precos, [["Válido desde", "data_inicio_valor", formatDate], ["Preço", "valor", formatReais], ["Situação", "ativo", formatActive]]);
-            const stock = renderTable(dados.estoque, [["Data", "data_movimentacao", formatDate], ["Tipo", "tipo"], ["Cupom", "venda_id"], ["Anterior", "quantidade_anterior"], ["Movimento", "quantidade_movimentada"], ["Atual", "quantidade_atual"], ["Custo unitário", "custo_unitario", formatOptionalReais], ["Fornecedor", "fornecedor"], ["Documento", "documento"], ["Lote", "lote"], ["Validade", "data_validade", formatDate], ["Motivo", "motivo"]]);
+            const prices = renderTable(dados.precos, [["Válido desde", "data_inicio_valor", formatDate], ["Preço", "valor", formatMoney], ["Situação", "ativo", formatActive]]);
+            const stock = renderTable(dados.estoque, [["Data", "data_movimentacao", formatDate], ["Tipo", "tipo"], ["Cupom", "venda_id"], ["Anterior", "quantidade_anterior"], ["Movimento", "quantidade_movimentada"], ["Atual", "quantidade_atual"], ["Custo unitário", "custo_unitario", formatOptionalMoney], ["Fornecedor", "fornecedor"], ["Documento", "documento"], ["Lote", "lote"], ["Validade", "data_validade", formatDate], ["Motivo", "motivo"]]);
             layers.auxiliary.replaceChildren(createPanel({ title: "Histórico do produto", eyebrow: "Preços e estoque", body: `<h3 class="section-title">Preços</h3>${prices}<h3 class="section-title">Ajustes de estoque</h3>${stock}`, size: "large" }));
         } catch (error) { showAlert("Não foi possível consultar", error.message); }
     }
@@ -668,7 +695,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         try {
             const resultado = await api("/api/cantina/vendas", { method: "POST", body: data });
             await openMainPanel("cantina", { preserveCanteenResident: true });
-            showAlert("Compra concluída", `${resultado.residente} comprou ${resultado.quantidade}x ${resultado.item}. Saldo atual: ${formatReais(resultado.saldo)}.`);
+            showAlert("Compra concluída", `${resultado.residente} comprou ${resultado.quantidade}x ${resultado.item}. Saldo atual: ${formatMoney(resultado.saldo)}.`);
         } catch (error) { errorElement.textContent = error.message; }
         finally { setFormBusy(form, false); }
     }
@@ -680,7 +707,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         if (!code) return;
         setFormBusy(form, true);
         try {
-            const saleDate = document.querySelector("#canteen-sale-date")?.value || new Date().toISOString().slice(0, 10);
+            const saleDate = document.querySelector("#canteen-sale-date")?.value || localDate();
             const { dados: product } = await api(`/api/cantina/produto?codigo=${encodeURIComponent(code)}&data=${encodeURIComponent(saleDate)}`);
             if (!product?.sucesso) throw new Error(product?.erro || "Produto não encontrado.");
             addProductToCanteen(product);
@@ -721,10 +748,10 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
     function renderCanteenResidentResults(value) {
         const target = document.querySelector("[data-canteen-resident-results]");
         if (!target) return;
-        const search = String(value || "").trim().toLocaleLowerCase("pt-BR");
-        const wallets = canteenState.wallets.filter((wallet) => String(wallet.residente_nome || "").toLocaleLowerCase("pt-BR").includes(search));
+        const search = normalizeSearch(value);
+        const wallets = canteenState.wallets.filter((wallet) => normalizeSearch(wallet.residente_nome).includes(search));
         target.innerHTML = wallets.length
-            ? wallets.map((wallet) => `<button class="resident-search-result" type="button" data-action="select-canteen-resident" data-id="${wallet.id}"><strong>${escapeHtml(wallet.residente_nome)}</strong><span>Saldo ${escapeHtml(formatReais(wallet.saldo))}</span></button>`).join("")
+            ? wallets.map((wallet) => `<button class="resident-search-result" type="button" data-action="select-canteen-resident" data-id="${wallet.id}"><strong>${escapeHtml(wallet.residente_nome)}</strong><span>Saldo ${escapeHtml(formatMoney(wallet.saldo))}</span></button>`).join("")
             : emptyState("Residente não encontrado", "Revise o nome informado.");
     }
 
@@ -779,19 +806,19 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         selectedCanteenWalletId = wallet ? String(wallet.id) : "";
         const balance = Number(wallet?.saldo || 0);
         const remaining = balance - total;
-        const rows = items.map((item) => `<tr><td>${escapeHtml(item.nome)}</td><td>${escapeHtml(formatReais(item.valor))}</td><td><div class="canteen-quantity"><button type="button" data-action="canteen-cart-change" data-id="${item.id}" data-delta="-1">−</button><strong>${item.quantity}</strong><button type="button" data-action="canteen-cart-change" data-id="${item.id}" data-delta="1">+</button></div></td><td>${escapeHtml(formatReais(Number(item.valor) * item.quantity))}</td><td><button class="button button--danger" type="button" data-action="canteen-cart-remove" data-id="${item.id}">Remover</button></td></tr>`).join("");
+        const rows = items.map((item) => `<tr><td>${escapeHtml(item.nome)}</td><td>${escapeHtml(formatMoney(item.valor))}</td><td><div class="canteen-quantity"><button type="button" data-action="canteen-cart-change" data-id="${item.id}" data-delta="-1">−</button><strong>${item.quantity}</strong><button type="button" data-action="canteen-cart-change" data-id="${item.id}" data-delta="1">+</button></div></td><td>${escapeHtml(formatMoney(Number(item.valor) * item.quantity))}</td><td><button class="button button--danger" type="button" data-action="canteen-cart-remove" data-id="${item.id}">Remover</button></td></tr>`).join("");
         target.innerHTML = items.length ? `<div class="table-wrap"><table class="canteen-cart-table"><thead><tr><th>Produto</th><th>Unitário</th><th>Qtd.</th><th>Subtotal</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : emptyState("Carrinho vazio", "Leia um código de barras ou escolha um produto.");
         const totalElement = document.querySelector("[data-canteen-total]");
         const balanceElement = document.querySelector("[data-canteen-balance]");
         const remainingElement = document.querySelector("[data-canteen-remaining]");
-        if (totalElement) totalElement.textContent = formatReais(total);
+        if (totalElement) totalElement.textContent = formatMoney(total);
         if (balanceElement) {
-            balanceElement.textContent = wallet ? formatReais(balance) : "—";
+            balanceElement.textContent = wallet ? formatMoney(balance) : "—";
             balanceElement.classList.toggle("amount--positive", Boolean(wallet) && balance > 0);
             balanceElement.classList.toggle("amount--negative", Boolean(wallet) && balance <= 0);
         }
         if (remainingElement) {
-            remainingElement.textContent = wallet ? formatReais(remaining) : "—";
+            remainingElement.textContent = wallet ? formatMoney(remaining) : "—";
             remainingElement.classList.toggle("amount--negative", Boolean(wallet) && remaining < 0);
         }
         const button = document.querySelector("#canteen-checkout-button");
@@ -819,7 +846,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
             selectedCanteenWalletId = String(walletId);
             canteenCart.clear();
             await openMainPanel("cantina", { preserveCanteenResident: true });
-            showAlert("Compra finalizada", `Cupom nº ${result.id}: ${result.quantidade_itens} item(ns), total ${formatReais(result.valor_total)}. Saldo atual: ${formatReais(result.saldo)}.`);
+            showAlert("Compra finalizada", `Cupom nº ${result.id}: ${result.quantidade_itens} item(ns), total ${formatMoney(result.valor_total)}. Saldo atual: ${formatMoney(result.saldo)}.`);
         } catch (error) { errorElement.textContent = error.message; }
         finally { setFormBusy(form, false); }
     }
@@ -847,7 +874,15 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         finally { setFormBusy(form, false); }
     }
 
+    function updateContractTotal() {
+        const form = document.querySelector("#internment-form");
+        if (!form) return;
+        const cents = (name) => Math.round(Number(form.elements[name].value || 0) * 100);
+        form.elements.valor_contrato.value = ((cents("valor_acolhimento") + cents("valor_mensalidade") * Number(form.elements.periodo_tratamento.value || 0)) / 100).toFixed(2);
+    }
+
     async function submitInternment(form) {
+        updateContractTotal();
         const data = Object.fromEntries(new FormData(form));
         setFormBusy(form, true);
         try {
@@ -877,7 +912,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
 
     async function renderResidents() {
         const { dados } = await api("/api/residentes");
-        return `<div class="toolbar"><div></div><button class="button" type="button" data-action="open-new-resident">Novo residente</button></div>${renderActionTable(dados, [["Nome", "nome"], ["CPF", "cpf", formatCpf], ["Cidade de origem", "cidade_origem"], ["Situação", "ativo", formatActive]], (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="resident" data-id="${row.id}">Editar</button>`)}`;
+        return `<div class="toolbar"><div></div><button class="button" type="button" data-action="open-new-resident">Novo residente</button></div>${renderActionTable(dados, [["Nome", "nome"], ["CPF", "cpf", formatCpf], ["Cidade de origem", "cidade_origem"], ["Situação", "ativo", formatActive]], (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="resident" data-id="${row.id}">Editar</button><button class="button" data-action="open-statement" data-id="${row.id}">Extrato</button>`)}`;
     }
 
     async function renderGuardians() {
@@ -887,7 +922,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
 
     async function renderInternments() {
         const { dados } = await api("/api/internacoes");
-        return `<div class="toolbar"><div></div><div class="report-actions"><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button" type="button" data-action="open-new-internment">Nova internação</button></div></div>${renderActionTable(dados, [["Residente", "residente_nome"], ["Modalidade", "modalidade"], ["Convênio", "convenio_nome"], ["Responsável", "responsavel_nome"], ["Acolhimento", "data_acolhimento", formatDate], ["Período", "periodo_tratamento", (value, row) => row.modalidade === "VOLUNTARIO" ? "Sem prazo" : `${value} meses`], ["Contrato", "valor_contrato", formatMoney], ["Diária", "valor_diaria", (value, row) => row.modalidade === "CONVENIO" ? formatMoney(value) : "—"], ["Status", "status"], ["Encerrada em", "encerrada_em", formatDate]], (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-guardian" data-id="${row.id}">Responsável</button>${row.status === "ATIVA" && !row.encerrada_em ? `<button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-id="${row.id}">Encerrar</button>` : ""}`)}`;
+        return `<div class="toolbar"><div></div><div class="report-actions"><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button" type="button" data-action="open-new-internment">Nova internação</button></div></div>${renderActionTable(dados, [["Residente", "residente_nome"], ["Modalidade", "modalidade"], ["Convênio", "convenio_nome"], ["Responsável", "responsavel_nome"], ["Acolhimento", "data_acolhimento", formatDate], ["Período", "periodo_tratamento", (value, row) => row.modalidade === "VOLUNTARIO" ? "Sem prazo" : `${value} meses`], ["Contrato", "valor_contrato", formatMoney], ["Diária", "valor_diaria", (value, row) => row.modalidade === "CONVENIO" ? formatMoney(value) : "—"], ["Status", "status"], ["Encerrada em", "encerrada_em", formatDate]], (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-guardian" data-id="${row.id}">Responsável</button>${row.status === "AGENDADA" ? `<button class="button button--danger" type="button" data-action="cancel-internment" data-id="${row.id}">Cancelar agendamento</button>` : ""}${row.status === "ATIVA" && !row.encerrada_em ? `<button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-id="${row.id}">Encerrar</button>` : ""}`)}`;
     }
 
     async function renderWallets() {
@@ -916,9 +951,9 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
     function renderWalletResidentResults(value) {
         const target = document.querySelector("[data-wallet-resident-results]");
         if (!target) return;
-        const search = String(value || "").trim().toLocaleLowerCase("pt-BR");
-        const matches = walletResidents.filter((wallet) => String(wallet.residente_nome || "").toLocaleLowerCase("pt-BR").includes(search));
-        target.innerHTML = matches.length ? matches.map((wallet) => `<button class="resident-search-result" type="button" data-action="select-wallet-resident" data-id="${wallet.id}"><strong>${escapeHtml(wallet.residente_nome)}</strong><span class="${Number(wallet.saldo) > 0 ? "amount--positive" : "amount--negative"}">Saldo ${escapeHtml(formatReais(wallet.saldo))}</span></button>`).join("") : emptyState("Residente não encontrado", "Revise o nome informado.");
+        const search = normalizeSearch(value);
+        const matches = walletResidents.filter((wallet) => normalizeSearch(wallet.residente_nome).includes(search));
+        target.innerHTML = matches.length ? matches.map((wallet) => `<button class="resident-search-result" type="button" data-action="select-wallet-resident" data-id="${wallet.id}"><strong>${escapeHtml(wallet.residente_nome)}</strong><span class="${Number(wallet.saldo) > 0 ? "amount--positive" : "amount--negative"}">Saldo ${escapeHtml(formatMoney(wallet.saldo))}</span></button>`).join("") : emptyState("Residente não encontrado", "Revise o nome informado.");
     }
 
     function selectWalletResident(walletId) {
@@ -950,10 +985,10 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         const dados = resultado.dados;
         if (!dados?.sucesso) throw new Error(dados?.erro || "Carteira não encontrada.");
         const wallet = dados.carteira;
-        const credits = renderActionTable(dados.creditos, [["Data", "data_movimentacao", formatDate], ["Valor", "valor_total", formatReais], ["Situação", "estornada", formatReversal], ["Motivo do estorno", "motivo_estorno"]], (row) => Number(row.estornada) === 0 ? `<button class="button button--secondary" type="button" data-action="open-wallet-form" data-kind="correct" data-id="${row.id}" data-value="${row.valor_total}" data-date="${row.data_movimentacao}">Corrigir</button><button class="button button--danger" type="button" data-action="wallet-reversal" data-id="${row.id}">Estornar</button>` : "");
-        const purchases = renderActionTable(dados.compras, [["Cupom", "venda_id"], ["Data", "data_movimentacao", formatDate], ["Produto", "item_nome"], ["Quantidade", "quantidade"], ["Valor unitário", "valor_unitario", formatReais], ["Total descontado", "valor_total", formatReais], ["Situação", "estornada", formatReversal]], (row) => Number(row.estornada) === 0 && !row.venda_id ? `<button class="button button--danger" type="button" data-action="wallet-reversal" data-id="${row.id}">Estornar compra</button>` : "");
+        const credits = renderActionTable(dados.creditos, [["Data", "data_movimentacao", formatDate], ["Valor", "valor_total", formatMoney], ["Situação", "estornada", formatReversal], ["Motivo do estorno", "motivo_estorno"]], (row) => Number(row.estornada) === 0 ? `<button class="button button--secondary" type="button" data-action="open-wallet-form" data-kind="correct" data-id="${row.id}" data-value="${row.valor_total}" data-date="${row.data_movimentacao}">Corrigir</button><button class="button button--danger" type="button" data-action="wallet-reversal" data-id="${row.id}">Estornar</button>` : "");
+        const purchases = renderActionTable(dados.compras, [["Cupom", "venda_id"], ["Data", "data_movimentacao", formatDate], ["Produto", "item_nome"], ["Quantidade", "quantidade"], ["Valor unitário", "valor_unitario", formatMoney], ["Total descontado", "valor_total", formatMoney], ["Situação", "estornada", formatReversal]], (row) => Number(row.estornada) === 0 && !row.venda_id ? `<button class="button button--danger" type="button" data-action="wallet-reversal" data-id="${row.id}">Estornar compra</button>` : "");
         const walletActions = Number(wallet.ativo) === 1 ? `<button class="button" type="button" data-action="open-wallet-form" data-kind="credit" data-id="${wallet.id}">Adicionar crédito</button><button class="button button--danger" type="button" data-action="wallet-status" data-id="${wallet.id}" data-ativo="0">Inativar carteira</button>` : `<button class="button" type="button" data-action="wallet-status" data-id="${wallet.id}" data-ativo="1">Reativar carteira</button>`;
-        return `<div class="toolbar"><div></div><div class="report-actions">${walletActions}</div></div><div class="wallet-summary"><article><span>Residente</span><strong>${escapeHtml(wallet.residente_nome)}</strong></article><article><span>Saldo disponível</span><strong class="${Number(wallet.saldo) > 0 ? "amount--positive" : "amount--negative"}">${escapeHtml(formatReais(wallet.saldo))}</strong></article><article><span>Situação</span><strong>${escapeHtml(formatActive(wallet.ativo))}</strong></article></div><h3 class="section-title">Créditos</h3>${credits}<h3 class="section-title">Compras na Cantina</h3>${purchases}`;
+        return `<div class="toolbar"><div></div><div class="report-actions">${walletActions}</div></div><div class="wallet-summary"><article><span>Residente</span><strong>${escapeHtml(wallet.residente_nome)}</strong></article><article><span>Saldo disponível</span><strong class="${Number(wallet.saldo) > 0 ? "amount--positive" : "amount--negative"}">${escapeHtml(formatMoney(wallet.saldo))}</strong></article><article><span>Situação</span><strong>${escapeHtml(formatActive(wallet.ativo))}</strong></article></div><h3 class="section-title">Créditos</h3>${credits}<h3 class="section-title">Compras na Cantina</h3>${purchases}`;
     }
 
     async function renderCantina() {
@@ -968,14 +1003,14 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         }
         const selectedWallet = wallets.find((wallet) => String(wallet.id) === selectedCanteenWalletId);
         selectedCanteenWalletId = selectedWallet ? String(selectedWallet.id) : "";
-        const selectedBalance = selectedWallet ? formatReais(selectedWallet.saldo) : "—";
+        const selectedBalance = selectedWallet ? formatMoney(selectedWallet.saldo) : "—";
         const balanceClass = selectedWallet ? (Number(selectedWallet.saldo) > 0 ? "amount--positive" : "amount--negative") : "";
         const walletOptions = `<option value=""${selectedWallet ? "" : " selected"}>Selecione um residente</option>` + wallets.map((wallet) => `<option value="${wallet.id}"${String(wallet.id) === selectedCanteenWalletId ? " selected" : ""}>${escapeHtml(wallet.residente_nome)}</option>`).join("");
-        const productSearchOptions = products.map((product) => `<option value="${escapeHtml(product.nome)} — ${escapeHtml(product.codigo_barras || "sem código")}">${escapeHtml(formatReais(product.valor))} — ${isCanteenService(product) ? "serviço sem estoque" : `estoque ${product.estoque_atual}`}</option>`).join("");
+        const productSearchOptions = products.map((product) => `<option value="${escapeHtml(product.nome)} — ${escapeHtml(product.codigo_barras || "sem código")}">${escapeHtml(formatMoney(product.valor))} — ${isCanteenService(product) ? "serviço sem estoque" : `estoque ${product.estoque_atual}`}</option>`).join("");
         const customer = `<section class="canteen-customer"><div class="field"><label for="canteen-wallet">Residente</label><select id="canteen-wallet" name="carteira_id" form="canteen-checkout-form" required>${walletOptions}</select></div><button class="canteen-resident-search-button" type="button" data-action="open-canteen-resident-search" aria-label="Pesquisar residente" title="Pesquisar residente">🔍</button><div class="canteen-balance"><span>Saldo da carteira</span><strong data-canteen-balance class="${balanceClass}">${selectedBalance}</strong></div></section>`;
         const scanner = `<section class="canteen-scanner"><h3>Leitor de código de barras</h3><form id="canteen-scan-form"><div class="field"><label for="canteen-barcode">Código</label><input id="canteen-barcode" name="codigo_barras" autocomplete="off" inputmode="numeric" placeholder="Leia o código e pressione Enter" autofocus required></div><p class="login-error" data-canteen-scan-error role="alert"></p><button class="button" type="submit">Adicionar código</button></form></section>`;
         const productSearch = `<section class="canteen-product-search"><h3>Pesquisa manual do produto</h3><div class="field"><label for="canteen-product-search">Produto</label><input id="canteen-product-search" type="search" list="canteen-product-options" autocomplete="off" placeholder="Nome ou código de barras"><datalist id="canteen-product-options">${productSearchOptions}</datalist></div><small>Selecione uma sugestão ou pressione Enter para adicionar ao cupom.</small></section>`;
-        const checkout = `<form class="canteen-checkout" id="canteen-checkout-form"><div class="canteen-checkout__details"><h3>Carrinho de compras</h3><div class="field"><label for="canteen-sale-date">Data</label><input id="canteen-sale-date" name="data_movimentacao" type="date" value="${new Date().toISOString().slice(0, 10)}" required></div></div><div data-canteen-cart>${emptyState("Carrinho vazio", "Leia um código de barras ou pesquise um produto.")}</div><div class="canteen-totals"><article><span>Total</span><strong data-canteen-total>${formatReais(0)}</strong></article><article><span>Saldo após compra</span><strong data-canteen-remaining>${selectedBalance}</strong></article></div><p class="login-error" data-canteen-error role="alert"></p><div class="report-actions"><button class="button button--secondary" type="button" data-action="canteen-cart-clear">Limpar</button><button class="button" id="canteen-checkout-button" type="submit" disabled>Finalizar compra</button></div></form>`;
+        const checkout = `<form class="canteen-checkout" id="canteen-checkout-form"><div class="canteen-checkout__details"><h3>Carrinho de compras</h3><div class="field"><label for="canteen-sale-date">Data</label><input id="canteen-sale-date" name="data_movimentacao" type="date" value="${localDate()}" required></div></div><div data-canteen-cart>${emptyState("Carrinho vazio", "Leia um código de barras ou pesquise um produto.")}</div><div class="canteen-totals"><article><span>Total</span><strong data-canteen-total>${formatMoney(0)}</strong></article><article><span>Saldo após compra</span><strong data-canteen-remaining>${selectedBalance}</strong></article></div><p class="login-error" data-canteen-error role="alert"></p><div class="report-actions"><button class="button button--secondary" type="button" data-action="canteen-cart-clear">Limpar</button><button class="button" id="canteen-checkout-button" type="submit" disabled>Finalizar compra</button></div></form>`;
         setTimeout(() => { refreshCanteenCart(); document.querySelector("#canteen-barcode")?.focus(); }, 0);
         return `${customer}<div class="canteen-entry">${scanner}${productSearch}</div>${checkout}`;
     }
@@ -986,7 +1021,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         const low = dados.filter((row) => Number(row.ativo) === 1 && !isCanteenService(row) && ["REPOR", "SEM ESTOQUE"].includes(row.situacao_estoque)).length;
         const units = dados.reduce((total, row) => total + Number(row.estoque_atual || 0), 0);
         const summary = `<div class="inventory-summary"><article><span>Produtos cadastrados</span><strong>${dados.length}</strong></article><article><span>Produtos ativos</span><strong>${active}</strong></article><article><span>Precisam de reposição</span><strong class="${low ? "amount--negative" : "amount--positive"}">${low}</strong></article><article><span>Unidades em estoque</span><strong>${units}</strong></article></div>`;
-        const table = renderActionTable(dados, [["Produto", "nome"], ["Código de barras", "codigo_barras"], ["Categoria", "categoria"], ["Unidade", "unidade_medida"], ["Preço", "valor_atual", formatReais], ["Estoque", "estoque_atual", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Mínimo", "estoque_minimo", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Reposição", "situacao_estoque", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Cadastro", "ativo", formatActive]], (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="product" data-id="${row.id}">Editar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="product-price" data-id="${row.id}">Preço</button>${isCanteenService(row) ? "" : `<button class="button" type="button" data-action="open-maintenance-form" data-kind="product-stock" data-id="${row.id}">Movimentar</button>`}<button class="button button--secondary" type="button" data-action="product-history" data-id="${row.id}">Histórico</button>`);
+        const table = renderActionTable(dados, [["Produto", "nome"], ["Código de barras", "codigo_barras"], ["Categoria", "categoria"], ["Unidade", "unidade_medida"], ["Preço", "valor_atual", formatMoney], ["Estoque", "estoque_atual", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Mínimo", "estoque_minimo", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Reposição", "situacao_estoque", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Cadastro", "ativo", formatActive]], (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="product" data-id="${row.id}">Editar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="product-price" data-id="${row.id}">Preço</button>${isCanteenService(row) ? "" : `<button class="button" type="button" data-action="open-maintenance-form" data-kind="product-stock" data-id="${row.id}">Movimentar</button>`}<button class="button button--secondary" type="button" data-action="product-history" data-id="${row.id}">Histórico</button>`);
         return `<div class="toolbar"><div></div><button class="button" type="button" data-action="open-new-product">Novo produto</button></div>${summary}<div class="products-report">${table}</div>`;
     }
 
@@ -997,7 +1032,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
 
     async function renderReceivables() {
         const { dados } = await api("/api/contas-receber");
-        return renderActionTable(dados, [["Internação", "internacao_id"], ["Parcela", "numero_parcela"], ["Tipo", "tipo"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Recebido", "total_recebido", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "situacao_temporal", valueOrStatus]], (row) => {
+        return renderActionTable(dados, [["Residente", "residente_nome"], ["Responsável", "responsavel_nome"], ["Internação", "internacao_id"], ["Parcela", "numero_parcela"], ["Tipo", "tipo"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Recebido", "total_recebido", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "situacao_temporal", valueOrStatus]], (row) => {
             const open = Number(row.saldo_restante) > 0 && !["PAGA", "DESCONTADA"].includes(row.status);
             return `${open ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento" data-id="${row.id}">Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto" data-id="${row.id}">Desconto</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`;
         });
@@ -1006,7 +1041,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
     function monthlyStatus(row) {
         if (row.status === "PARCIAL" || row.status === "DESCONTADA") return row.status;
         if (Number(row.saldo_restante) <= 0 || row.status === "PAGA") return "PAGA";
-        return String(row.data_vencimento) < new Date().toISOString().slice(0, 10) ? "VENCIDA" : "A VENCER";
+        return String(row.data_vencimento) < localDate() ? "VENCIDA" : "A VENCER";
     }
 
     function monthlyFeesContent(residentId = "", status = "") {
@@ -1018,7 +1053,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         const discounted = residentRows.filter((row) => monthlyStatus(row) === "DESCONTADA");
         const rows = status ? residentRows.filter((row) => monthlyStatus(row) === status) : residentRows;
         const totals = `<div class="metrics">${metric(`Pagas (${paid.length})`, paid.reduce((sum, row) => sum + Number(row.total_recebido || 0), 0), "success")}${metric(`A vencer (${upcoming.length})`, upcoming.reduce((sum, row) => sum + Number(row.saldo_restante || 0), 0), "primary")}${metric(`Vencidas (${overdue.length})`, overdue.reduce((sum, row) => sum + Number(row.saldo_restante || 0), 0), "danger")}${metric(`Parciais (${partial.length})`, partial.reduce((sum, row) => sum + Number(row.saldo_restante || 0), 0), "warning")}${metric(`Descontadas (${discounted.length})`, discounted.reduce((sum, row) => sum + Number(row.desconto || 0), 0), "primary")}</div>`;
-        const table = renderActionTable(rows, [["Residente", "residente_nome"], ["Modalidade", "modalidade"], ["Convênio", "convenio_nome"], ["Parcela", "numero_parcela"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor_devido", formatMoney], ["Recebido", "total_recebido", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "status", (_, row) => monthlyStatus(row)]], (row) => `${monthlyStatus(row) !== "PAGA" ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-id="${row.id}">Receber</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`);
+        const table = renderActionTable(rows, [["Residente", "residente_nome"], ["Modalidade", "modalidade"], ["Convênio", "convenio_nome"], ["Parcela", "numero_parcela"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor_devido", formatMoney], ["Recebido", "total_recebido", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "status", (_, row) => monthlyStatus(row)]], (row) => `${!["PAGA", "DESCONTADA"].includes(monthlyStatus(row)) ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-id="${row.id}">Receber</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`);
         return `${totals}<div class="monthly-report">${table}</div>`;
     }
 
@@ -1039,9 +1074,9 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
     function renderMonthlyResidentResults(value) {
         const target = document.querySelector("[data-monthly-resident-results]");
         if (!target) return;
-        const search = String(value || "").trim().toLocaleLowerCase("pt-BR");
+        const search = normalizeSearch(value);
         const residents = [...new Map(monthlyState.map((row) => [String(row.residente_id), row.residente_nome])).entries()]
-            .filter(([, name]) => String(name || "").toLocaleLowerCase("pt-BR").includes(search))
+            .filter(([, name]) => normalizeSearch(name).includes(search))
             .sort((a, b) => a[1].localeCompare(b[1], "pt-BR"));
         target.innerHTML = residents.length
             ? residents.map(([id, name]) => `<button class="resident-search-result" type="button" data-action="select-monthly-resident" data-id="${escapeHtml(id)}"><strong>${escapeHtml(name)}</strong><span>Selecionar</span></button>`).join("")
@@ -1087,7 +1122,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
     }
 
     async function renderReports() {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = localDate();
         const start = `${today.slice(0, 8)}01`;
         return `<div class="toolbar report-controls"><div class="toolbar__group"><div class="field"><label for="report-type">Relatório</label><select id="report-type"><option value="financeiro">Financeiro - fluxo de caixa</option><option value="despesas_setor">Despesas por setor</option><option value="internacoes">Internações</option><option value="residentes">Residentes</option><option value="cantina">Cantina - vendas</option><option value="carteiras">Carteiras</option><option value="estoque">Estoque da Cantina</option><option value="colaboradores">Colaboradores</option></select></div><div class="field"><label for="report-start">Data inicial</label><input id="report-start" type="date" value="${start}"></div><div class="field"><label for="report-end">Data final</label><input id="report-end" type="date" value="${today}"></div></div><div class="report-actions"><button class="button" type="button" data-action="apply-report">Visualizar</button><button class="button button--secondary" type="button" data-action="print-report">Imprimir A4</button></div></div><div data-report-results>${await renderInstitutionalReport("financeiro", start, today)}</div>`;
     }
@@ -1114,7 +1149,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
     function formatReportValue(value, format) {
         if (value === null || value === undefined || value === "") return "—";
         if (format === "centavos") return formatMoney(value);
-        if (format === "reais") return formatReais(value);
+        if (format === "reais") return formatMoney(value);
         if (format === "data") return formatDate(value);
         if (format === "data_hora") return formatDateTime(value);
         if (format === "cpf") return formatCpf(value);

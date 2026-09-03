@@ -16,10 +16,27 @@ def conectar():
 
 
 def criar_tabelas():
+    from src.infraestrutura.migracao_centavos import backup_antes_migracao, migrar
+    backup_antes_migracao(CAMINHO_BANCO)
 
     conexao = conectar()
     conexao.execute("PRAGMA foreign_keys = OFF")
     cursor = conexao.cursor()
+    cursor.execute("""CREATE TABLE IF NOT EXISTS recibos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, recebimento_id INTEGER NOT NULL UNIQUE,
+        dados TEXT NOT NULL, emitido_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+
+    cursor.execute("""CREATE TABLE IF NOT EXISTS estornos_financeiros (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tabela TEXT NOT NULL, lancamento_id INTEGER NOT NULL, origem_id INTEGER NOT NULL,
+        dados TEXT NOT NULL, motivo TEXT NOT NULL,
+        estornada_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(tabela,lancamento_id))""")
+    cursor.execute("""CREATE TABLE IF NOT EXISTS ajustes_cobrancas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, cobranca_id INTEGER NOT NULL,
+        valor_anterior INTEGER NOT NULL, valor_novo INTEGER NOT NULL,
+        desconto_anterior INTEGER NOT NULL, desconto_novo INTEGER NOT NULL,
+        motivo TEXT NOT NULL, criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
 
     # ============================================================
     # RESIDENTES
@@ -427,7 +444,7 @@ def criar_tabelas():
 
             item_id INTEGER NOT NULL,
 
-            valor REAL NOT NULL,
+            valor INTEGER NOT NULL,
 
             data_inicio_valor TEXT NOT NULL,
 
@@ -448,7 +465,7 @@ def criar_tabelas():
 
             residente_id INTEGER NOT NULL UNIQUE,
 
-            saldo REAL NOT NULL DEFAULT 0,
+            saldo INTEGER NOT NULL DEFAULT 0,
 
             ativo INTEGER NOT NULL DEFAULT 1,
 
@@ -466,7 +483,7 @@ def criar_tabelas():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             carteira_id INTEGER NOT NULL,
             data_movimentacao TEXT NOT NULL,
-            valor_total REAL NOT NULL,
+            valor_total INTEGER NOT NULL,
             status TEXT NOT NULL DEFAULT 'FINALIZADA'
                 CHECK (status IN ('FINALIZADA', 'ESTORNADA')),
             criada_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -483,8 +500,8 @@ def criar_tabelas():
             item_id INTEGER NOT NULL,
             item_valor_id INTEGER NOT NULL,
             quantidade INTEGER NOT NULL CHECK (quantidade > 0),
-            valor_unitario REAL NOT NULL,
-            valor_total REAL NOT NULL,
+            valor_unitario INTEGER NOT NULL,
+            valor_total INTEGER NOT NULL,
             FOREIGN KEY (venda_id) REFERENCES vendas_cantina (id),
             FOREIGN KEY (item_id) REFERENCES itens (id),
             FOREIGN KEY (item_valor_id) REFERENCES itens_valores (id)
@@ -509,7 +526,7 @@ def criar_tabelas():
 
             item_valor_id INTEGER,
 
-            valor_total REAL NOT NULL,
+            valor_total INTEGER NOT NULL,
 
             data_movimentacao TEXT NOT NULL,
             venda_id INTEGER,
@@ -551,7 +568,7 @@ def criar_tabelas():
             data_movimentacao TEXT NOT NULL,
             tipo TEXT NOT NULL DEFAULT 'AJUSTE',
             venda_id INTEGER,
-            custo_unitario REAL,
+            custo_unitario INTEGER,
             fornecedor TEXT,
             documento TEXT,
             lote TEXT,
@@ -565,7 +582,7 @@ def criar_tabelas():
     for nome_coluna, definicao in {
         "tipo": "TEXT NOT NULL DEFAULT 'AJUSTE'",
         "venda_id": "INTEGER",
-        "custo_unitario": "REAL",
+        "custo_unitario": "INTEGER",
         "fornecedor": "TEXT",
         "documento": "TEXT",
         "lote": "TEXT",
@@ -575,7 +592,13 @@ def criar_tabelas():
         if nome_coluna not in colunas_estoque:
             cursor.execute(f"ALTER TABLE movimentacoes_estoque ADD COLUMN {nome_coluna} {definicao}")
 
-    conexao.commit()
+    try:
+        migrar(conexao)
+        conexao.commit()
+    except Exception:
+        conexao.rollback()
+        conexao.close()
+        raise
     conexao.execute("PRAGMA foreign_keys = ON")
     conexao.close()
 

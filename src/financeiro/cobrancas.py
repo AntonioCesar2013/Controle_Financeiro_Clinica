@@ -21,10 +21,14 @@ def _competencias_diarias(inicio, fim, valor_diaria):
         cursor_data = final_competencia + timedelta(days=1)
 
 
-def ajustar_convenio_ao_encerrar(internacao_id, data_encerramento):
+def ajustar_convenio_ao_encerrar(internacao_id, data_encerramento, conexao=None,
+                               autorizar_ajuste_desconto=False):
     """Ajusta as diárias ainda não recebidas para os dias realmente utilizados."""
-    conexao = conectar()
+    propria = conexao is None
+    conexao = conexao or conectar()
     try:
+        if propria:
+            conexao.execute("BEGIN IMMEDIATE")
         internacao = conexao.execute(
             "SELECT data_acolhimento,modalidade,valor_diaria FROM internacoes WHERE id=?",
             (internacao_id,),
@@ -35,27 +39,51 @@ def ajustar_convenio_ao_encerrar(internacao_id, data_encerramento):
             date.fromisoformat(internacao[0]), date.fromisoformat(data_encerramento), internacao[2]
         )}
         cobrancas = conexao.execute(
-            """SELECT c.id,c.numero_parcela,EXISTS(SELECT 1 FROM recebimentos r WHERE r.cobranca_id=c.id)
+            """SELECT c.id,c.numero_parcela,c.valor,c.desconto,
+                      COALESCE((SELECT SUM(r.valor) FROM recebimentos r WHERE r.cobranca_id=c.id),0)
                FROM cobrancas c WHERE c.internacao_id=?""", (internacao_id,)
         ).fetchall()
-        for cobranca_id, numero, tem_recebimento in cobrancas:
-            if tem_recebimento:
-                continue
-            if numero not in competencias:
-                conexao.execute("DELETE FROM cobrancas WHERE id=?", (cobranca_id,))
-            else:
-                vencimento, valor = competencias[numero]
-                conexao.execute(
-                    "UPDATE cobrancas SET data_vencimento=?,valor=? WHERE id=?",
-                    (vencimento, valor, cobranca_id),
+        for cobranca_id, numero, valor_anterior, desconto, recebido in cobrancas:
+            vencimento, valor = competencias.get(numero, (data_encerramento, 0))
+            if recebido > valor:
+                raise ValueError(
+                    f"Cobrança {cobranca_id}: recebido R$ {recebido / 100:.2f}, "
+                    f"mas o valor após encerramento é R$ {valor / 100:.2f}. "
+                    "Faça o acerto dos recebimentos antes de encerrar. Nenhuma alteração foi salva."
                 )
+            novo_desconto = min(desconto, valor - recebido)
+            if novo_desconto != desconto and not autorizar_ajuste_desconto:
+                raise ValueError(
+                    f"Cobrança {cobranca_id}: o desconto deverá passar de R$ {desconto / 100:.2f} "
+                    f"para R$ {novo_desconto / 100:.2f}. Marque a autorização de ajuste "
+                    "dos descontos para concluir. Nenhuma alteração foi salva."
+                )
+            if valor != valor_anterior or novo_desconto != desconto:
+                conexao.execute(
+                    """INSERT INTO ajustes_cobrancas(cobranca_id,valor_anterior,valor_novo,
+                       desconto_anterior,desconto_novo,motivo) VALUES(?,?,?,?,?,?)""",
+                    (cobranca_id, valor_anterior, valor, desconto, novo_desconto,
+                     f"Encerramento de convênio em {data_encerramento}"),
+                )
+            devido = valor - novo_desconto
+            status = "DESCONTADA" if devido == 0 else "PAGA" if recebido == devido else "PARCIAL" if recebido else "ABERTA"
+            conexao.execute(
+                "UPDATE cobrancas SET data_vencimento=?,valor=?,desconto=?,status=? WHERE id=?",
+                (vencimento, valor, novo_desconto, status, cobranca_id),
+            )
         total = conexao.execute(
             "SELECT COALESCE(SUM(valor),0) FROM cobrancas WHERE internacao_id=?", (internacao_id,)
         ).fetchone()[0]
         conexao.execute("UPDATE internacoes SET valor_contrato=? WHERE id=?", (total, internacao_id))
-        conexao.commit()
+        if propria:
+            conexao.commit()
+    except Exception:
+        if propria:
+            conexao.rollback()
+        raise
     finally:
-        conexao.close()
+        if propria:
+            conexao.close()
 
 
 def gerar_cobrancas(internacao_id, conexao=None):
@@ -116,8 +144,9 @@ def gerar_cobrancas(internacao_id, conexao=None):
         for numero, final_competencia, valor in _competencias_diarias(inicio, fim, valor_diaria):
             cursor.execute(
                 """INSERT INTO cobrancas(internacao_id,numero_parcela,tipo,data_vencimento,valor,desconto,status)
-                   VALUES(?,?,?,?,?,0,'ABERTA')""",
-                (internacao_id, numero, "MENSALIDADE", final_competencia.isoformat(), valor),
+                   VALUES(?,?,?,?,?,0,?)""",
+                (internacao_id, numero, "MENSALIDADE", final_competencia.isoformat(), valor,
+                 "ABERTA" if valor else "DESCONTADA"),
             )
             total += valor
             quantidade += 1
@@ -146,7 +175,7 @@ def gerar_cobrancas(internacao_id, conexao=None):
         data_acolhimento,
         valor_acolhimento,
         0,
-        "ABERTA"
+        "ABERTA" if valor_acolhimento else "DESCONTADA"
     ))
 
     # Mensalidades
@@ -174,7 +203,7 @@ def gerar_cobrancas(internacao_id, conexao=None):
             data_vencimento.isoformat(),
             valor_mensalidade,
             0,
-            "ABERTA"
+            "ABERTA" if valor_mensalidade else "DESCONTADA"
         ))
 
     if conexao_propria:
@@ -206,6 +235,7 @@ def buscar_cobranca(cobranca_id, data_referencia=None):
 def aplicar_desconto(cobranca_id, valor_desconto):
     conexao = conectar()
     cursor = conexao.cursor()
+    cursor.execute("BEGIN IMMEDIATE")
 
     cobranca = cursor.execute("""
         SELECT

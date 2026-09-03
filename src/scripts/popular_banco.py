@@ -19,6 +19,7 @@ from src.cadastros.internacoes import sincronizar_status_residentes
 
 
 TABELAS_LIMPEZA = (
+    "recibos", "estornos_financeiros", "ajustes_cobrancas",
     "auditoria", "recebimentos", "cobrancas", "vendas_cantina_itens",
     "movimentacoes_carteira", "movimentacoes_estoque", "vendas_cantina",
     "carteiras", "itens_valores", "itens", "pagamentos_saida", "contas_pagar",
@@ -152,41 +153,41 @@ def _popular_cantina(conexao):
     )
     conexao.executemany(
         "INSERT INTO itens_valores(item_id,valor,data_inicio_valor,ativo) VALUES(?,?,?,?)",
-        [(1, 4.00, "2026-08-01", 1), (2, 7.50, "2026-08-01", 1),
-         (3, 18.00, "2026-08-01", 1), (4, 25.00, "2026-08-01", 1),
-         (5, 3.00, "2026-08-01", 1), (2, 6.50, "2026-07-01", 0)],
+        [(1, 400, "2026-08-01", 1), (2, 750, "2026-08-01", 1),
+         (3, 1800, "2026-08-01", 1), (4, 2500, "2026-08-01", 1),
+         (5, 300, "2026-08-01", 1), (2, 650, "2026-07-01", 0)],
     )
     conexao.executemany("INSERT INTO carteiras(residente_id,saldo,ativo) VALUES(?,?,1)",
-                        [(1, 72.50), (2, -25.00), (3, 150.00), (4, 0.00)])
+                        [(1, 7250), (2, -2500), (3, 15000), (4, 0)])
     conexao.executemany(
         "INSERT INTO vendas_cantina(carteira_id,data_movimentacao,valor_total,status) VALUES(?,?,?,'FINALIZADA')",
-        [(1, "2026-09-01", 11.50), (2, "2026-09-01", 25.00)],
+        [(1, "2026-09-01", 1150), (2, "2026-09-01", 2500)],
     )
     conexao.executemany(
         "INSERT INTO vendas_cantina_itens(venda_id,item_id,item_valor_id,quantidade,valor_unitario,valor_total) VALUES(?,?,?,?,?,?)",
-        [(1, 1, 1, 1, 4.00, 4.00), (1, 2, 2, 1, 7.50, 7.50), (2, 4, 4, 1, 25.00, 25.00)],
+        [(1, 1, 1, 1, 400, 400), (1, 2, 2, 1, 750, 750), (2, 4, 4, 1, 2500, 2500)],
     )
     conexao.executemany(
         """INSERT INTO movimentacoes_carteira(
                carteira_id,tipo,item_id,quantidade,item_valor_id,valor_total,data_movimentacao,venda_id)
            VALUES(?,?,?,?,?,?,?,?)""",
-        [(1, "CREDITO", None, 1, None, 84.00, "2026-08-30", None),
-         (1, "COMPRA", 1, 1, 1, -4.00, "2026-09-01", 1),
-         (1, "COMPRA", 2, 1, 2, -7.50, "2026-09-01", 1),
-         (2, "COMPRA", 4, 1, 4, -25.00, "2026-09-01", 2),
-         (3, "CREDITO", None, 1, None, 150.00, "2026-08-31", None)],
+        [(1, "CREDITO", None, 1, None, 8400, "2026-08-30", None),
+         (1, "COMPRA_CANTINA", 1, 1, 1, 400, "2026-09-01", 1),
+         (1, "COMPRA_CANTINA", 2, 1, 2, 750, "2026-09-01", 1),
+         (2, "COMPRA_CANTINA", 4, 1, 4, 2500, "2026-09-01", 2),
+         (3, "CREDITO", None, 1, None, 15000, "2026-08-31", None)],
     )
     conexao.executemany(
         """INSERT INTO movimentacoes_estoque(
                item_id,quantidade_anterior,quantidade_movimentada,quantidade_atual,motivo,
                data_movimentacao,tipo,venda_id,custo_unitario,fornecedor,documento,lote,data_validade)
            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        [(1, 0, 25, 25, "Estoque inicial fictício", "2026-08-01", "ENTRADA", None, 2.00, "Fornecedor Exemplo", "NF-001", "A01", "2027-01-31"),
+        [(1, 0, 25, 25, "Estoque inicial fictício", "2026-08-01", "ENTRADA", None, 200, "Fornecedor Exemplo", "NF-001", "A01", "2027-01-31"),
          (1, 25, -1, 24, "Venda Cantina #1", "2026-09-01", "VENDA", 1, None, None, None, None, None),
          (1, 24, -2, 22, "Ajuste por avaria", "2026-09-01", "SAIDA", None, None, None, None, None, None),
-         (2, 0, 15, 15, "Estoque inicial fictício", "2026-08-01", "ENTRADA", None, 4.00, "Fornecedor Exemplo", "NF-002", "C01", "2027-03-31"),
+         (2, 0, 15, 15, "Estoque inicial fictício", "2026-08-01", "ENTRADA", None, 400, "Fornecedor Exemplo", "NF-002", "C01", "2027-03-31"),
          (2, 15, -1, 14, "Venda Cantina #1", "2026-09-01", "VENDA", 1, None, None, None, None, None),
-         (3, 0, 8, 8, "Estoque inicial fictício", "2026-08-01", "ENTRADA", None, 10.00, "Fornecedor Exemplo", "NF-003", "H01", "2028-01-31")],
+         (3, 0, 8, 8, "Estoque inicial fictício", "2026-08-01", "ENTRADA", None, 1000, "Fornecedor Exemplo", "NF-003", "H01", "2028-01-31")],
     )
 
 

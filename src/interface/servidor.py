@@ -20,8 +20,13 @@ from src.cadastros import convenios
 from src.financeiro import despesas
 from src.cantina import produtos as itens
 from src.interface import relatorios
+from src.interface import extrato_residente
+from src.financeiro import recibos
 from src.financeiro import pagamentos
 from src.financeiro import recebimentos
+from src.financeiro.moeda import reais_para_centavos
+from src.financeiro.estornos import historico, historico_ajustes
+from src.cadastros.internacoes import cancelar_agendamento
 from src.infraestrutura import sincronizacao_nuvem
 from src.infraestrutura.banco import criar_tabelas
 from src.infraestrutura.backup_banco import criar_backup_diario
@@ -59,7 +64,7 @@ def _parametro(query, nome, padrao=None):
 
 def _centavos(valor):
     try:
-        return round(float(valor or 0) * 100)
+        return reais_para_centavos(valor)
     except (TypeError, ValueError) as erro:
         raise ValueError("Valor financeiro inválido.") from erro
 
@@ -144,9 +149,28 @@ class Requisicao(BaseHTTPRequestHandler):
         # TESTES: reative estas duas linhas para proteger novamente as rotas POST.
         # if self._sessao() is None:
         #     return self._json({"erro": "Sessão não autenticada."}, HTTPStatus.UNAUTHORIZED)
+        campos_monetarios = {
+            "/api/itens": ["valor"], "/api/itens/precos": ["valor"],
+            "/api/itens/estoque": ["custo_unitario"], "/api/carteiras": ["saldo_inicial"],
+            "/api/carteiras/credito": ["valor"], "/api/carteiras/movimentacoes/corrigir": ["valor"],
+        }
+        try:
+            dados = dict(dados)
+            for campo in campos_monetarios.get(rota, []):
+                if campo == "custo_unitario" and dados.get(campo) in (None, ""):
+                    dados[campo] = None
+                else:
+                    dados[campo] = _centavos(dados.get(campo))
+        except (TypeError, ValueError) as erro:
+            return self._json({"sucesso": False, "erro": str(erro)}, HTTPStatus.BAD_REQUEST)
         if rota == "/api/residentes":
             resultado = cadastrar_residente(dados.get("nome"), dados.get("cpf"), dados.get("cidade_origem"))
             return self._json(resultado, HTTPStatus.CREATED if resultado.get("sucesso") else HTTPStatus.BAD_REQUEST)
+        if rota == "/api/recibos":
+            try:
+                return self._json({"sucesso": True, "dados": recibos.gerar(dados.get("recebimento_id"))})
+            except ValueError as erro:
+                return self._json({"sucesso": False, "erro": str(erro)}, HTTPStatus.BAD_REQUEST)
         if rota == "/api/responsaveis":
             resultado = cadastrar_responsavel(dados.get("nome"), dados.get("cpf"), dados.get("telefone"), dados.get("email"))
             return self._json(resultado, HTTPStatus.CREATED if resultado.get("sucesso") else HTTPStatus.BAD_REQUEST)
@@ -206,8 +230,10 @@ class Requisicao(BaseHTTPRequestHandler):
             return self._resultado_operacao(editar_residente(dados.get("id"), dados.get("nome"), dados.get("cpf"), dados.get("cidade_origem")), criado=False)
         if rota == "/api/responsaveis/editar":
             return self._resultado_operacao(editar_responsavel(dados.get("id"), dados.get("nome"), dados.get("cpf"), dados.get("telefone"), dados.get("email"), dados.get("ativo", 1)), criado=False)
+        if rota == "/api/internacoes/cancelar":
+            return self._resultado_operacao(cancelar_agendamento(dados.get("id"), dados.get("motivo")))
         if rota == "/api/internacoes/encerrar":
-            return self._resultado_operacao(encerrar_internacao(dados.get("id"), dados.get("data_encerramento"), dados.get("motivo")), criado=False)
+            return self._resultado_operacao(encerrar_internacao(dados.get("id"), dados.get("data_encerramento"), dados.get("motivo"), str(dados.get("autorizar_ajuste_desconto", "")).lower() in ("1", "true")), criado=False)
         if rota == "/api/internacoes/responsavel":
             return self._resultado_operacao(alterar_responsavel_principal(dados.get("id"), dados.get("responsavel_id")), criado=False)
         if rota == "/api/itens/editar":
@@ -224,7 +250,7 @@ class Requisicao(BaseHTTPRequestHandler):
             ))
         if rota == "/api/itens/precos":
             try:
-                resultado = itens.cadastrar_valor_item(dados.get("item_id"), float(dados.get("valor")), dados.get("data_inicio_valor"))
+                resultado = itens.cadastrar_valor_item(dados.get("item_id"), dados.get("valor"), dados.get("data_inicio_valor"))
             except (TypeError, ValueError) as erro:
                 resultado = {"sucesso": False, "erro": "Preço inválido."}
             return self._resultado_operacao(resultado)
@@ -273,9 +299,9 @@ class Requisicao(BaseHTTPRequestHandler):
         if rota == "/api/contas-pagar/cancelar":
             return self._resultado_operacao(contas_pagar.cancelar_conta(dados.get("conta_id")), criado=False)
         if rota == "/api/pagamentos-saida/excluir":
-            return self._resultado_operacao(pagamentos.excluir_pagamento(dados.get("pagamento_id")), criado=False)
+            return self._resultado_operacao(pagamentos.excluir_pagamento(dados.get("pagamento_id"), dados.get("motivo")), criado=False)
         if rota == "/api/recebimentos/excluir":
-            return self._resultado_operacao(recebimentos.excluir_recebimento(dados.get("recebimento_id")), criado=False)
+            return self._resultado_operacao(recebimentos.excluir_recebimento(dados.get("recebimento_id"), dados.get("motivo")), criado=False)
         if rota == "/api/despesas/desativar":
             return self._resultado_operacao(despesas.desativar_despesa(dados.get("id")), criado=False)
         return self._json({"erro": "Rota não encontrada."}, HTTPStatus.NOT_FOUND)
@@ -286,6 +312,8 @@ class Requisicao(BaseHTTPRequestHandler):
         rotas = {
             "/api/dashboard": _dashboard,
             "/api/residentes": listar_residentes,
+            "/api/residentes/extrato": lambda: extrato_residente.consultar(_parametro(query, "id"), inicio, fim),
+            "/api/recibos": lambda: recibos.consultar(_parametro(query, "id")),
             "/api/responsaveis": listar_responsaveis,
             "/api/internacoes": listar_internacoes,
             "/api/convenios": lambda: convenios.listar_convenios(False),
@@ -307,8 +335,9 @@ class Requisicao(BaseHTTPRequestHandler):
             "/api/caixa": lambda: {**caixa.resumo_caixa(inicio, fim), "movimentacoes": caixa.listar_movimentacoes(inicio, fim)},
             "/api/despesas": lambda: despesas.listar_despesas(apenas_ativas=False),
             "/api/financeiro/cadastros": lambda: {"setores": despesas.listar_setores(False), "despesas": despesas.listar_despesas(False)},
-            "/api/contas-pagar/pagamentos": lambda: pagamentos.listar_pagamentos(_parametro(query, "id")),
-            "/api/contas-receber/recebimentos": lambda: recebimentos.buscar_pagamentos(_parametro(query, "id")),
+            "/api/contas-pagar/pagamentos": lambda: historico("pagamentos_saida", _parametro(query, "id"), pagamentos.listar_pagamentos(_parametro(query, "id"))),
+            "/api/contas-receber/recebimentos": lambda: historico("recebimentos", _parametro(query, "id"), recebimentos.buscar_pagamentos(_parametro(query, "id"))),
+            "/api/cobrancas/ajustes": lambda: historico_ajustes(_parametro(query, "id")),
             "/api/configuracoes": configuracoes_financeiras.obter_configuracao,
             "/api/sincronizacao/status": sincronizacao_nuvem.obter_status,
             "/api/relatorios": lambda: relatorios.gerar(_parametro(query, "tipo", "financeiro"), inicio, fim),

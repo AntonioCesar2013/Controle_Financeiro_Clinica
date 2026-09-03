@@ -1,3 +1,7 @@
+export function localDate(now = new Date()) {
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 export function formatMoney(value) {
@@ -8,8 +12,8 @@ export function formatReais(value) {
     return currency.format(Number(value || 0));
 }
 
-export function formatOptionalReais(value) {
-    return value === null || value === undefined || value === "" ? "—" : formatReais(value);
+export function formatOptionalMoney(value) {
+    return value === null || value === undefined || value === "" ? "—" : formatMoney(value);
 }
 
 export function formatDate(value) {

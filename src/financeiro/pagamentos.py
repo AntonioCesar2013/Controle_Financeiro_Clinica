@@ -271,6 +271,7 @@ def registrar_pagamento(
     conn = _nova_conexao()
 
     try:
+        conn.execute("BEGIN IMMEDIATE")
 
         # ----------------------------------------------------
         # BUSCAR CONTA
@@ -569,7 +570,7 @@ def buscar_pagamento(pagamento_id):
 # EXCLUIR PAGAMENTO
 # ============================================================
 
-def excluir_pagamento(pagamento_id):
+def excluir_pagamento(pagamento_id, motivo=None):
     """
     Exclui um pagamento.
 
@@ -579,6 +580,7 @@ def excluir_pagamento(pagamento_id):
     conn = _nova_conexao()
 
     try:
+        conn.execute("BEGIN IMMEDIATE")
 
         cursor = conn.execute(
             """
@@ -621,6 +623,8 @@ def excluir_pagamento(pagamento_id):
                 )
             }
 
+        from src.financeiro.estornos import preservar
+        preservar(conn, "pagamentos_saida", pagamento_id, motivo)
         conn.execute(
             """
             DELETE FROM pagamentos_saida

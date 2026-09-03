@@ -85,8 +85,8 @@ recarregadas com `python -m src.popular_entradas_reais`.
 ## Cantina
 
 A Cantina funciona como um mercadinho interno. Cada venda usa o preço vigente
-do item e desconta imediatamente o total da carteira do residente. O sistema
-impede compras sem saldo e mantém no histórico o produto, a quantidade e o
+do item e desconta imediatamente o total da carteira do residente. O operador pode autorizar compras mesmo sem saldo suficiente. Saldos negativos
+serão cobrados posteriormente dos responsáveis. O sistema mantém no histórico o produto, a quantidade e o
 preço utilizado na operação.
 
 O caixa aceita leitores de código de barras configurados no modo teclado: basta
@@ -161,6 +161,63 @@ O módulo Carteiras permite criar a carteira de um residente ativo, adicionar e
 corrigir créditos, consultar créditos e compras separadamente, estornar uma
 compra com devolução do saldo e do estoque e ativar ou inativar a carteira.
 Movimentações estornadas permanecem no histórico para auditoria.
+
+Recebimentos e pagamentos estornados também preservam o lançamento original,
+data e motivo em um arquivo de histórico no próprio banco, sem entrar nos totais
+efetivos. A consulta de histórico mostra os lançamentos efetivos e estornados.
+
+No cadastro particular, o valor do contrato é calculado pelo acolhimento mais
+as mensalidades do período. Internações agendadas podem ser canceladas enquanto
+o acolhimento for futuro, desde que seus recebimentos tenham sido acertados.
+Encerramentos efetivos não aceitam datas futuras.
+
+No encerramento de convênio, valores e status das cobranças são recalculados na
+mesma transação. Reduzir um desconto que ultrapasse o novo saldo exige marcar a
+autorização na tela; o histórico da cobrança preserva os valores anteriores.
+Recebimentos acima do valor ajustado exigem acerto antes do encerramento.
+
+O relatório de despesas por setor apresenta o previsto pela data de vencimento
+(sem contas canceladas) e o pago pela data efetiva de pagamento. Assim, os dois
+totais podem se referir a conjuntos diferentes de contas.
+
+Os testes automatizados usam bancos descartáveis, sem alterar os dados locais:
+`python -m unittest discover -s tests -v`. Para testar a data local do frontend:
+`node tests/datas.mjs`.
+Para validar a composição dos recibos e das tabelas: `node tests/documentos.mjs`.
+
+## Buscas, extrato e recibos
+
+As tabelas com ações permitem buscar por nome, CPF ou descrição, sem diferenciar
+acentos, e filtrar por situação e intervalo de datas quando aplicável. Esses
+filtros afetam a tabela; os indicadores gerais permanecem identificados à parte.
+
+Em **Residentes → Extrato**, consulte cobranças, recebimentos e carteira do
+residente. O período filtra cobranças pelo vencimento e recebimentos/carteira
+pela data da movimentação. Os saldos são recalculados conforme a situação atual
+dos lançamentos, inclusive os estornos. O extrato completo do período pode ser
+impresso ou salvo em PDF pelo diálogo de impressão.
+
+Em **Mensalidades → Histórico → Gerar recibo**, ou pelos recebimentos do extrato,
+emita o recibo de um pagamento efetivo. Pagamentos parciais também têm recibo,
+limitado ao valor recebido. A numeração é persistente: gerar novamente o recibo
+do mesmo recebimento recupera o mesmo número e os dados da emissão original.
+Estornar o recebimento invalida o recibo no sistema. Impressões já entregues
+não são alteradas retroativamente.
+
+## Valores monetários em centavos
+
+Todos os valores internos, incluindo preços, carteiras e custos de estoque,
+são inteiros em centavos: `12550` representa R$ 125,50. As telas recebem reais
+com duas casas decimais; a API converte a entrada com Decimal, usando
+arredondamento de meio centavo para cima. As respostas monetárias usam centavos.
+Funções Python de negócio também esperam centavos; quantidades não são valores
+monetários. A cantina continua permitindo saldo negativo.
+
+Na primeira inicialização de um banco antigo, o sistema cria um backup
+`dados/backups/clinica_*_antes_centavos.db`, converte as colunas antigas `REAL`
+para `INTEGER` e preserva IDs, históricos e saldos negativos. A migração é
+transacional e não multiplica valores novamente nas inicializações seguintes.
+Feche instâncias antigas do sistema antes de iniciar a versão atualizada.
 
 As telas de cadastro permitem editar residentes e responsáveis, alterar o
 responsável principal ou encerrar uma internação antecipadamente, editar

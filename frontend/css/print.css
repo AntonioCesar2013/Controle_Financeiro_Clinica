@@ -3,6 +3,17 @@
 @page { size: A4 portrait; margin: 12mm; }
 
 @media print {
+    body:has(#document-print-target) > :not(#document-print-target) { display: none !important; }
+    #document-print-target { display: block !important; }
+    #document-print-target .resident-document { padding: 0; }
+    #document-print-target .table-filters, #document-print-target [data-filter-count], #document-print-target button { display: none !important; }
+    #document-print-target table { width: 100%; font-size: 9pt; border-collapse: collapse; }
+    #document-print-target th, #document-print-target td { padding: 5px; border-bottom: 1px solid #ddd; }
+    #document-print-target tr, #document-print-target .receipt-signature { break-inside: avoid; }
+    #document-print-target thead { display: table-header-group; }
+    #document-print-target .table-wrap { overflow: visible; }
+    #document-print-target .filterable th:last-child, #document-print-target .filterable td:last-child { display: none; }
+    #document-print-target .receipt { max-width: none; }
     body { background: #fff !important; }
     .panel-layer--menu, .panel__header, .report-controls, .panel-backdrop { display: none !important; }
     .panel-layer--main, .panel-layer--main .panel, #app:has(.panel-layer--menu .panel) .panel-layer--main .panel { position: static !important; width: auto !important; height: auto !important; max-height: none !important; margin: 0 !important; border: 0 !important; box-shadow: none !important; overflow: visible !important; }
@@ -16,4 +27,3 @@
     .print-report__summary article { break-inside: avoid; }
     .print-report__footer { break-inside: avoid; }
 }
-

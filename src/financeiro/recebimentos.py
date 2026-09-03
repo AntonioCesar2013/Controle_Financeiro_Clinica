@@ -1,6 +1,7 @@
 import sqlite3
+from datetime import date
 
-from src.infraestrutura.banco import CAMINHO_BANCO
+from src.infraestrutura.banco import conectar
 
 from src.financeiro.regras_financeiras import (
     calcular_saldo_restante,
@@ -15,11 +16,19 @@ def registrar_pagamento(
     forma_pagamento=None,
     observacao=None
 ):
+    try:
+        if date.fromisoformat(data_pagamento).isoformat() != data_pagamento:
+            raise ValueError
+    except (TypeError, ValueError):
+        return {"sucesso": False, "erro": "Data de recebimento inválida. Use YYYY-MM-DD."}
+    if isinstance(valor, bool) or not isinstance(valor, int) or valor <= 0:
+        return {"sucesso": False, "erro": "Informe um valor positivo em centavos inteiros."}
     forma_pagamento = str(forma_pagamento or "PIX").strip().upper() or "PIX"
-    conexao = sqlite3.connect(CAMINHO_BANCO)
+    conexao = conectar()
     conexao.row_factory = sqlite3.Row
 
     cursor = conexao.cursor()
+    cursor.execute("BEGIN IMMEDIATE")
 
     # Busca a cobrança
     cursor.execute(
@@ -99,7 +108,7 @@ def registrar_pagamento(
             "sucesso": False,
             "erro": (
                 f"Pagamento excede o valor restante da cobrança. "
-                f"Restante: R$ {restante}"
+                f"Restante: R$ {restante / 100:.2f}"
             )
         }
 
@@ -162,7 +171,7 @@ def registrar_pagamento(
 
 
 def buscar_pagamentos(cobranca_id):
-    conexao = sqlite3.connect(CAMINHO_BANCO)
+    conexao = conectar()
     conexao.row_factory = sqlite3.Row
 
     cursor = conexao.cursor()
@@ -175,7 +184,8 @@ def buscar_pagamentos(cobranca_id):
             data_recebimento,
             valor,
             forma_recebimento,
-            observacao
+            observacao,
+            (SELECT tipo FROM cobrancas WHERE id=recebimentos.cobranca_id) AS tipo
         FROM recebimentos
         WHERE cobranca_id = ?
         ORDER BY data_recebimento, id
@@ -191,7 +201,7 @@ def buscar_pagamentos(cobranca_id):
 
 
 def buscar_recebimento(recebimento_id):
-    conexao = sqlite3.connect(CAMINHO_BANCO)
+    conexao = conectar()
     conexao.row_factory = sqlite3.Row
 
     try:
@@ -227,12 +237,13 @@ def buscar_recebimento(recebimento_id):
         conexao.close()
 
 
-def excluir_recebimento(recebimento_id):
-    conexao = sqlite3.connect(CAMINHO_BANCO)
+def excluir_recebimento(recebimento_id, motivo=None):
+    conexao = conectar()
     conexao.row_factory = sqlite3.Row
 
     try:
         cursor = conexao.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
         cursor.execute(
             """
             SELECT
@@ -275,6 +286,8 @@ def excluir_recebimento(recebimento_id):
                 "erro": "Cobrança relacionada não encontrada."
             }
 
+        from src.financeiro.estornos import preservar
+        preservar(conexao, "recebimentos", recebimento_id, motivo)
         cursor.execute(
             """
             DELETE FROM recebimentos
@@ -341,7 +354,7 @@ def excluir_recebimento(recebimento_id):
 
 
 def resumo_cobranca(cobranca_id):
-    conexao = sqlite3.connect(CAMINHO_BANCO)
+    conexao = conectar()
     conexao.row_factory = sqlite3.Row
 
     cursor = conexao.cursor()
