@@ -5,6 +5,9 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 # Commit e envio para o GitHub
 & "C:\Projetos\Controle_Financeiro_Clinica\commit.ps1"
 
+# Baixar e integrar a ultima versao do projeto
+git -C "C:\Projetos\Controle_Financeiro_Clinica" pull --ff-only origin main
+
 
 # Criacao ou atualizacao da estrutura do banco de dados
 python "C:\Projetos\Controle_Financeiro_Clinica\src\banco.py"
