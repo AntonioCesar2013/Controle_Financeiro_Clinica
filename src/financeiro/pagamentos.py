@@ -94,6 +94,7 @@ def _buscar_conta(conn, conta_pagar_id):
             cp.despesa_id,
             cp.data_vencimento,
             cp.valor,
+            cp.desconto,
             cp.status
         FROM contas_pagar cp
         WHERE cp.id = ?
@@ -160,6 +161,7 @@ def _atualizar_status(conn, conta_pagar_id):
         }
 
     valor_conta = conta["valor"]
+    valor_devido = valor_conta - conta["desconto"]
     status_atual = conta["status"]
 
     total_pago = _total_pago(
@@ -168,7 +170,7 @@ def _atualizar_status(conn, conta_pagar_id):
     )
 
     restante = max(
-        valor_conta - total_pago,
+        valor_devido - total_pago,
         0
     )
 
@@ -184,7 +186,7 @@ def _atualizar_status(conn, conta_pagar_id):
     if total_pago == 0:
         novo_status = "ABERTA"
 
-    elif total_pago < valor_conta:
+    elif total_pago < valor_devido:
         novo_status = "PARCIAL"
 
     else:
@@ -219,7 +221,8 @@ def registrar_pagamento(
     data_pagamento,
     valor,
     forma_pagamento=None,
-    observacao=None
+    observacao=None,
+    valor_desconto=0,
 ):
     """
     Registra um pagamento de saída.
@@ -251,6 +254,13 @@ def registrar_pagamento(
             "sucesso": False,
             "erro": str(erro)
         }
+
+    try:
+        valor_desconto = int(valor_desconto)
+        if valor_desconto < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        return {"sucesso": False, "erro": "O desconto deve ser um valor válido."}
 
     # --------------------------------------------------------
     # VALIDAR DATA
@@ -289,6 +299,7 @@ def registrar_pagamento(
             }
 
         valor_conta = conta["valor"]
+        desconto_atual = conta["desconto"]
         status_conta = conta["status"]
 
         # ----------------------------------------------------
@@ -310,7 +321,7 @@ def registrar_pagamento(
             conta_pagar_id
         )
 
-        restante = valor_conta - total_pago
+        restante = valor_conta - desconto_atual - total_pago
 
         # ----------------------------------------------------
         # CONTA JÁ PAGA
@@ -326,12 +337,20 @@ def registrar_pagamento(
         # PAGAMENTO ACIMA DO RESTANTE
         # ----------------------------------------------------
 
-        if valor > restante:
+        if valor_desconto > restante:
+            return {
+                "sucesso": False,
+                "erro": f"O desconto excede o saldo restante. Restante: R$ {restante / 100:.2f}",
+            }
+
+        restante_apos_desconto = restante - valor_desconto
+
+        if valor > restante_apos_desconto:
             return {
                 "sucesso": False,
                 "erro": (
                     "Pagamento excede o valor restante da conta. "
-                    f"Restante: R$ {restante / 100:.2f}"
+                    f"Restante após desconto: R$ {restante_apos_desconto / 100:.2f}"
                 )
             }
 
@@ -365,6 +384,9 @@ def registrar_pagamento(
 
         pagamento_id = cursor.lastrowid
 
+        novo_desconto = desconto_atual + valor_desconto
+        conn.execute("UPDATE contas_pagar SET desconto=? WHERE id=?", (novo_desconto, conta_pagar_id))
+
         # ----------------------------------------------------
         # ATUALIZAR STATUS
         # ----------------------------------------------------
@@ -382,6 +404,7 @@ def registrar_pagamento(
             "conta_pagar_id": conta_pagar_id,
             "data_pagamento": data_pagamento,
             "valor": valor,
+            "desconto": novo_desconto,
             "forma_pagamento": forma_pagamento,
             "total_pago": status["total_pago"],
             "restante": status["restante"],
@@ -440,7 +463,8 @@ def resumo_conta(conta_pagar_id):
         return {
             "sucesso": True,
             "conta_pagar_id": conta_pagar_id,
-            "valor_conta": valor_conta,
+        "valor_conta": valor_conta,
+        "valor_devido": valor_devido,
             "total_pago": total_pago,
             "restante": restante,
             "status": conta["status"]

@@ -326,6 +326,8 @@ def _preparar_schema_legado():
 
             valor INTEGER NOT NULL,
 
+            desconto INTEGER NOT NULL DEFAULT 0,
+
             status TEXT NOT NULL DEFAULT 'ABERTA',
 
             FOREIGN KEY (despesa_id)

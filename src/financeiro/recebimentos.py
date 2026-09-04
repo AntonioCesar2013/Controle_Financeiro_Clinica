@@ -14,7 +14,8 @@ def registrar_pagamento(
     data_pagamento,
     valor,
     forma_pagamento=None,
-    observacao=None
+    observacao=None,
+    valor_desconto=0,
 ):
     try:
         if date.fromisoformat(data_pagamento).isoformat() != data_pagamento:
@@ -23,6 +24,8 @@ def registrar_pagamento(
         return {"sucesso": False, "erro": "Data de recebimento inválida. Use YYYY-MM-DD."}
     if isinstance(valor, bool) or not isinstance(valor, int) or valor <= 0:
         return {"sucesso": False, "erro": "Informe um valor positivo em centavos inteiros."}
+    if isinstance(valor_desconto, bool) or not isinstance(valor_desconto, int) or valor_desconto < 0:
+        return {"sucesso": False, "erro": "Informe um desconto válido em centavos inteiros."}
     forma_pagamento = str(forma_pagamento or "PIX").strip().upper() or "PIX"
     conexao = conectar()
     conexao.row_factory = sqlite3.Row
@@ -93,6 +96,15 @@ def registrar_pagamento(
     # Calcula quanto ainda falta
     restante = calcular_saldo_restante(valor_devido, total_pago)
 
+    if valor_desconto > restante:
+        conexao.close()
+        return {
+            "sucesso": False,
+            "erro": f"O desconto excede o saldo restante. Restante: R$ {restante / 100:.2f}",
+        }
+
+    restante_apos_desconto = restante - valor_desconto
+
     if valor <= 0:
         conexao.close()
 
@@ -101,14 +113,14 @@ def registrar_pagamento(
             "erro": "O valor do pagamento deve ser maior que zero."
         }
 
-    if valor > restante:
+    if valor > restante_apos_desconto:
         conexao.close()
 
         return {
             "sucesso": False,
             "erro": (
                 f"Pagamento excede o valor restante da cobrança. "
-                f"Restante: R$ {restante / 100:.2f}"
+                f"Restante após desconto: R$ {restante_apos_desconto / 100:.2f}"
             )
         }
 
@@ -137,9 +149,11 @@ def registrar_pagamento(
 
     # Novo total pago
     novo_total_pago = total_pago + valor
+    novo_desconto = desconto + valor_desconto
+    novo_valor_devido = valor_cobranca - novo_desconto
 
     # Atualiza o status da cobrança
-    if novo_total_pago == valor_devido:
+    if novo_total_pago == novo_valor_devido:
         novo_status = "PAGA"
     else:
         novo_status = "PARCIAL"
@@ -147,11 +161,12 @@ def registrar_pagamento(
     cursor.execute(
         """
         UPDATE cobrancas
-        SET status = ?
+        SET status = ?, desconto = ?
         WHERE id = ?
         """,
         (
             novo_status,
+            novo_desconto,
             cobranca_id
         )
     )
@@ -164,8 +179,9 @@ def registrar_pagamento(
         "id": pagamento_id,
         "cobranca_id": cobranca_id,
         "valor": valor,
+        "desconto": novo_desconto,
         "total_pago": novo_total_pago,
-        "restante": valor_devido - novo_total_pago,
+        "restante": novo_valor_devido - novo_total_pago,
         "status": novo_status
     }
 

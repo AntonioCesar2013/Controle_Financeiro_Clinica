@@ -40,6 +40,17 @@
     color: var(--color-text);
 }
 
+.financial-receipt-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 15px;
+}
+
+.financial-receipt-grid input[readonly] {
+    background: var(--color-surface-muted);
+    font-weight: 700;
+}
+
 .field input:focus,
 .field select:focus,
 .field textarea:focus {

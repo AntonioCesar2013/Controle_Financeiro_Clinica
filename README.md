@@ -90,7 +90,11 @@ python -m src.popular_banco
 ```
 
 Esse comando cria um backup do banco atual, remove os dados existentes e popula
-todas as tabelas com um cenário fictício completo. O acesso de demonstração é
+todas as tabelas com um cenário fictício determinístico de março a agosto de
+2026. Cada mês contém pelo menos 30 movimentações de caixa, além de vendas da
+Cantina, pagamentos parciais, descontos e casos de inadimplência. Setembro fica
+preparado com cobranças abertas para testes. O próprio populador valida essas
+garantias antes de confirmar a transação. O acesso de demonstração é
 CPF `90000000001` e senha `admin1234`. Não execute o populador fictício sobre
 uma instalação em produção sem a intenção de substituir seus dados.
 

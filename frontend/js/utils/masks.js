@@ -31,8 +31,17 @@ export function maskPhone(value) {
     return number.replace(/^(\d{2})(\d{5})(\d{4})/, "($1) $2-$3");
 }
 
+export function maskCurrency(value) {
+    const number = String(value ?? "").replace(/\D/g, "") || "0";
+    return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(number) / 100);
+}
+
+export function currencyValue(value) {
+    return Number(String(value ?? "").replace(/\D/g, "") || 0) / 100;
+}
+
 export function applyInputMask(input) {
-    const formatters = { cpf: maskCpf, document: maskDocument, phone: maskPhone };
+    const formatters = { cpf: maskCpf, document: maskDocument, phone: maskPhone, currency: maskCurrency };
     const formatter = formatters[input?.dataset?.mask];
     if (!formatter) return;
     input.value = formatter(input.value);

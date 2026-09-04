@@ -10,7 +10,7 @@ from unittest.mock import patch
 from src.infraestrutura import banco
 from src.cadastros import internacoes
 from src.cantina import vendas, produtos
-from src.financeiro import cobrancas, recebimentos, pagamentos, contas_receber, caixa
+from src.financeiro import cobrancas, recebimentos, pagamentos, contas_receber, contas_pagar, caixa
 from src.financeiro.estornos import historico
 from src.interface import relatorios
 
@@ -129,6 +129,21 @@ class Regressoes(unittest.TestCase):
         self.assertEqual(rel("09")["total_pago"], 10000)
         self.assertEqual(rel("09")["total_previsto"], 0)
 
+    def test_pagamento_com_desconto_atualiza_conta_na_mesma_operacao(self):
+        conta_id = self.conta()
+        resultado = pagamentos.registrar_pagamento(
+            conta_id, self.hoje, 3000, "PIX", valor_desconto=2000,
+        )
+        self.assertTrue(resultado["sucesso"], resultado)
+        self.assertEqual(resultado["restante"], 5000)
+        self.assertEqual(caixa.resumo_caixa()["total_saidas"], 3000)
+        self.assertEqual(
+            self.sql("SELECT desconto,status FROM contas_pagar WHERE id=?", (conta_id,))[0],
+            (2000, "PARCIAL"),
+        )
+        consolidada = next(item for item in contas_pagar.listar_contas() if item["id"] == conta_id)
+        self.assertEqual((consolidada["total_pago"], consolidada["restante"]), (3000, 5000))
+
     def test_estornos_preservam_lancamentos_e_recalculam_caixa(self):
         _, iid = self.internar()
         cid = self.sql("SELECT id FROM cobrancas WHERE internacao_id=?", (iid,))[0][0]
@@ -179,6 +194,27 @@ class Regressoes(unittest.TestCase):
             resultados = list(pool.map(lambda _: recebimentos.registrar_pagamento(cid, self.hoje, 10000), range(2)))
         self.assertEqual(sum(r["sucesso"] for r in resultados), 1)
         self.assertEqual(self.sql("SELECT SUM(valor) FROM recebimentos")[0][0], 10000)
+
+    def test_recebimento_com_desconto_atualiza_cobranca_na_mesma_operacao(self):
+        _, iid = self.internar()
+        cid = self.sql(
+            "SELECT id FROM cobrancas WHERE internacao_id=? AND tipo='MENSALIDADE' ORDER BY id",
+            (iid,),
+        )[0][0]
+        resultado = recebimentos.registrar_pagamento(
+            cid, self.hoje, 10000, "PIX", valor_desconto=5000,
+        )
+        self.assertTrue(resultado["sucesso"], resultado)
+        self.assertEqual(resultado["restante"], 15000)
+        self.assertEqual(
+            self.sql("SELECT desconto,status FROM cobrancas WHERE id=?", (cid,))[0],
+            (5000, "PARCIAL"),
+        )
+        recusado = recebimentos.registrar_pagamento(
+            cid, self.hoje, 15001, "PIX", valor_desconto=0,
+        )
+        self.assertFalse(recusado["sucesso"])
+        self.assertEqual(self.sql("SELECT COUNT(*) FROM recebimentos WHERE cobranca_id=?", (cid,))[0][0], 1)
 
     def test_rotas_de_recebimento_estorno_e_ajustes(self):
         from src.interface.servidor import Requisicao
@@ -312,6 +348,19 @@ class Regressoes(unittest.TestCase):
         banco.criar_tabelas()
         self.assertEqual(self.sql("SELECT saldo FROM carteiras")[0][0], -1234)
         self.assertEqual(len(list((banco.CAMINHO_BANCO.parent/'backups').glob('*antes_centavos.db'))), 1)
+
+    def test_populador_ficticio_garante_seis_meses_com_volume_e_inadimplencia(self):
+        from src.scripts import popular_banco
+
+        with patch("builtins.print"):
+            popular_banco.popular_banco(fazer_backup=False)
+        with closing(banco.conectar()) as conn:
+            linhas, inadimplencias = popular_banco._validar(conn)
+            self.assertEqual(len(linhas), 6)
+            self.assertTrue(all(linha[1] >= 30 for linha in linhas))
+            self.assertGreaterEqual(inadimplencias, 5)
+            self.assertEqual(conn.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM vendas_cantina").fetchone()[0], 72)
 
 
 if __name__ == "__main__":

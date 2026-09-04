@@ -10,8 +10,17 @@ def _validar_schema(conexao):
             raise RuntimeError(f"Tabela financeira ausente: {tabela}")
 
 
+def _adicionar_desconto_contas_pagar(conexao):
+    colunas = {linha[1] for linha in conexao.execute("PRAGMA table_info(contas_pagar)")}
+    if "desconto" not in colunas:
+        conexao.execute("ALTER TABLE contas_pagar ADD COLUMN desconto INTEGER NOT NULL DEFAULT 0")
+
+
 def preparar_banco(conexao):
-    aplicar_migracoes(conexao, (Migracao("financeiro", 1, _validar_schema),))
+    aplicar_migracoes(conexao, (
+        Migracao("financeiro", 1, _validar_schema),
+        Migracao("financeiro", 2, _adicionar_desconto_contas_pagar),
+    ))
 
 
 MODULO = Modulo(

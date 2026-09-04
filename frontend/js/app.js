@@ -29,7 +29,7 @@ import {
     valueOrDash,
     valueOrStatus,
 } from "./utils/formatters.js";
-import { applyInputMask, applyInputMasks } from "./utils/masks.js";
+import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js";
 
 
     const app = document.querySelector("#app");
@@ -40,7 +40,6 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
     let selectedCanteenWalletId = "";
     let selectedWalletId = "";
     let walletResidents = [];
-    let monthlyState = [];
 
     const api = createApi({
         onUnauthorized: (message) => showLogin(false, message),
@@ -139,8 +138,6 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         if (action === "canteen-cart-clear") clearCanteenCart();
         if (action === "open-canteen-resident-search") openCanteenResidentSearch();
         if (action === "select-canteen-resident") selectCanteenResident(trigger.dataset.id);
-        if (action === "open-monthly-resident-search") openMonthlyResidentSearch();
-        if (action === "select-monthly-resident") selectMonthlyResident(trigger.dataset.id);
         if (action === "cloud-publish") runCloudCommand("/api/sincronizacao/publicar", "Publicar a versão atual na pasta do Google Drive?");
         if (action === "cloud-update") runCloudCommand("/api/sincronizacao/atualizar", "Atualizar a cópia local com a versão mais recente?");
         if (action === "canteen-sale-reversal") runMaintenanceCommand("/api/cantina/vendas/estornar", { venda_id: trigger.dataset.id, motivo: "Venda estornada no caixa" }, "Estornar o cupom inteiro? O saldo e o estoque serão devolvidos.", "cantina");
@@ -168,7 +165,6 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         if (event.target.matches("#wallet-resident")) refreshWalletDetail(event.target);
         if (event.target.matches("#canteen-wallet")) refreshCanteenCart();
         if (event.target.matches("#canteen-product-search")) addSearchedCanteenProduct(event.target);
-        if (event.target.matches("#monthly-resident, #monthly-status")) refreshMonthlyFees();
         if (event.target.matches("#internment-modality")) updateInternmentMode(event.target.value);
     }
 
@@ -178,7 +174,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         if (event.target.matches("#internment-period, #internment-welcome, #internment-monthly")) updateContractTotal();
         if (event.target.matches("input[data-mask]")) applyInputMask(event.target);
         if (event.target.matches("#canteen-resident-lookup")) renderCanteenResidentResults(event.target.value);
-        if (event.target.matches("#monthly-resident-lookup")) renderMonthlyResidentResults(event.target.value);
+        if (event.target.matches(".settlement-form [name=valor], .settlement-form [name=desconto]")) updateSettlementRemaining(event.target.form);
     }
 
     function handleKeydown(event) {
@@ -431,11 +427,15 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
             const today = localDate();
             const needsRegistrations = ["despesa", "conta", "editar_setor"].includes(kind);
             const registrations = needsRegistrations ? (await api("/api/financeiro/cadastros")).dados : null;
+            const isReceipt = ["recebimento", "recebimento_mensalidade"].includes(kind);
+            const isSettlement = isReceipt || kind === "pagamento";
+            const settlement = isSettlement ? (await api(`/${isReceipt ? "api/contas-receber" : "api/contas-pagar"}/detalhe?id=${encodeURIComponent(id)}`)).dados : null;
+            if (isSettlement && (!settlement || settlement.sucesso === false)) throw new Error(settlement?.erro || "Conta não encontrada.");
             const definitions = {
                 setor: ["Novo setor", "/api/setores", "despesas", '<div class="field"><label for="financial-name">Nome</label><input id="financial-name" name="nome" required></div>'],
-                pagamento: ["Registrar pagamento", "/api/pagamentos-saida", "contas_pagar", `<input type="hidden" name="conta_pagar_id" value="${escapeHtml(id)}"><div class="field"><label for="financial-date">Data</label><input id="financial-date" name="data_pagamento" type="date" value="${today}" required></div>${moneyField("Valor pago")} ${paymentFields()}`],
-                recebimento: ["Registrar recebimento", "/api/recebimentos", "contas_receber", `<input type="hidden" name="cobranca_id" value="${escapeHtml(id)}"><div class="field"><label for="financial-date">Data</label><input id="financial-date" name="data_pagamento" type="date" value="${today}" required></div>${moneyField("Valor recebido")} ${paymentFields()}`],
-                recebimento_mensalidade: ["Receber mensalidade", "/api/recebimentos", "mensalidades", `<input type="hidden" name="cobranca_id" value="${escapeHtml(id)}"><div class="field"><label for="financial-date">Data</label><input id="financial-date" name="data_pagamento" type="date" value="${today}" required></div>${moneyField("Valor recebido")} ${paymentFields()}`],
+                pagamento: kind === "pagamento" ? ["Registrar pagamento", "/api/pagamentos-saida", "contas_pagar", settlementFields(id, today, settlement, false)] : null,
+                recebimento: kind === "recebimento" ? ["Registrar recebimento", "/api/recebimentos", "contas_receber", settlementFields(id, today, settlement, true)] : null,
+                recebimento_mensalidade: kind === "recebimento_mensalidade" ? ["Registrar recebimento", "/api/recebimentos", "mensalidades", settlementFields(id, today, settlement, true)] : null,
                 desconto: ["Aplicar desconto", "/api/cobrancas/desconto", "contas_receber", `<input type="hidden" name="cobranca_id" value="${escapeHtml(id)}">${moneyField("Valor do desconto")}`],
             };
 
@@ -465,7 +465,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
             const definition = definitions[kind];
             if (!definition) return;
             const [title, endpoint, refresh, fields] = definition;
-            const body = `<form class="login-form financial-form" data-endpoint="${endpoint}" data-refresh="${refresh}" data-kind="${kind}">${fields}<p class="login-error" data-financial-error role="alert"></p><button class="button" type="submit">Salvar</button></form>`;
+            const body = `<form class="login-form financial-form${isSettlement ? " settlement-form" : ""}" data-endpoint="${endpoint}" data-refresh="${refresh}" data-kind="${kind}">${fields}<p class="login-error" data-financial-error role="alert"></p><button class="button" type="submit">Salvar</button></form>`;
             layers.auxiliary.replaceChildren(createPanel({ title, eyebrow: "Financeiro", body, size: "medium" }));
             requestAnimationFrame(() => layers.auxiliary.querySelector("input:not([type=hidden]), select")?.focus());
         } catch (error) { showAlert("Não foi possível abrir", error.message); }
@@ -479,6 +479,28 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         return '<div class="field"><label for="financial-method">Forma</label><select id="financial-method" name="forma_pagamento"><option value="PIX">PIX</option><option value="DINHEIRO">Dinheiro</option><option value="CARTAO">Cartão</option><option value="TRANSFERENCIA">Transferência</option><option value="BOLETO">Boleto</option></select></div><div class="field"><label for="financial-note">Observação</label><textarea id="financial-note" name="observacao" rows="3"></textarea></div>';
     }
 
+    function settlementFields(id, today, record, isReceipt) {
+        const totalPaid = isReceipt ? record.total_recebido : record.total_pago;
+        const remainingCents = isReceipt ? record.saldo_restante : record.restante;
+        const remaining = (Number(remainingCents || 0) / 100).toFixed(2);
+        const hiddenName = isReceipt ? "cobranca_id" : "conta_pagar_id";
+        const action = isReceipt ? "recebido" : "pago";
+        const pending = isReceipt ? "receber" : "pagar";
+        return `<input type="hidden" name="${hiddenName}" value="${escapeHtml(id)}"><div class="financial-receipt-grid" data-remaining="${remaining}"><div class="field"><label for="receipt-due-date">Data de vencimento</label><input id="receipt-due-date" type="date" value="${escapeHtml(record.data_vencimento)}" readonly></div><div class="field"><label for="financial-date">Data de pagamento</label><input id="financial-date" name="data_pagamento" type="date" value="${today}" required></div><div class="field"><label for="receipt-total">Valor total</label><input id="receipt-total" type="text" value="${escapeHtml(formatMoney(record.valor))}" readonly></div><div class="field"><label for="receipt-paid">Valor pago parcial</label><input id="receipt-paid" type="text" value="${escapeHtml(formatMoney(totalPaid))}" readonly></div><div class="field"><label for="financial-value">Valor ${action}</label><input id="financial-value" name="valor" type="text" inputmode="numeric" data-mask="currency" value="R$ 0,00" required></div><div class="field"><label for="financial-method">Forma de pagamento</label><select id="financial-method" name="forma_pagamento"><option value="PIX">PIX</option><option value="DINHEIRO">Dinheiro</option><option value="CARTAO">Cartão</option><option value="TRANSFERENCIA">Transferência</option><option value="BOLETO">Boleto</option></select></div><div class="field"><label for="financial-discount">Valor do desconto</label><input id="financial-discount" name="desconto" type="text" inputmode="numeric" data-mask="currency" value="R$ 0,00"></div><div class="field"><label for="receipt-remaining">Ainda falta ${pending}</label><input id="receipt-remaining" type="text" value="${escapeHtml(formatMoney(remainingCents))}" readonly data-receipt-remaining></div></div><div class="field"><label for="financial-note">Observação</label><textarea id="financial-note" name="observacao" rows="3"></textarea></div>`;
+    }
+
+    function updateSettlementRemaining(form) {
+        if (!form) return;
+        const initial = Number(form.querySelector("[data-remaining]")?.dataset.remaining || 0);
+        const received = currencyValue(form.elements.valor.value);
+        const discount = currencyValue(form.elements.desconto.value);
+        const remaining = initial - received - discount;
+        form.querySelector("[data-receipt-remaining]").value = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Math.max(0, remaining));
+        const message = remaining < 0 ? "O valor e o desconto não podem ultrapassar o saldo restante." : "";
+        form.elements.valor.setCustomValidity(message);
+        form.elements.desconto.setCustomValidity(message);
+    }
+
     function selectOptions(items) {
         return items.map((item) => `<option value="${item.id}">${escapeHtml(item.nome)}</option>`).join("");
     }
@@ -487,6 +509,15 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         const data = Object.fromEntries(new FormData(form));
         if (form.dataset.kind === "despesa" && !data.recorrente) data.recorrente = "0";
         const errorElement = form.querySelector("[data-financial-error]");
+        if (form.classList.contains("settlement-form") && currencyValue(data.valor) <= 0) {
+            errorElement.textContent = "Informe um valor maior que zero.";
+            form.elements.valor.focus();
+            return;
+        }
+        if (form.classList.contains("settlement-form")) {
+            data.valor = currencyValue(data.valor).toFixed(2);
+            data.desconto = currencyValue(data.desconto).toFixed(2);
+        }
         setFormBusy(form, true);
         try {
             await api(form.dataset.endpoint, { method: "POST", body: data });
@@ -1027,9 +1058,9 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
 
     async function renderReceivables() {
         const { dados } = await api("/api/contas-receber");
-        return renderActionTable(dados, [["Residente", "residente_nome"], ["Responsável", "responsavel_nome"], ["Internação", "internacao_id"], ["Parcela", "numero_parcela"], ["Tipo", "tipo"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Recebido", "total_recebido", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "situacao_temporal", valueOrStatus]], (row) => {
+        return renderActionTable(dados, [["Residente", "residente_nome"], ["Responsável", "responsavel_nome"], ["Tipo", "tipo"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Recebido", "total_recebido", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "situacao_temporal", valueOrStatus]], (row) => {
             const open = Number(row.saldo_restante) > 0 && !["PAGA", "DESCONTADA"].includes(row.status);
-            return `${open ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento" data-id="${row.id}">Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto" data-id="${row.id}">Desconto</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`;
+            return `${open ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento" data-id="${row.id}">Receber</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`;
         });
     }
 
@@ -1039,65 +1070,22 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         return String(row.data_vencimento) < localDate() ? "VENCIDA" : "A VENCER";
     }
 
-    function monthlyFeesContent(residentId = "", status = "") {
-        const residentRows = residentId ? monthlyState.filter((row) => String(row.residente_id) === String(residentId)) : monthlyState;
-        const paid = residentRows.filter((row) => monthlyStatus(row) === "PAGA");
-        const overdue = residentRows.filter((row) => monthlyStatus(row) === "VENCIDA");
-        const upcoming = residentRows.filter((row) => monthlyStatus(row) === "A VENCER");
-        const partial = residentRows.filter((row) => monthlyStatus(row) === "PARCIAL");
-        const discounted = residentRows.filter((row) => monthlyStatus(row) === "DESCONTADA");
-        const rows = status ? residentRows.filter((row) => monthlyStatus(row) === status) : residentRows;
-        const totals = `<div class="metrics">${metric(`Pagas (${paid.length})`, paid.reduce((sum, row) => sum + Number(row.total_recebido || 0), 0), "success")}${metric(`A vencer (${upcoming.length})`, upcoming.reduce((sum, row) => sum + Number(row.saldo_restante || 0), 0), "primary")}${metric(`Vencidas (${overdue.length})`, overdue.reduce((sum, row) => sum + Number(row.saldo_restante || 0), 0), "danger")}${metric(`Parciais (${partial.length})`, partial.reduce((sum, row) => sum + Number(row.saldo_restante || 0), 0), "warning")}${metric(`Descontadas (${discounted.length})`, discounted.reduce((sum, row) => sum + Number(row.desconto || 0), 0), "primary")}</div>`;
-        const table = renderActionTable(rows, [["Residente", "residente_nome"], ["Modalidade", "modalidade"], ["Convênio", "convenio_nome"], ["Parcela", "numero_parcela"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor_devido", formatMoney], ["Recebido", "total_recebido", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "status", (_, row) => monthlyStatus(row)]], (row) => `${!["PAGA", "DESCONTADA"].includes(monthlyStatus(row)) ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-id="${row.id}">Receber</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`);
-        return `${totals}<div class="monthly-report">${table}</div>`;
-    }
-
-    function refreshMonthlyFees() {
-        const target = document.querySelector("[data-monthly-results]");
-        const residentId = document.querySelector("#monthly-resident")?.value || "";
-        const status = document.querySelector("#monthly-status")?.value || "";
-        if (target) target.innerHTML = monthlyFeesContent(residentId, status);
-    }
-
-    function openMonthlyResidentSearch() {
-        const body = `<div class="field"><label for="monthly-resident-lookup">Pesquisar residente</label><input id="monthly-resident-lookup" type="search" autocomplete="off" placeholder="Digite o nome do residente" autofocus></div><div class="resident-search-results" data-monthly-resident-results></div>`;
-        layers.auxiliary.replaceChildren(createPanel({ id: "monthly-resident-search", title: "Pesquisar residente", eyebrow: "Mensalidades", body, size: "medium" }));
-        renderMonthlyResidentResults("");
-        setTimeout(() => document.querySelector("#monthly-resident-lookup")?.focus(), 0);
-    }
-
-    function renderMonthlyResidentResults(value) {
-        const target = document.querySelector("[data-monthly-resident-results]");
-        if (!target) return;
-        const search = normalizeSearch(value);
-        const residents = [...new Map(monthlyState.map((row) => [String(row.residente_id), row.residente_nome])).entries()]
-            .filter(([, name]) => normalizeSearch(name).includes(search))
-            .sort((a, b) => a[1].localeCompare(b[1], "pt-BR"));
-        target.innerHTML = residents.length
-            ? residents.map(([id, name]) => `<button class="resident-search-result" type="button" data-action="select-monthly-resident" data-id="${escapeHtml(id)}"><strong>${escapeHtml(name)}</strong><span>Selecionar</span></button>`).join("")
-            : emptyState("Residente não encontrado", "Revise o nome informado.");
-    }
-
-    function selectMonthlyResident(residentId) {
-        const select = document.querySelector("#monthly-resident");
-        if (!select) return;
-        select.value = String(residentId);
-        closeLayer("auxiliary");
-        refreshMonthlyFees();
+    function monthlyFeesContent(rows) {
+        const table = renderActionTable(rows, [["Residente", "residente_nome"], ["Modalidade", "modalidade"], ["Convênio", "convenio_nome"], ["Parcela", "numero_parcela"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor_devido", formatMoney], ["Recebido", "total_recebido", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "status", (_, row) => monthlyStatus(row)]], (row) => `${!["PAGA", "DESCONTADA"].includes(monthlyStatus(row)) ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-id="${row.id}">Receber</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`, {
+            allStatusesLabel: "Todas as mensalidades",
+            statuses: [["A VENCER", "A pagar"], ["PAGA", "Pagas"], ["VENCIDA", "Vencidas"], ["DESCONTADA", "Descontadas"], ["PARCIAL", "Parcialmente pagas"]],
+        });
+        return `<div class="monthly-report">${table}</div>`;
     }
 
     async function renderMonthlyFees() {
         const { dados } = await api("/api/mensalidades");
-        monthlyState = dados || [];
-        const residents = [...new Map(monthlyState.map((row) => [String(row.residente_id), row.residente_nome])).entries()]
-            .sort((a, b) => a[1].localeCompare(b[1], "pt-BR"));
-        const options = residents.map(([id, name]) => `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`).join("");
-        return `<div class="monthly-controls"><div class="field"><label for="monthly-resident">Residente</label><select id="monthly-resident"><option value="">Todos os residentes</option>${options}</select></div><button class="monthly-search-button" type="button" data-action="open-monthly-resident-search" aria-label="Pesquisar residente" title="Pesquisar residente">🔍</button><div class="field"><label for="monthly-status">Situação</label><select id="monthly-status"><option value="">Todas as mensalidades</option><option value="A VENCER">A pagar</option><option value="PAGA">Pagas</option><option value="VENCIDA">Vencidas</option><option value="DESCONTADA">Descontadas</option><option value="PARCIAL">Parcialmente pagas</option></select></div></div><div data-monthly-results>${monthlyFeesContent()}</div>`;
+        return monthlyFeesContent(dados || []);
     }
 
     async function renderPayables() {
         const { dados } = await api("/api/contas-pagar");
-        const table = renderActionTable(dados, [["Descrição", "despesa_descricao"], ["Setor", "setor_nome"], ["Natureza", "natureza"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor", formatMoney], ["Pago", "total_pago", formatMoney], ["Restante", "restante", formatMoney], ["Status", "status"]], (row) => {
+        const table = renderActionTable(dados, [["Descrição", "despesa_descricao"], ["Setor", "setor_nome"], ["Natureza", "natureza"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Pago", "total_pago", formatMoney], ["Restante", "restante", formatMoney], ["Status", "status"]], (row) => {
             const open = Number(row.restante) > 0 && !["PAGA", "CANCELADA"].includes(row.status);
             return `${open ? `<button class="button" type="button" data-action="open-financial-form" data-kind="pagamento" data-id="${row.id}">Pagar</button><button class="button button--danger" type="button" data-action="cancel-payable" data-id="${row.id}">Cancelar</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="saida" data-id="${row.id}">Histórico</button>`;
         });

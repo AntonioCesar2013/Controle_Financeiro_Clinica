@@ -32,9 +32,6 @@
 .resident-search-result span { color: var(--color-text-muted); font-size: .8rem; }
 .resident-search-result span.amount--positive { color: var(--color-success); }
 .resident-search-result span.amount--negative { color: var(--color-danger); }
-.monthly-controls { display: grid; grid-template-columns: minmax(320px, 1fr) 42px minmax(220px, 34%); gap: 10px; margin-bottom: 18px; align-items: end; }
-.monthly-search-button { display: grid; width: 42px; height: 40px; padding: 0; place-items: center; border: 1px solid var(--color-action); border-radius: 8px; background: var(--color-action); color: #fff; font-size: 1.05rem; }
-.monthly-search-button:hover, .monthly-search-button:focus-visible { border-color: var(--color-action-dark); background: var(--color-action-dark); }
 .monthly-report table { min-width: 0; table-layout: auto; font-size: .76rem; }
 .monthly-report th, .monthly-report td { padding: 9px 10px; white-space: normal; line-height: 1.35; }
 .monthly-report th:nth-child(1) { min-width: 130px; }
@@ -60,8 +57,11 @@
 .report-actions { display: flex; gap: 8px; align-items: end; }
 /* Consultas e documentos financeiros. */
 .table-filters, .document-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 16px 0; }
+.table-filters { width: 100%; }
+.table-filters > label:first-child { flex: 1 1 320px; }
+.table-filters > label:not(:first-child) { flex: 1 1 150px; }
 .table-filters label, .document-controls label { display: grid; gap: 6px; font-size: .85rem; }
-.table-filters input, .table-filters select, .document-controls input { padding: 9px; border: 1px solid #cbd5e1; border-radius: 6px; }
+.table-filters input, .table-filters select, .document-controls input { width: 100%; min-width: 0; padding: 9px; border: 1px solid #cbd5e1; border-radius: 6px; }
 .filterable [hidden] { display: none !important; }
 .filterable [data-filter-count] { font-size: .8rem; color: #475569; }
 .resident-document { background: white; color: #172033; padding: 24px; }

@@ -281,13 +281,21 @@ class Requisicao(BaseHTTPRequestHandler):
             return self._resultado_operacao(resultado)
         if rota == "/api/pagamentos-saida":
             try:
-                resultado = pagamentos.registrar_pagamento(dados.get("conta_pagar_id"), dados.get("data_pagamento"), _centavos(dados.get("valor")), dados.get("forma_pagamento"), dados.get("observacao"))
+                resultado = pagamentos.registrar_pagamento(
+                    dados.get("conta_pagar_id"), dados.get("data_pagamento"),
+                    _centavos(dados.get("valor")), dados.get("forma_pagamento"),
+                    dados.get("observacao"), _centavos(dados.get("desconto") or 0),
+                )
             except ValueError as erro:
                 resultado = {"sucesso": False, "erro": str(erro)}
             return self._resultado_operacao(resultado)
         if rota == "/api/recebimentos":
             try:
-                resultado = recebimentos.registrar_pagamento(dados.get("cobranca_id"), dados.get("data_pagamento"), _centavos(dados.get("valor")), dados.get("forma_pagamento"), dados.get("observacao"))
+                resultado = recebimentos.registrar_pagamento(
+                    dados.get("cobranca_id"), dados.get("data_pagamento"),
+                    _centavos(dados.get("valor")), dados.get("forma_pagamento"),
+                    dados.get("observacao"), _centavos(dados.get("desconto") or 0),
+                )
             except (TypeError, ValueError) as erro:
                 resultado = {"sucesso": False, "erro": str(erro)}
             return self._resultado_operacao(resultado)

@@ -148,6 +148,7 @@ def buscar_conta(conta_id):
 
                 c.data_vencimento,
                 c.valor,
+                c.desconto,
                 c.status
 
             FROM contas_pagar c
@@ -184,7 +185,8 @@ def buscar_conta(conta_id):
 
             "data_vencimento": resultado[7],
             "valor": resultado[8],
-            "status": resultado[9],
+            "desconto": resultado[9],
+            "status": resultado[10],
         }
 
     finally:
@@ -228,7 +230,9 @@ def listar_contas(
 
                 c.data_vencimento,
                 c.valor,
-                c.status
+                c.desconto,
+                c.status,
+                COALESCE((SELECT SUM(p.valor) FROM pagamentos_saida p WHERE p.conta_pagar_id=c.id), 0)
 
             FROM contas_pagar c
 
@@ -297,7 +301,11 @@ def listar_contas(
                 "recorrente": linha[5],
                 "data_vencimento": linha[6],
                 "valor": linha[7],
-                "status": linha[8],
+                "desconto": linha[8],
+                "status": linha[9],
+                "valor_devido": linha[7] - linha[8],
+                "total_pago": linha[10],
+                "restante": linha[7] - linha[8] - linha[10],
             }
             for linha in resultados
         ]
@@ -327,7 +335,7 @@ def calcular_total_pago(conta_id):
         # --------------------------------------------------------
 
         cursor.execute("""
-            SELECT id, valor, status
+            SELECT id, valor, desconto, status
             FROM contas_pagar
             WHERE id = ?
         """, (conta_id,))
@@ -353,16 +361,20 @@ def calcular_total_pago(conta_id):
         total_pago = cursor.fetchone()[0]
 
         valor_conta = conta[1]
+        desconto = conta[2]
+        valor_devido = valor_conta - desconto
 
-        restante = valor_conta - total_pago
+        restante = valor_devido - total_pago
 
         return {
             "sucesso": True,
             "conta_id": conta_id,
             "valor_conta": valor_conta,
+            "valor_devido": valor_devido,
+            "desconto": desconto,
             "total_pago": total_pago,
             "restante": restante,
-            "status": conta[2]
+            "status": conta[3]
         }
 
     finally:
