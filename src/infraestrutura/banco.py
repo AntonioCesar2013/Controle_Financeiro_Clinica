@@ -15,7 +15,7 @@ def conectar():
     return conexao
 
 
-def criar_tabelas():
+def _preparar_schema_legado():
     from src.infraestrutura.migracao_centavos import backup_antes_migracao, migrar
     backup_antes_migracao(CAMINHO_BANCO)
 
@@ -601,6 +601,24 @@ def criar_tabelas():
         raise
     conexao.execute("PRAGMA foreign_keys = ON")
     conexao.close()
+
+
+def criar_tabelas():
+    """Prepara o banco único e coordena as migrações dos módulos.
+
+    O bootstrap legado continua idempotente para aceitar todas as versões antigas
+    do banco. Novas evoluções devem ser declaradas pelo módulo responsável.
+    """
+    from src.nucleo.modulos import preparar_modulos
+
+    _preparar_schema_legado()
+    conexao = conectar()
+    try:
+        with conexao:
+            conexao.execute("BEGIN IMMEDIATE")
+            preparar_modulos(conexao)
+    finally:
+        conexao.close()
 
 
 if __name__ == "__main__":

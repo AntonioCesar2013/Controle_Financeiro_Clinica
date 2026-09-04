@@ -2,7 +2,11 @@ from datetime import date
 import sqlite3
 
 from src.infraestrutura.banco import conectar
-from src.financeiro.parcelas import calcular_data_vencimento
+from src.financeiro.api_publica import (
+    ajustar_contrato_encerramento,
+    criar_contrato_internacao,
+    data_final_contrato,
+)
 
 
 def sincronizar_status_residentes(data_referencia=None):
@@ -19,7 +23,7 @@ def sincronizar_status_residentes(data_referencia=None):
             if modalidade == "VOLUNTARIO":
                 dentro_periodo = inicio_data <= referencia
             else:
-                fim = calcular_data_vencimento(inicio, int(periodo))
+                fim = data_final_contrato(inicio, int(periodo))
                 dentro_periodo = inicio_data <= referencia <= fim
             if encerrada_em and date.fromisoformat(encerrada_em) <= referencia:
                 status = "ENCERRADA"
@@ -131,7 +135,7 @@ def cadastrar_internacao(
         return {"sucesso": False, "erro": "Informe os serviços que serão prestados pelo voluntário."}
 
     inicio_novo = date.fromisoformat(data_acolhimento)
-    fim_novo = date.max if modalidade == "VOLUNTARIO" else calcular_data_vencimento(data_acolhimento, periodo_tratamento)
+    fim_novo = date.max if modalidade == "VOLUNTARIO" else data_final_contrato(data_acolhimento, periodo_tratamento)
     for existente in cursor.execute(
         """SELECT id,data_acolhimento,periodo_tratamento,encerrada_em,modalidade
            FROM internacoes WHERE residente_id=? AND status!='CANCELADA'""", (residente_id,)
@@ -142,7 +146,7 @@ def cadastrar_internacao(
         elif existente["modalidade"] == "VOLUNTARIO":
             fim_existente = date.max
         else:
-            fim_existente = calcular_data_vencimento(
+            fim_existente = data_final_contrato(
                 existente["data_acolhimento"], existente["periodo_tratamento"]
             )
         if inicio_novo <= fim_existente and inicio_existente <= fim_novo:
@@ -200,7 +204,6 @@ def cadastrar_internacao(
 
 def cadastrar_internacao_com_cobrancas(*args, **kwargs):
     """Grava internação, vínculo e cobranças em uma única transação."""
-    from src.financeiro.cobrancas import gerar_cobrancas
     conexao = conectar()
     try:
         conexao.execute("BEGIN IMMEDIATE")
@@ -208,7 +211,7 @@ def cadastrar_internacao_com_cobrancas(*args, **kwargs):
         if not resultado.get("sucesso"):
             conexao.rollback()
             return resultado
-        cobrancas = gerar_cobrancas(resultado["id"], conexao=conexao)
+        cobrancas = criar_contrato_internacao(resultado["id"], conexao=conexao)
         if not cobrancas.get("sucesso"):
             raise RuntimeError(cobrancas.get("erro") or "Não foi possível gerar as cobranças.")
         conexao.commit()
@@ -287,11 +290,11 @@ def encerrar_internacao(internacao_id, data_encerramento=None, motivo=None,
             return {"sucesso": False, "erro": "A internação já foi encerrada antecipadamente."}
         if data_encerramento < internacao[0]:
             return {"sucesso": False, "erro": "O encerramento não pode ser anterior ao acolhimento."}
-        if internacao[3] != "VOLUNTARIO" and encerramento > calcular_data_vencimento(internacao[0], internacao[2]):
+        if internacao[3] != "VOLUNTARIO" and encerramento > data_final_contrato(internacao[0], internacao[2]):
             return {"sucesso": False, "erro": "O encerramento não pode ultrapassar o período contratado."}
-        from src.financeiro.cobrancas import ajustar_convenio_ao_encerrar
-        ajustar_convenio_ao_encerrar(internacao_id, data_encerramento, conexao,
-                                    autorizar_ajuste_desconto)
+        ajustar_contrato_encerramento(
+            internacao_id, data_encerramento, conexao, autorizar_ajuste_desconto
+        )
         conexao.execute(
             "UPDATE internacoes SET status='ENCERRADA',encerrada_em=?,motivo_encerramento=? WHERE id=?",
             (data_encerramento, motivo, internacao_id),

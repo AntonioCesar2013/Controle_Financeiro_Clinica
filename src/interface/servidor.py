@@ -49,6 +49,7 @@ from src.cadastros.internacoes import (
     sincronizar_status_residentes,
 )
 from src.financeiro.cobrancas import aplicar_desconto, gerar_cobrancas
+from src.interface.rotas import rotas_get
 
 
 RAIZ_PROJETO = Path(__file__).resolve().parents[2]
@@ -307,42 +308,7 @@ class Requisicao(BaseHTTPRequestHandler):
         return self._json({"erro": "Rota não encontrada."}, HTTPStatus.NOT_FOUND)
 
     def _get_api(self, rota, query):
-        inicio = _parametro(query, "data_inicio")
-        fim = _parametro(query, "data_fim")
-        rotas = {
-            "/api/dashboard": _dashboard,
-            "/api/residentes": listar_residentes,
-            "/api/residentes/extrato": lambda: extrato_residente.consultar(_parametro(query, "id"), inicio, fim),
-            "/api/recibos": lambda: recibos.consultar(_parametro(query, "id")),
-            "/api/responsaveis": listar_responsaveis,
-            "/api/internacoes": listar_internacoes,
-            "/api/convenios": lambda: convenios.listar_convenios(False),
-            "/api/colaboradores": listar_colaboradores,
-            "/api/carteiras": listar_carteiras,
-            "/api/carteiras/detalhe": lambda: cantina.consultar_carteira(_parametro(query, "id")),
-            "/api/cantina": cantina.consultar_cantina,
-            "/api/cantina/produto": lambda: cantina.buscar_produto_codigo(
-                _parametro(query, "codigo"), _parametro(query, "data")
-            ),
-            "/api/itens": lambda: itens.listar_itens(apenas_ativos=False),
-            "/api/itens/historico": lambda: {
-                "precos": itens.listar_valores_item(_parametro(query, "id"), apenas_ativos=False),
-                "estoque": itens.listar_movimentacoes_estoque(_parametro(query, "id")),
-            },
-            "/api/contas-receber": lambda: contas_receber.listar_cobrancas_consolidadas(data_referencia=date.today().isoformat()),
-            "/api/mensalidades": lambda: contas_receber.listar_mensalidades(data_referencia=date.today().isoformat()),
-            "/api/contas-pagar": lambda: _listar_contas_pagar(_parametro(query, "status"), inicio, fim),
-            "/api/caixa": lambda: {**caixa.resumo_caixa(inicio, fim), "movimentacoes": caixa.listar_movimentacoes(inicio, fim)},
-            "/api/despesas": lambda: despesas.listar_despesas(apenas_ativas=False),
-            "/api/financeiro/cadastros": lambda: {"setores": despesas.listar_setores(False), "despesas": despesas.listar_despesas(False)},
-            "/api/contas-pagar/pagamentos": lambda: historico("pagamentos_saida", _parametro(query, "id"), pagamentos.listar_pagamentos(_parametro(query, "id"))),
-            "/api/contas-receber/recebimentos": lambda: historico("recebimentos", _parametro(query, "id"), recebimentos.buscar_pagamentos(_parametro(query, "id"))),
-            "/api/cobrancas/ajustes": lambda: historico_ajustes(_parametro(query, "id")),
-            "/api/configuracoes": configuracoes_financeiras.obter_configuracao,
-            "/api/sincronizacao/status": sincronizacao_nuvem.obter_status,
-            "/api/relatorios": lambda: relatorios.gerar(_parametro(query, "tipo", "financeiro"), inicio, fim),
-            "/api/auditoria": lambda: auditoria.listar(_parametro(query, "limite", 500)),
-        }
+        rotas = {"/api/dashboard": _dashboard, **rotas_get(query)}
         funcao = rotas.get(rota)
         if funcao is None:
             return self._json({"erro": "Rota não encontrada."}, HTTPStatus.NOT_FOUND)

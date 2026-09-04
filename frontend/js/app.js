@@ -1,6 +1,9 @@
 import { applyTableFilters, normalizeSearch } from "./components/filters.js";
 import { createResidentDocuments, printDocument } from "./components/resident-documents.js";
 import { createApi } from "./core/api.js";
+import { createPanelRegistry, resolvePanel } from "./core/router.js";
+import { createState } from "./core/state.js";
+import { businessModules } from "./modules/index.js";
 import { setFormBusy } from "./components/forms.js";
 import {
     emptyState,
@@ -31,14 +34,13 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
 
     const app = document.querySelector("#app");
     const layers = {};
-    let panelSequence = 0;
+    const state = createState();
     const canteenCart = new Map();
     let canteenState = { wallets: [], products: [] };
     let selectedCanteenWalletId = "";
     let selectedWalletId = "";
     let walletResidents = [];
     let monthlyState = [];
-    let activePanelName = null;
 
     const api = createApi({
         onUnauthorized: (message) => showLogin(false, message),
@@ -51,21 +53,14 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
 
     const panels = {
         dashboard: ["Dashboard", "Visão gerencial", renderDashboard],
-        financeiro: ["Financeiro", "Operações financeiras", renderDashboard],
-        contas_receber: ["Contas a receber", "Financeiro", renderReceivables],
-        mensalidades: ["Mensalidades", "Controle por residente", renderMonthlyFees],
-        contas_pagar: ["Contas a pagar", "Financeiro", renderPayables],
-        caixa: ["Fluxo de caixa", "Financeiro", renderCashFlow],
-        despesas: ["Despesas", "Financeiro", renderExpenses],
-        residentes: ["Residentes", "Cadastro e consulta", renderResidents],
-        responsaveis: ["Responsáveis", "Cadastro e consulta", renderGuardians],
-        internacoes: ["Internações", "Acompanhamento", renderInternments],
-        carteiras: ["Carteiras", "Saldo e compras dos residentes", renderWallets],
-        cantina: ["Cantina", "Mercadinho dos residentes", renderCantina],
-        itens: ["Produtos da Cantina", "Catálogo, preços e estoque", renderProducts],
-        colaboradores: ["Colaboradores", "Acesso e equipe", renderCollaborators],
         relatorios: ["Relatórios", "Análise por período", renderReports],
         configuracoes: ["Configurações", "Preferências do sistema", renderSettings],
+        ...createPanelRegistry(businessModules, {
+            renderDashboard, renderReceivables, renderMonthlyFees, renderPayables,
+            renderCashFlow, renderExpenses, renderResidents, renderGuardians,
+            renderInternments, renderWallets, renderCantina, renderProducts,
+            renderCollaborators,
+        }),
     };
 
     function initialize() {
@@ -83,7 +78,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         app.addEventListener("input", handleInput);
         app.addEventListener("pointerdown", (event) => {
             const panel = event.target.closest(".panel");
-            if (panel) panel.style.zIndex = String(++panelSequence);
+            if (panel) panel.style.zIndex = String(++state.panelSequence);
         });
         document.addEventListener("keydown", handleKeydown);
         // TESTES: reative esta linha para tornar o login obrigatório novamente.
@@ -299,13 +294,13 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
     }
 
     function renderMenu(title, eyebrow, items, back = false) {
-        const body = `<div class="menu-context">${back ? '<button class="menu-context__back" type="button" data-action="open-general-menu">← Menu geral</button>' : ""}<nav class="menu-grid" aria-label="${title}">${items.map(([id, label, description, action]) => `<button class="menu-item${id === activePanelName ? " is-active" : ""}" type="button" data-action="${action}"${id ? ` data-panel="${id}"` : ""}${id === activePanelName ? ' aria-current="page"' : ""}><strong>${label}</strong><span>${description}</span></button>`).join("")}</nav></div>`;
+        const body = `<div class="menu-context">${back ? '<button class="menu-context__back" type="button" data-action="open-general-menu">← Menu geral</button>' : ""}<nav class="menu-grid" aria-label="${title}">${items.map(([id, label, description, action]) => `<button class="menu-item${id === state.activePanelName ? " is-active" : ""}" type="button" data-action="${action}"${id ? ` data-panel="${id}"` : ""}${id === state.activePanelName ? ' aria-current="page"' : ""}><strong>${label}</strong><span>${description}</span></button>`).join("")}</nav></div>`;
         layers.menu.replaceChildren(createPanel({ id: back ? "financial-menu" : "general-menu", title, eyebrow, body, size: "menu", closable: false }));
     }
 
     function syncMenuSelection() {
         layers.menu.querySelectorAll(".menu-item[data-panel]").forEach((item) => {
-            const selected = item.dataset.panel === activePanelName;
+            const selected = item.dataset.panel === state.activePanelName;
             item.classList.toggle("is-active", selected);
             if (selected) item.setAttribute("aria-current", "page");
             else item.removeAttribute("aria-current");
@@ -313,11 +308,11 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
     }
 
     async function openMainPanel(name, { preserveCanteenResident = false, preserveWalletResident = false } = {}) {
-        const definition = panels[name];
+        const definition = resolvePanel(panels, name);
         if (!definition) return;
         if (name === "cantina" && !preserveCanteenResident) selectedCanteenWalletId = "";
         if (name === "carteiras" && !preserveWalletResident) selectedWalletId = "";
-        activePanelName = name;
+        state.activePanelName = name;
         syncMenuSelection();
         closeLayer("auxiliary", false);
         closeLayer("modal", false);
@@ -330,7 +325,7 @@ import { applyInputMask, applyInputMasks } from "./utils/masks.js";
         requestAnimationFrame(() => panel.focus({ preventScroll: true }));
     }
 
-    function createPanel({ id = `panel-${++panelSequence}`, title, eyebrow, body, footer = "", size = "large", modal = false, closable = true }) {
+    function createPanel({ id = `panel-${++state.panelSequence}`, title, eyebrow, body, footer = "", size = "large", modal = false, closable = true }) {
         const wrapper = document.createElement("div");
         wrapper.innerHTML = `${modal ? '<div class="panel-backdrop panel-backdrop--modal"></div>' : ""}<section class="panel panel--${size}" id="${id}" role="${modal ? "alertdialog" : "dialog"}" aria-labelledby="${id}-title" tabindex="-1"><header class="panel__header"><div class="panel__heading">${eyebrow ? `<p class="panel__eyebrow">${eyebrow}</p>` : ""}<h2 class="panel__title" id="${id}-title">${title}</h2></div>${closable ? `<button class="panel__close" type="button" data-action="close-panel" aria-label="Fechar ${title}">&times;</button>` : ""}</header><div class="panel__body">${body}</div>${footer ? `<footer class="panel__footer">${footer}</footer>` : ""}</section>`;
         const fragment = document.createDocumentFragment();

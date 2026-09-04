@@ -1,6 +1,28 @@
 # Controle_Financeiro_Clinica
 Sistema de controle financeiro de clinica de recuperacao
 
+## Arquitetura de monólito modular
+
+O sistema continua sendo uma aplicação única: Python, um banco SQLite em
+`dados/clinica.db`, frontend HTML/CSS/JavaScript puro e janela WebView2. O núcleo
+compartilha infraestrutura, banco e migrações, cadastros, auditoria, backup,
+configuração e registro dos módulos. As regras monetárias pertencem ao
+Financeiro; produtos, estoque, carteiras e vendas pertencem à Cantina.
+
+Os módulos são registrados em `src/nucleo/modulos.py`, preparam o mesmo banco
+por migrações versionadas e se comunicam por `api_publica.py`. Operações que
+atravessam fronteiras podem compartilhar uma conexão para manter atomicidade.
+Rotas de leitura ficam agrupadas em `src/interface/rotas`; no frontend, os
+painéis são registrados por `frontend/js/modules` e usam serviços comuns de
+`frontend/js/core`.
+
+O controle de acesso definitivo permanece propositalmente desativado durante
+esta fase. Já existem pontos de extensão para permissões por módulo e ação, sem
+bloquear rotas atuais. O servidor continua restrito a `127.0.0.1`.
+
+Decisões, contratos e um exemplo de módulo futuro estão em
+[`docs/ARQUITETURA_MODULAR.md`](docs/ARQUITETURA_MODULAR.md).
+
 ## Organização do backend
 
 O código Python está separado por responsabilidade:
@@ -184,6 +206,7 @@ Os testes automatizados usam bancos descartáveis, sem alterar os dados locais:
 `python -m unittest discover -s tests -v`. Para testar a data local do frontend:
 `node tests/datas.mjs`.
 Para validar a composição dos recibos e das tabelas: `node tests/documentos.mjs`.
+Para validar o registro dos módulos do frontend: `node tests/modulos_frontend.mjs`.
 
 ## Buscas, extrato e recibos
 
