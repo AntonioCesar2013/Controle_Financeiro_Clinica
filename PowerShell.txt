@@ -1,0 +1,14 @@
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+# Liberacao temporaria para executar scripts nesta sessao do PowerShell
+
+
+# Commit e envio para o GitHub
+& "C:\Projetos\Controle_Financeiro_Clinica\commit.ps1"
+
+
+# Criacao ou atualizacao da estrutura do banco de dados
+python "C:\Projetos\Controle_Financeiro_Clinica\src\banco.py"
+
+
+# Limpeza e populacao do banco com dados ficticios
+python "C:\Projetos\Controle_Financeiro_Clinica\src\popular_banco.py"
