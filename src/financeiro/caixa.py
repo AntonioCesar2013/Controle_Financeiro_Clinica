@@ -42,15 +42,15 @@ def _periodo_validado(data_inicio=None, data_fim=None):
     )
 
 
-def listar_movimentacoes(data_inicio=None, data_fim=None):
+def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None):
     """Lista entradas e saídas efetivamente realizadas no período informado.
 
     Valores são inteiros em centavos. Para entradas, ``origem_id`` é o ID da
     cobrança; para saídas, é o ID da conta a pagar.
     """
     data_inicio, data_fim = _periodo_validado(data_inicio, data_fim)
-    filtros_entrada = []
-    filtros_bancarias = []
+    filtros_entrada = ["NOT EXISTS (SELECT 1 FROM conciliacoes_vinculos v WHERE v.recebimento_id=r.id)"]
+    filtros_bancarias = ["NOT EXISTS (SELECT 1 FROM conciliacoes_bancarias cb WHERE cb.entrada_id=eb.id AND cb.desfeita_em IS NULL AND cb.destino='CARTEIRA')"]
     filtros_saida = []
     parametros_entrada = []
     parametros_bancarias = []
@@ -75,7 +75,8 @@ def listar_movimentacoes(data_inicio=None, data_fim=None):
     where_bancarias = " WHERE " + " AND ".join(filtros_bancarias) if filtros_bancarias else ""
     where_saida = " WHERE " + " AND ".join(filtros_saida) if filtros_saida else ""
 
-    conexao = conectar()
+    propria = conexao is None
+    conexao = conexao or conectar()
     conexao.row_factory = sqlite3.Row
     try:
         entradas = conexao.execute(
@@ -102,8 +103,9 @@ def listar_movimentacoes(data_inicio=None, data_fim=None):
             f"""
             SELECT eb.id, eb.data_entrada AS data, eb.valor,
                    eb.forma_recebimento AS forma_pagamento, eb.descricao,
-                   eb.observacao
+                   eb.observacao, COALESCE(cb.destino,'PENDENTE') AS conciliacao
             FROM entradas_bancarias eb
+            LEFT JOIN conciliacoes_bancarias cb ON cb.entrada_id=eb.id AND cb.desfeita_em IS NULL
             {where_bancarias}
             """,
             parametros_bancarias,
@@ -129,12 +131,14 @@ def listar_movimentacoes(data_inicio=None, data_fim=None):
             parametros_saida,
         ).fetchall()
     finally:
-        conexao.close()
+        if propria:
+            conexao.close()
 
     movimentacoes = []
     for entrada in entradas:
         movimentacoes.append({
             "id": entrada["id"],
+            "origem": "RECEBIMENTO",
             "data": entrada["data"],
             "tipo": "ENTRADA",
             "descricao": (
@@ -152,13 +156,16 @@ def listar_movimentacoes(data_inicio=None, data_fim=None):
     for entrada in entradas_bancarias:
         movimentacoes.append({
             "id": entrada["id"], "data": entrada["data"], "tipo": "ENTRADA",
-            "descricao": entrada["descricao"], "valor": entrada["valor"],
+            "origem": "BANCO",
+            "descricao": ("[Conciliação pendente] " if entrada["conciliacao"] == "PENDENTE" else "") + entrada["descricao"], "valor": entrada["valor"],
+            "conciliacao": entrada["conciliacao"],
             "forma_pagamento": entrada["forma_pagamento"], "origem_id": entrada["id"],
             "observacao": entrada["observacao"],
         })
     for saida in saidas:
         movimentacoes.append({
             "id": saida["id"],
+            "origem": "PAGAMENTO",
             "data": saida["data"],
             "tipo": "SAIDA",
             "descricao": saida["descricao"],

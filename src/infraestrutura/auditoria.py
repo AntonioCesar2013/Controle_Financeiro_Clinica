@@ -6,11 +6,17 @@ from src.infraestrutura.banco import conectar
 CAMPOS_SIGILOSOS = {"senha", "confirmacao_senha", "senha_hash"}
 
 
+def limpar(dados):
+    if isinstance(dados, dict):
+        return {chave: '[PROTEGIDO]' if chave.lower() in CAMPOS_SIGILOSOS else limpar(valor)
+                for chave, valor in dados.items()}
+    if isinstance(dados, list):
+        return [limpar(valor) for valor in dados]
+    return dados
+
+
 def registrar(acao, entidade, entidade_id=None, detalhes=None, colaborador=None, endereco_ip=None):
-    detalhes_limpos = {
-        chave: ("[PROTEGIDO]" if chave in CAMPOS_SIGILOSOS else valor)
-        for chave, valor in (detalhes or {}).items()
-    }
+    detalhes_limpos = limpar(detalhes or {})
     conexao = conectar()
     try:
         conexao.execute(

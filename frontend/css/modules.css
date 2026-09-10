@@ -74,3 +74,47 @@
 .receipt dd { margin: 0; }
 .receipt-signature { margin: 70px auto 20px; border-top: 1px solid #172033; padding-top: 10px; text-align: center; max-width: 400px; }
 #document-print-target { display: none; }
+/* Conferência financeira: campos extensos e documentos em painéis locais. */
+.conference-form .field > label {
+    display: grid;
+    gap: 8px;
+    width: 100%;
+}
+
+.conference-form .field input,
+.conference-form .field select,
+.conference-form .field textarea {
+    width: 100%;
+    box-sizing: border-box;
+    font: inherit;
+}
+
+.conference-form .field textarea {
+    min-height: 80px;
+    resize: vertical;
+}
+
+.conference-form section {
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+}
+
+[data-conference-targets] {
+    display: grid;
+    gap: 10px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+#panel-conferencia details {
+    margin: 14px 0;
+}
+
+#panel-conferencia summary {
+    cursor: pointer;
+    padding: 8px 0;
+    font-weight: 600;
+}

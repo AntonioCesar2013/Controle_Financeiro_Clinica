@@ -1,5 +1,6 @@
 from src.nucleo.migracoes import Migracao, aplicar_migracoes
 from src.nucleo.modulos import Modulo
+from src.financeiro.migracao_conferencia import aplicar as preparar_conferencia
 
 
 def _validar_schema(conexao):
@@ -20,6 +21,7 @@ def preparar_banco(conexao):
     aplicar_migracoes(conexao, (
         Migracao("financeiro", 1, _validar_schema),
         Migracao("financeiro", 2, _adicionar_desconto_contas_pagar),
+        Migracao("financeiro", 3, preparar_conferencia),
     ))
 
 

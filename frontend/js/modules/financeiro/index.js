@@ -6,6 +6,7 @@ export const financeiroModule = {
         mensalidades: ["Mensalidades", "Controle por residente", r.renderMonthlyFees],
         contas_pagar: ["Contas a pagar", "Financeiro", r.renderPayables],
         caixa: ["Fluxo de caixa", "Financeiro", r.renderCashFlow],
+        conferencia: ["Conferência financeira", "Conciliação, saldos e fechamento", r.renderConference],
         despesas: ["Despesas", "Financeiro", r.renderExpenses],
     }),
 };

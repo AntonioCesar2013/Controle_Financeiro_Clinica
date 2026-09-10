@@ -2,6 +2,7 @@ import json
 import mimetypes
 import secrets
 import threading
+import sqlite3
 import webbrowser
 from datetime import date
 from http import HTTPStatus
@@ -11,7 +12,10 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from src.infraestrutura import auditoria
+from src.infraestrutura import operacoes, logs
+from src.interface import validacao
 from src.financeiro import caixa
+from src.financeiro import conciliacao, conferencia
 from src.cantina import vendas as cantina
 from src.financeiro import configuracoes_financeiras
 from src.financeiro import contas_pagar
@@ -56,6 +60,13 @@ RAIZ_PROJETO = Path(__file__).resolve().parents[2]
 RAIZ_FRONTEND = RAIZ_PROJETO / "frontend"
 SESSOES = {}
 LOCK_SESSOES = threading.Lock()
+LIMITE_CORPO = 1_048_576
+
+
+class ErroHTTP(ValueError):
+    def __init__(self, mensagem, status=400):
+        super().__init__(mensagem)
+        self.status = status
 
 
 def _parametro(query, nome, padrao=None):
@@ -102,7 +113,18 @@ class Requisicao(BaseHTTPRequestHandler):
     server_version = "ClinicaHTTP/1.0"
 
     def do_GET(self):
+        self._referencia = secrets.token_hex(8)
+        self._capturando = False
+        self._resposta_iniciada = False
+        try:
+            return self._despachar_get()
+        except Exception as erro:
+            return self._falha(erro)
+
+    def _despachar_get(self):
         rota = urlparse(self.path)
+        if rota.path == '/api/operacoes/status':
+            return self._json({'dados': operacoes.consultar(_parametro(parse_qs(rota.query), 'chave'))})
         if rota.path == "/api/auth/status":
             return self._json({"configurado": possui_colaboradores(), "autenticado": self._sessao() is not None})
         if rota.path.startswith("/api/"):
@@ -113,13 +135,37 @@ class Requisicao(BaseHTTPRequestHandler):
         return self._arquivo_estatico(rota.path)
 
     def do_POST(self):
-        rota = urlparse(self.path).path
-        dados = self._corpo_json()
-        if dados is None:
-            return
-        self._rota_auditoria = rota
-        self._dados_auditoria = dados
-        self._auditoria_registrada = False
+        self._referencia = secrets.token_hex(8)
+        self._capturando = False
+        self._resposta_iniciada = False
+        self._chave_operacao = None
+        try:
+            rota = urlparse(self.path).path
+            dados = self._corpo_json()
+            if rota.startswith('/api/auth/') or rota.startswith('/api/sincronizacao/'):
+                return self._despachar_post(rota, dados)
+            if rota == '/api/operacoes/cancelar':
+                if somente_leitura():
+                    raise ErroHTTP('Esta instalação está configurada somente para leitura.', 403)
+                return self._json(operacoes.cancelar(dados.get('chave')))
+            validacao.validar(rota, dados)
+            if somente_leitura():
+                raise ErroHTTP('Esta instalação está configurada somente para leitura.', 403)
+            self._chave_operacao = operacoes.validar_chave(self.headers.get('Idempotency-Key'))
+            self._capturando = True
+            try:
+                payload, status, cookie = operacoes.executar(
+                    self._chave_operacao, rota, dados, lambda: self._despachar_post(rota, dados),
+                    self._sessao(), self.client_address[0],
+                )
+            finally:
+                self._capturando = False
+            return self._json(payload, status, cookie)
+        except Exception as erro:
+            self._capturando = False
+            return self._falha(erro)
+
+    def _despachar_post(self, rota, dados):
         if rota == "/api/auth/setup":
             if possui_colaboradores():
                 return self._json({"erro": "O primeiro acesso já foi configurado."}, HTTPStatus.CONFLICT)
@@ -147,6 +193,23 @@ class Requisicao(BaseHTTPRequestHandler):
                 {"sucesso": False, "erro": "Esta instalação está configurada somente para leitura."},
                 HTTPStatus.FORBIDDEN,
             )
+        operacoes_conferencia = {
+            "/api/conciliacao/vincular": lambda: conciliacao.conciliar(
+                dados.get("entrada_id"), dados.get("destino"), dados.get("ids"), dados.get("motivo")),
+            "/api/conciliacao/desfazer": lambda: conciliacao.desfazer(dados.get("id"), dados.get("motivo")),
+            "/api/conferencia/saldos": lambda: conferencia.conferir_saldos(
+                dados.get("assinatura"), self._valores_conferencia(dados.get("valores"), estoque=True),
+                dados.get("responsavel"), dados.get("observacao")),
+            "/api/conferencia/fechar": lambda: conferencia.fechar(
+                dados.get("competencia"), dados.get("assinatura"), dados.get("responsavel"),
+                dados.get("observacao"), self._valores_conferencia(dados.get("valores"))),
+            "/api/conferencia/reabrir": lambda: conferencia.reabrir(dados.get("id"), dados.get("motivo")),
+        }
+        if rota in operacoes_conferencia:
+            try:
+                return self._resultado_operacao(operacoes_conferencia[rota]())
+            except (TypeError, ValueError, sqlite3.IntegrityError) as erro:
+                return self._json({"sucesso": False, "erro": str(erro)}, HTTPStatus.BAD_REQUEST)
         # TESTES: reative estas duas linhas para proteger novamente as rotas POST.
         # if self._sessao() is None:
         #     return self._json({"erro": "Sessão não autenticada."}, HTTPStatus.UNAUTHORIZED)
@@ -344,13 +407,56 @@ class Requisicao(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(conteudo)
 
+    @staticmethod
+    def _valores_conferencia(valores, estoque=False):
+        if not isinstance(valores, dict):
+            raise ValueError("Informe todos os valores conferidos.")
+        resultado = {}
+        for chave, valor in valores.items():
+            if valor is None or isinstance(valor, bool) or str(valor).strip() == "":
+                raise ValueError("Preencha todos os valores conferidos, inclusive os zeros.")
+            if estoque and chave.startswith("ESTOQUE:"):
+                if not str(valor).isdigit():
+                    raise ValueError("Estoque conferido deve ser uma quantidade inteira não negativa.")
+                resultado[chave] = int(valor)
+            else:
+                resultado[chave] = _centavos(valor)
+        return resultado
+
     def _corpo_json(self):
         try:
+            if self.headers.get('Transfer-Encoding'):
+                raise ErroHTTP('Envio em blocos não é aceito.', 400)
             tamanho = int(self.headers.get("Content-Length", "0"))
-            return json.loads(self.rfile.read(tamanho) or b"{}")
-        except (ValueError, json.JSONDecodeError):
-            self._json({"erro": "JSON inválido."}, HTTPStatus.BAD_REQUEST)
-            return None
+            if tamanho < 0:
+                raise ErroHTTP('Tamanho de requisição inválido.')
+            if tamanho > LIMITE_CORPO:
+                raise ErroHTTP('Requisição maior que o limite de 1 MB.', 413)
+            if tamanho and self.headers.get('Content-Type','').split(';')[0].strip().lower() != 'application/json':
+                raise ErroHTTP('Envie os dados no formato application/json.', 415)
+            self.connection.settimeout(15)
+            corpo = self.rfile.read(tamanho)
+            if len(corpo) != tamanho:
+                raise ErroHTTP('O envio foi interrompido. Nenhum lançamento foi iniciado.')
+            def pares(itens):
+                resultado = {}
+                for chave, valor in itens:
+                    if chave in resultado:
+                        raise ValueError('Campo repetido.')
+                    resultado[chave] = valor
+                return resultado
+            def constante(_):
+                raise ValueError('Número inválido.')
+            dados = json.loads(corpo or b'{}', object_pairs_hook=pares, parse_constant=constante)
+            if not isinstance(dados, dict):
+                raise ErroHTTP('O corpo da requisição deve ser um objeto JSON.')
+            return dados
+        except ErroHTTP:
+            raise
+        except (ValueError, UnicodeError, RecursionError):
+            raise ErroHTTP('JSON inválido. Verifique o formato dos dados.')
+        except TimeoutError:
+            raise ErroHTTP('O envio demorou demais. Nenhum lançamento foi iniciado.', 408)
 
     def _token_sessao(self):
         cookie = SimpleCookie(self.headers.get("Cookie", ""))
@@ -362,25 +468,12 @@ class Requisicao(BaseHTTPRequestHandler):
             return SESSOES.get(token)
 
     def _json(self, dados, status=HTTPStatus.OK, cookie=None):
-        rota_auditoria = getattr(self, "_rota_auditoria", None)
-        if (
-            rota_auditoria and not getattr(self, "_auditoria_registrada", False)
-            and status < 400 and isinstance(dados, dict) and dados.get("sucesso") is True
-            and rota_auditoria not in (
-                "/api/auth/login", "/api/auth/logout", "/api/sincronizacao/publicar",
-                "/api/sincronizacao/atualizar",
-            )
-        ):
-            self._auditoria_registrada = True
-            try:
-                auditoria.registrar(
-                    "INCLUSAO" if status == HTTPStatus.CREATED else "ALTERACAO",
-                    rota_auditoria.removeprefix("/api/"), dados.get("id"),
-                    getattr(self, "_dados_auditoria", {}), self._sessao(), self.client_address[0],
-                )
-            except Exception as erro:
-                print(f"Falha ao registrar auditoria: {erro}")
-        conteudo = json.dumps(dados, ensure_ascii=False).encode("utf-8")
+        if getattr(self, '_capturando', False):
+            return dados, int(status), cookie
+        if status >= 400:
+            dados = {**dados, 'sucesso': False, 'referencia': getattr(self,'_referencia',None)}
+        conteudo = json.dumps(dados, ensure_ascii=False, allow_nan=False).encode("utf-8")
+        self._resposta_iniciada = True
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(conteudo)))
@@ -390,8 +483,48 @@ class Requisicao(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(conteudo)
 
+    def _rota_log(self):
+        rota = urlparse(self.path).path
+        conhecidas = set(validacao.OBRIGATORIOS) | set(rotas_get({})) | {
+            '/api/dashboard','/api/auth/status','/api/auth/login','/api/auth/setup',
+            '/api/auth/logout','/api/operacoes/status','/api/operacoes/cancelar',
+        }
+        return rota if rota in conhecidas else '/'
+
+    def _falha(self, erro):
+        if isinstance(erro, (BrokenPipeError, ConnectionResetError)) or getattr(self, '_resposta_iniciada', False):
+            logs.registrar('resposta_interrompida', self._referencia, self.command, self._rota_log(), 0, erro)
+            self.close_connection = True
+            return
+        estado = 'NAO_REALIZADA'
+        if isinstance(erro, operacoes.ConflitoOperacao):
+            status, mensagem, estado = 409, str(erro), 'VERIFICAR'
+        elif isinstance(erro, ErroHTTP):
+            status, mensagem = erro.status, str(erro)
+        elif isinstance(erro, ValueError):
+            status, mensagem = 400, str(erro)
+        elif isinstance(erro, LookupError):
+            status, mensagem = 404, 'Rota não encontrada.'
+        elif isinstance(erro, sqlite3.IntegrityError):
+            status = 409
+            mensagem = 'Os dados entram em conflito com um registro existente. Confira o cadastro ou a conciliação bancária.'
+        elif isinstance(erro, sqlite3.OperationalError) and getattr(erro, 'sqlite_errorcode', None) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+            status, mensagem = 503, 'O banco está ocupado. Aguarde e tente novamente com os mesmos dados.'
+        else:
+            status, mensagem = 500, 'Não foi possível concluir a operação. Use a referência para consultar o suporte.'
+        # Em erro inesperado, o cliente conserva a chave e consulta o registro.
+        if status >= 500 and getattr(self, '_chave_operacao', None):
+            estado = 'VERIFICAR'
+        logs.registrar('falha', self._referencia, self.command, self._rota_log(), status, erro)
+        self.close_connection = True
+        try:
+            return self._json({'erro': mensagem, 'estado_operacao': estado}, status)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+
     def log_message(self, formato, *argumentos):
-        print(f"{self.address_string()} - {formato % argumentos}")
+        logs.registrar('http', getattr(self,'_referencia','-'), getattr(self,'command','-'),
+                       self._rota_log(), argumentos[1] if len(argumentos)>1 else '-')
 
 
 def executar(host="127.0.0.1", porta=8000, abrir_navegador=False):

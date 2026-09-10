@@ -19,6 +19,7 @@ from src.infraestrutura.banco import conectar, criar_tabelas
 
 MESES = tuple((2026, mes) for mes in range(3, 9))
 TABELAS_LIMPEZA = (
+    "conciliacoes_vinculos", "conciliacoes_bancarias", "conferencias_saldos", "fechamentos_mensais",
     "recibos", "estornos_financeiros", "ajustes_cobrancas", "auditoria",
     "recebimentos", "cobrancas", "vendas_cantina_itens", "movimentacoes_carteira",
     "movimentacoes_estoque", "vendas_cantina", "carteiras", "itens_valores",

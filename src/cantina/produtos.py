@@ -3,7 +3,7 @@ import sqlite3
 import unicodedata
 from datetime import date, datetime
 
-from src.infraestrutura.banco import CAMINHO_BANCO
+from src.infraestrutura.banco import conectar
 
 
 def _eh_servico(categoria):
@@ -22,7 +22,7 @@ def cadastrar_item(nome):
             "erro": "O nome do item é obrigatório."
         }
 
-    conexao = sqlite3.connect(CAMINHO_BANCO)
+    conexao = conectar()
     conexao.row_factory = sqlite3.Row
 
     try:
@@ -63,7 +63,7 @@ def cadastrar_item(nome):
 def buscar_item(item_id):
     """Busca um item pelo ID."""
 
-    conexao = sqlite3.connect(CAMINHO_BANCO)
+    conexao = conectar()
     conexao.row_factory = sqlite3.Row
 
     try:
@@ -101,7 +101,7 @@ def buscar_item(item_id):
 def listar_itens(apenas_ativos=True):
     """Lista os itens cadastrados."""
 
-    conexao = sqlite3.connect(CAMINHO_BANCO)
+    conexao = conectar()
     conexao.row_factory = sqlite3.Row
 
     try:
@@ -140,7 +140,7 @@ def alterar_status_item(item_id, ativo):
             "erro": "O status deve ser 0 ou 1."
         }
 
-    conexao = sqlite3.connect(CAMINHO_BANCO)
+    conexao = conectar()
 
     try:
         cursor = conexao.cursor()
@@ -191,7 +191,7 @@ def cadastrar_valor_item(item_id, valor, data_inicio_valor):
             "erro": "O valor do item deve ser maior que zero."
         }
 
-    conexao = sqlite3.connect(CAMINHO_BANCO)
+    conexao = conectar()
     conexao.row_factory = sqlite3.Row
 
     try:
@@ -255,7 +255,7 @@ def buscar_valor_item(item_id, data_referencia=None):
     Se nenhuma data for informada, utiliza a data atual do sistema.
     """
 
-    conexao = sqlite3.connect(CAMINHO_BANCO)
+    conexao = conectar()
     conexao.row_factory = sqlite3.Row
 
     try:
@@ -320,7 +320,7 @@ def buscar_valor_item(item_id, data_referencia=None):
 def listar_valores_item(item_id, apenas_ativos=True):
     """Lista o histórico de valores de um item."""
 
-    conexao = sqlite3.connect(CAMINHO_BANCO)
+    conexao = conectar()
     conexao.row_factory = sqlite3.Row
 
     try:
@@ -375,7 +375,7 @@ def alterar_status_valor(item_valor_id, ativo):
             "erro": "O status deve ser 0 ou 1."
         }
 
-    conexao = sqlite3.connect(CAMINHO_BANCO)
+    conexao = conectar()
 
     try:
         cursor = conexao.cursor()
@@ -447,7 +447,7 @@ def cadastrar_produto(nome, valor, estoque_inicial=0, estoque_minimo=0,
     except (TypeError, ValueError):
         return {"sucesso": False, "erro": "A data inicial do preço é inválida."}
 
-    conexao = sqlite3.connect(CAMINHO_BANCO)
+    conexao = conectar()
     try:
         conexao.execute("BEGIN")
         cursor = conexao.execute(
@@ -502,7 +502,7 @@ def editar_produto(item_id, nome, codigo_barras=None, descricao=None, categoria=
     if _eh_servico(categoria):
         estoque_minimo = 0
         unidade_medida = "SERV"
-    conexao = sqlite3.connect(CAMINHO_BANCO)
+    conexao = conectar()
     try:
         cursor = conexao.execute(
             """UPDATE itens SET nome=?,codigo_barras=?,descricao=?,categoria=?,
@@ -566,7 +566,7 @@ def ajustar_estoque(item_id, quantidade, motivo, data_movimentacao=None, tipo=No
                 raise ValueError
         except ValueError:
             return {"sucesso": False, "erro": "A data de validade é inválida."}
-    conexao = sqlite3.connect(CAMINHO_BANCO)
+    conexao = conectar()
     try:
         conexao.execute("BEGIN IMMEDIATE")
         item = conexao.execute("SELECT estoque_atual,categoria FROM itens WHERE id=?", (item_id,)).fetchone()
@@ -595,7 +595,7 @@ def ajustar_estoque(item_id, quantidade, motivo, data_movimentacao=None, tipo=No
 
 
 def listar_movimentacoes_estoque(item_id):
-    conexao = sqlite3.connect(CAMINHO_BANCO)
+    conexao = conectar()
     conexao.row_factory = sqlite3.Row
     try:
         return [dict(linha) for linha in conexao.execute(

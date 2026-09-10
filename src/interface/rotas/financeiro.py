@@ -9,6 +9,8 @@ from src.financeiro import (
     pagamentos,
     recebimentos,
     recibos,
+    conciliacao,
+    conferencia,
 )
 from src.financeiro.estornos import historico, historico_ajustes
 
@@ -22,6 +24,9 @@ def rotas_get(query):
     inicio = _parametro(query, "data_inicio")
     fim = _parametro(query, "data_fim")
     return {
+        "/api/conciliacao": conciliacao.painel,
+        "/api/conferencia/saldos": conferencia.saldos,
+        "/api/conferencia/mensal": lambda: conferencia.mensal(_parametro(query, "competencia")),
         "/api/recibos": lambda: recibos.consultar(_parametro(query, "id")),
         "/api/contas-receber": lambda: contas_receber.listar_cobrancas_consolidadas(
             data_referencia=date.today().isoformat()

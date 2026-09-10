@@ -8,6 +8,9 @@ CAMINHO_BANCO = BASE_DIR / "dados" / "clinica.db"
 
 
 def conectar():
+    from src.infraestrutura.transacoes import ATUAL
+    if ATUAL.get() is not None:
+        return ATUAL.get().emprestar()
     CAMINHO_BANCO.parent.mkdir(exist_ok=True)
     conexao = sqlite3.connect(CAMINHO_BANCO, timeout=30)
     conexao.execute("PRAGMA foreign_keys = ON")
@@ -612,12 +615,14 @@ def criar_tabelas():
     do banco. Novas evoluções devem ser declaradas pelo módulo responsável.
     """
     from src.nucleo.modulos import preparar_modulos
+    from src.infraestrutura.operacoes import preparar_banco as preparar_operacoes
 
     _preparar_schema_legado()
     conexao = conectar()
     try:
         with conexao:
             conexao.execute("BEGIN IMMEDIATE")
+            preparar_operacoes(conexao)
             preparar_modulos(conexao)
     finally:
         conexao.close()

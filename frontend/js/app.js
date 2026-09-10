@@ -5,6 +5,7 @@ import { createPanelRegistry, resolvePanel } from "./core/router.js";
 import { createState } from "./core/state.js";
 import { businessModules } from "./modules/index.js";
 import { setFormBusy } from "./components/forms.js";
+import { createConference } from "./components/conference.js";
 import {
     emptyState,
     errorState,
@@ -59,8 +60,14 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             renderCashFlow, renderExpenses, renderResidents, renderGuardians,
             renderInternments, renderWallets, renderCantina, renderProducts,
             renderCollaborators,
+            renderConference: () => conference.render(),
         }),
     };
+
+    const conference = createConference({
+        api, showAlert, refresh: () => openMainPanel("conferencia"),
+        showPanel: (title, body) => layers.auxiliary.replaceChildren(createPanel({title, body, size: "large"})),
+    });
 
     function initialize() {
         app.innerHTML = `
@@ -99,6 +106,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const trigger = event.target.closest("[data-action]");
         if (!trigger) return;
         const { action, panel } = trigger.dataset;
+        if (action.startsWith("conference-")) return conference.click(trigger);
         if (action === "open-panel") openMainPanel(panel);
         if (action === "open-financial-menu") openFinancialMenu();
         if (action === "open-general-menu") openGeneralMenu();
@@ -145,6 +153,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function handleSubmit(event) {
         event.preventDefault();
+        if (event.target.matches(".conference-form")) return conference.submit(event.target);
         if (event.target.matches("#login-form")) return submitLogin(event.target);
         if (event.target.matches("#setup-form")) return submitSetup(event.target);
         if (event.target.matches("#resident-form")) return submitResident(event.target);
@@ -161,6 +170,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     function handleChange(event) {
+        conference.change(event.target);
         if (event.target.matches("[data-filter-status], [data-filter-start], [data-filter-end]")) applyTableFilters(event.target);
         if (event.target.matches("#wallet-resident")) refreshWalletDetail(event.target);
         if (event.target.matches("#canteen-wallet")) refreshCanteenCart();
@@ -283,6 +293,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             ["mensalidades", "Mensalidades", "Pagas, vencidas e a vencer", "open-panel"],
             ["contas_pagar", "Contas a pagar", "Vencimentos e pagamentos", "open-panel"],
             ["caixa", "Fluxo de caixa", "Entradas, saídas e resultado", "open-panel"],
+            ["conferencia", "Conferência financeira", "Conciliação, saldos e fechamento", "open-panel"],
             ["despesas", "Despesas", "Setores e classificações", "open-panel"],
             ["", "Sair", "Encerrar esta sessão", "logout"],
         ], true);

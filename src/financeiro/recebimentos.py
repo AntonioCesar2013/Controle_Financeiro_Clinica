@@ -362,6 +362,9 @@ def excluir_recebimento(recebimento_id, motivo=None):
             ),
             "status": novo_status
         }
+    except sqlite3.IntegrityError as erro:
+        conexao.rollback()
+        return {"sucesso": False, "erro": str(erro)}
     except Exception:
         conexao.rollback()
         raise

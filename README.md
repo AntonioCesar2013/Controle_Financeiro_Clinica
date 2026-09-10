@@ -135,6 +135,19 @@ ou abaixo do estoque mínimo.
 
 ## Relatórios
 
+### Conferência para operação e fechamento
+
+Em **Financeiro → Conferência financeira**, concilie entradas bancárias com
+recebimentos ou créditos de carteira, compare os saldos atuais com os controles
+externos e registre fechamentos mensais com revisões preservadas. Carteiras
+permanecem separadas do caixa da clínica. Entradas pendentes são identificadas
+nos movimentos e impedem o fechamento do mês.
+
+O passo a passo e as regras estão em
+[`docs/FASE_1_CONFERENCIA_FINANCEIRA.md`](docs/FASE_1_CONFERENCIA_FINANCEIRA.md).
+
+### Relatórios disponíveis
+
 O módulo Relatórios permite visualizar e imprimir em papel A4 os controles de
 Financeiro, Despesas por setor, Internações, Residentes, Cantina, Carteiras,
 Estoque e Colaboradores. Relatórios com movimentação aceitam período inicial e
