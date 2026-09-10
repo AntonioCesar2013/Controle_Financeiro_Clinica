@@ -1,4 +1,46 @@
-/* Adaptações para tablets e celulares. */
+/* Adaptações fluidas para monitores, notebooks, tablets e celulares. */
+
+@media (min-width: 1600px) {
+    :root { --sidebar-width: 300px; --workspace-gap: 18px; }
+    body { font-size: 16px; }
+    .panel__body { padding: 28px; }
+}
+
+@media (max-width: 1100px) {
+    :root { --sidebar-width: 248px; --workspace-gap: 10px; }
+    .menu-item { min-height: 56px; }
+    .menu-item__copy > span { display: none; }
+    .metrics { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
+}
+
+@media (max-width: 760px) {
+    .panel--menu {
+        top: 8px;
+        right: 8px;
+        bottom: auto;
+        left: 8px;
+        width: auto;
+        height: min(35vh, 310px);
+    }
+
+    #app:has(.panel-layer--menu .panel) .panel-layer--main .panel,
+    #app:has(.panel-layer--menu .panel) .panel-layer--main .panel--medium {
+        top: calc(min(35vh, 310px) + 16px);
+        right: 8px;
+        bottom: 8px;
+        left: 8px;
+        width: auto;
+    }
+
+    .panel--menu .panel__header { min-height: 56px; }
+    .panel--menu .panel__body { padding: 10px; }
+    .menu-context .menu-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .menu-item { min-height: 48px; padding: 7px 9px; }
+    .menu-item__icon { flex-basis: 30px; width: 30px; height: 30px; }
+    .workspace-intro { align-items: flex-start; flex-direction: column; }
+    .quick-actions { justify-content: flex-start; }
+    .metrics { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+}
 
 @media (max-width: 560px) {
     .canteen-entry { grid-template-columns: 1fr; }
@@ -6,27 +48,10 @@
     .wallet-summary { grid-template-columns: 1fr; }
     .inventory-summary { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
     .metrics { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
-    .panel--menu {
-        top: 10px;
-        right: 10px;
-        bottom: auto;
-        left: 10px;
-        width: auto;
-        height: 38vh;
-    }
-
-    #app:has(.panel-layer--menu .panel) .panel-layer--main .panel,
-    #app:has(.panel-layer--menu .panel) .panel-layer--main .panel--medium {
-        top: calc(38vh + 20px);
-        right: 10px;
-        bottom: 10px;
-        left: 10px;
-        width: auto;
-    }
-
-    .panel-layer--menu:has(.panel) .panel-backdrop {
-        display: block;
-    }
+    .menu-context .menu-grid { grid-template-columns: 1fr; }
+    .menu-item__copy > span { display: block; }
+    .selection-actions { flex-wrap: wrap; }
+    .selection-actions__label { width: 100%; text-align: right; }
 }
 
 @media (max-width: 480px) {

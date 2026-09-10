@@ -110,6 +110,8 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (action === "open-panel") openMainPanel(panel);
         if (action === "open-financial-menu") openFinancialMenu();
         if (action === "open-general-menu") openGeneralMenu();
+        if (action === "clear-table-filters") clearTableFilters(trigger);
+        if (action === "select-report-row") selectReportRow(trigger);
         if (action === "close-panel") closePanel(trigger.closest(".panel"));
         if (action === "open-new-resident") openResidentForm();
         if (action === "open-new-collaborator") openCollaboratorForm();
@@ -188,6 +190,11 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     function handleKeydown(event) {
+        if (event.target.matches('[data-action="select-report-row"]') && ["Enter", " "].includes(event.key)) {
+            event.preventDefault();
+            selectReportRow(event.target);
+            return;
+        }
         if (event.target.matches("#canteen-product-search") && event.key === "Enter") {
             event.preventDefault();
             addSearchedCanteenProduct(event.target);
@@ -301,8 +308,41 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     function renderMenu(title, eyebrow, items, back = false) {
-        const body = `<div class="menu-context">${back ? '<button class="menu-context__back" type="button" data-action="open-general-menu">← Menu geral</button>' : ""}<nav class="menu-grid" aria-label="${title}">${items.map(([id, label, description, action]) => `<button class="menu-item${id === state.activePanelName ? " is-active" : ""}" type="button" data-action="${action}"${id ? ` data-panel="${id}"` : ""}${id === state.activePanelName ? ' aria-current="page"' : ""}><strong>${label}</strong><span>${description}</span></button>`).join("")}</nav></div>`;
+        const body = `<div class="menu-context">${back ? '<button class="menu-context__back" type="button" data-action="open-general-menu">← Menu geral</button>' : ""}<nav class="menu-grid" aria-label="${title}">${items.map(([id, label, description, action]) => `<button class="menu-item${id === state.activePanelName ? " is-active" : ""}" type="button" data-action="${action}"${id ? ` data-panel="${id}"` : ""}${id === state.activePanelName ? ' aria-current="page"' : ""}><span class="menu-item__icon" aria-hidden="true">${menuIcon(id || action)}</span><span class="menu-item__copy"><strong>${label}</strong><span>${description}</span></span></button>`).join("")}</nav></div>`;
         layers.menu.replaceChildren(createPanel({ id: back ? "financial-menu" : "general-menu", title, eyebrow, body, size: "menu", closable: false }));
+    }
+
+    function menuIcon(name) {
+        const icons = {
+            dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+            financeiro: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 18V9m5 9V5m6 13v-7m5 7V3"/></svg>',
+            caixa: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M16 12h5M3 9h14"/></svg>',
+            conferencia: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/><path d="M4 4h16v16H4z"/></svg>',
+            cantina: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18l-2 13H5L3 7Z"/><path d="M8 7a4 4 0 0 1 8 0"/></svg>',
+            configuracoes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1A8 8 0 0 0 15 6l-.3-2.6h-4L10.4 6A8 8 0 0 0 8 7.1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1A8 8 0 0 0 10.4 18l.3 2.6h4L15 18a8 8 0 0 0 2.4-1.1l2.4 1 2-3.4-2-1.5a7 7 0 0 0 .1-1Z"/></svg>',
+        };
+        return icons[name] || '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5"/></svg>';
+    }
+
+    function clearTableFilters(trigger) {
+        const container = trigger.closest(".filterable");
+        if (!container) return;
+        container.querySelectorAll("[data-filter-search], [data-filter-status], [data-filter-start], [data-filter-end]").forEach((field) => { field.value = ""; });
+        const control = container.querySelector("[data-filter-search]");
+        if (control) { applyTableFilters(control); control.focus(); }
+    }
+
+    function selectReportRow(row) {
+        const scope = row.closest(".selection-scope") || row.closest(".panel");
+        const selected = row.getAttribute("aria-selected") !== "true";
+        row.closest("tbody")?.querySelectorAll(".selectable-row[aria-selected='true']").forEach((other) => other.setAttribute("aria-selected", "false"));
+        row.setAttribute("aria-selected", String(selected));
+        const capabilities = new Set((row.dataset.capabilities || "").split(/\s+/).filter(Boolean));
+        scope?.querySelectorAll("[data-selection-action]").forEach((button) => {
+            button.disabled = !selected || !capabilities.has(button.dataset.selectionAction);
+            if (selected) button.dataset.id = row.dataset.rowId;
+            else delete button.dataset.id;
+        });
     }
 
     function syncMenuSelection() {
@@ -944,7 +984,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function renderDashboard() {
         const { dados } = await api("/api/dashboard");
-        return `<div class="metrics">${metric("Entradas do mês", dados.total_entradas, "success")}${metric("Saídas do mês", dados.total_saidas, "danger")}${metric("Resultado", dados.resultado, "primary")}${metric("A receber", dados.total_receber, "warning")}${metric("A pagar", dados.total_pagar, "warning")}</div><h3 class="section-title">Movimentações recentes</h3>${renderTable(dados.movimentacoes_recentes, [["Data", "data", formatDate], ["Descrição", "descricao"], ["Tipo", "tipo"], ["Forma", "forma_pagamento"], ["Valor", "valor", formatMoney]])}`;
+        return `<section class="workspace-intro"><div><h3>Visão geral da operação</h3><p>Acompanhe o mês e acesse rapidamente as rotinas financeiras mais utilizadas.</p></div><div class="quick-actions"><button class="button button--secondary" type="button" data-action="open-panel" data-panel="contas_receber">Contas a receber</button><button class="button button--secondary" type="button" data-action="open-panel" data-panel="contas_pagar">Contas a pagar</button><button class="button" type="button" data-action="open-panel" data-panel="conferencia">Abrir conferência</button></div></section><div class="metrics">${metric("Entradas do mês", dados.total_entradas, "success")}${metric("Saídas do mês", dados.total_saidas, "danger")}${metric("Resultado", dados.resultado, "primary")}${metric("A receber", dados.total_receber, "warning")}${metric("A pagar", dados.total_pagar, "warning")}</div><h3 class="section-title">Movimentações recentes</h3>${renderTable(dados.movimentacoes_recentes, [["Data", "data", formatDate], ["Descrição", "descricao"], ["Tipo", "tipo"], ["Forma", "forma_pagamento"], ["Valor", "valor", formatMoney]])}`;
     }
 
     async function renderResidents() {
@@ -959,7 +999,15 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function renderInternments() {
         const { dados } = await api("/api/internacoes");
-        return `<div class="toolbar"><div></div><div class="report-actions"><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button" type="button" data-action="open-new-internment">Nova internação</button></div></div>${renderActionTable(dados, [["Residente", "residente_nome"], ["Modalidade", "modalidade"], ["Convênio", "convenio_nome"], ["Responsável", "responsavel_nome"], ["Acolhimento", "data_acolhimento", formatDate], ["Período", "periodo_tratamento", (value, row) => row.modalidade === "VOLUNTARIO" ? "Sem prazo" : `${value} meses`], ["Contrato", "valor_contrato", formatMoney], ["Diária", "valor_diaria", (value, row) => row.modalidade === "CONVENIO" ? formatMoney(value) : "—"], ["Status", "status"], ["Encerrada em", "encerrada_em", formatDate]], (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-guardian" data-id="${row.id}">Responsável</button>${row.status === "AGENDADA" ? `<button class="button button--danger" type="button" data-action="cancel-internment" data-id="${row.id}">Cancelar agendamento</button>` : ""}${row.status === "ATIVA" && !row.encerrada_em ? `<button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-id="${row.id}">Encerrar</button>` : ""}`)}`;
+        const table = renderActionTable(dados, [["Residente", "residente_nome"], ["Modalidade", "modalidade"], ["Convênio", "convenio_nome"], ["Responsável", "responsavel_nome"], ["Acolhimento", "data_acolhimento", formatDate], ["Período", "periodo_tratamento", (value, row) => row.modalidade === "VOLUNTARIO" ? "Sem prazo" : `${value} meses`], ["Contrato", "valor_contrato", formatMoney], ["Diária", "valor_diaria", (value, row) => row.modalidade === "CONVENIO" ? formatMoney(value) : "—"], ["Status", "status"], ["Encerrada em", "encerrada_em", formatDate]], () => "", {
+            selectableRows: true,
+            selectionData: (row) => ({
+                id: row.id,
+                capabilities: ["guardian", ...(row.status === "AGENDADA" ? ["cancel"] : []), ...(row.status === "ATIVA" && !row.encerrada_em ? ["end"] : [])],
+            }),
+        });
+        const actions = `<div class="selection-actions" aria-label="Ações da internação selecionada"><span class="selection-actions__label">Internação selecionada</span><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-guardian" data-selection-action="guardian" disabled>Responsável</button><button class="button button--danger" type="button" data-action="cancel-internment" data-selection-action="cancel" disabled>Cancelar agendamento</button><button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-selection-action="end" disabled>Encerrar</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button" type="button" data-action="open-new-internment">Nova internação</button></div>`;
+        return `<section class="selection-scope"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 
     async function renderWallets() {
@@ -1058,8 +1106,12 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const low = dados.filter((row) => Number(row.ativo) === 1 && !isCanteenService(row) && ["REPOR", "SEM ESTOQUE"].includes(row.situacao_estoque)).length;
         const units = dados.reduce((total, row) => total + Number(row.estoque_atual || 0), 0);
         const summary = `<div class="inventory-summary"><article><span>Produtos cadastrados</span><strong>${dados.length}</strong></article><article><span>Produtos ativos</span><strong>${active}</strong></article><article><span>Precisam de reposição</span><strong class="${low ? "amount--negative" : "amount--positive"}">${low}</strong></article><article><span>Unidades em estoque</span><strong>${units}</strong></article></div>`;
-        const table = renderActionTable(dados, [["Produto", "nome"], ["Código de barras", "codigo_barras"], ["Categoria", "categoria"], ["Unidade", "unidade_medida"], ["Preço", "valor_atual", formatMoney], ["Estoque", "estoque_atual", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Mínimo", "estoque_minimo", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Reposição", "situacao_estoque", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Cadastro", "ativo", formatActive]], (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="product" data-id="${row.id}">Editar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="product-price" data-id="${row.id}">Preço</button>${isCanteenService(row) ? "" : `<button class="button" type="button" data-action="open-maintenance-form" data-kind="product-stock" data-id="${row.id}">Movimentar</button>`}<button class="button button--secondary" type="button" data-action="product-history" data-id="${row.id}">Histórico</button>`);
-        return `<div class="toolbar"><div></div><button class="button" type="button" data-action="open-new-product">Novo produto</button></div>${summary}<div class="products-report">${table}</div>`;
+        const table = renderActionTable(dados, [["Produto", "nome"], ["Código de barras", "codigo_barras"], ["Categoria", "categoria"], ["Unidade", "unidade_medida"], ["Preço", "valor_atual", formatMoney], ["Estoque", "estoque_atual", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Mínimo", "estoque_minimo", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Reposição", "situacao_estoque", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Cadastro", "ativo", formatActive]], () => "", {
+            selectableRows: true,
+            selectionData: (row) => ({ id: row.id, capabilities: ["edit", "price", "history", ...(!isCanteenService(row) ? ["stock"] : [])] }),
+        });
+        const actions = `<div class="selection-actions" aria-label="Ações do produto selecionado"><span class="selection-actions__label">Produto selecionado</span><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="product" data-selection-action="edit" disabled>Editar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="product-price" data-selection-action="price" disabled>Preço</button><button class="button" type="button" data-action="open-maintenance-form" data-kind="product-stock" data-selection-action="stock" disabled>Movimentar</button><button class="button button--secondary" type="button" data-action="product-history" data-selection-action="history" disabled>Histórico</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button" type="button" data-action="open-new-product">Novo produto</button></div>`;
+        return `${summary}<section class="selection-scope products-report"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 
     async function renderCollaborators() {
@@ -1069,10 +1121,19 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function renderReceivables() {
         const { dados } = await api("/api/contas-receber");
-        return renderActionTable(dados, [["Residente", "residente_nome"], ["Responsável", "responsavel_nome"], ["Tipo", "tipo"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Recebido", "total_recebido", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "situacao_temporal", valueOrStatus]], (row) => {
+        const table = renderActionTable(dados, [["Residente", "residente_nome"], ["Responsável", "responsavel_nome"], ["Tipo", "tipo"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Recebido", "total_recebido", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "situacao_temporal", valueOrStatus]], (row) => {
             const open = Number(row.saldo_restante) > 0 && !["PAGA", "DESCONTADA"].includes(row.status);
             return `${open ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento" data-id="${row.id}">Receber</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`;
+        }, {
+            selectableRows: true,
+            selectionData: (row) => ({
+                id: row.id,
+                capabilities: Number(row.saldo_restante) > 0 && !["PAGA", "DESCONTADA"].includes(row.status)
+                    ? ["receive", "history"] : ["history"],
+            }),
         });
+        const actions = `<div class="selection-actions" aria-label="Ações da conta selecionada"><span class="selection-actions__label">Conta selecionada</span><button class="button" type="button" data-action="open-financial-form" data-kind="recebimento" data-selection-action="receive" disabled>Receber</button><button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-selection-action="history" disabled>Histórico</button></div>`;
+        return `<section class="selection-scope"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 
     function monthlyStatus(row) {
@@ -1085,8 +1146,15 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const table = renderActionTable(rows, [["Residente", "residente_nome"], ["Modalidade", "modalidade"], ["Convênio", "convenio_nome"], ["Parcela", "numero_parcela"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor_devido", formatMoney], ["Recebido", "total_recebido", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "status", (_, row) => monthlyStatus(row)]], (row) => `${!["PAGA", "DESCONTADA"].includes(monthlyStatus(row)) ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-id="${row.id}">Receber</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`, {
             allStatusesLabel: "Todas as mensalidades",
             statuses: [["A VENCER", "A pagar"], ["PAGA", "Pagas"], ["VENCIDA", "Vencidas"], ["DESCONTADA", "Descontadas"], ["PARCIAL", "Parcialmente pagas"]],
+            selectableRows: true,
+            selectionData: (row) => ({
+                id: row.id,
+                capabilities: !["PAGA", "DESCONTADA"].includes(monthlyStatus(row))
+                    ? ["receive", "history"] : ["history"],
+            }),
         });
-        return `<div class="monthly-report">${table}</div>`;
+        const actions = `<div class="selection-actions" aria-label="Ações da mensalidade selecionada"><span class="selection-actions__label">Mensalidade selecionada</span><button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-selection-action="receive" disabled>Receber</button><button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-selection-action="history" disabled>Histórico</button></div>`;
+        return `<section class="selection-scope monthly-report"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 
     async function renderMonthlyFees() {
@@ -1099,8 +1167,16 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const table = renderActionTable(dados, [["Descrição", "despesa_descricao"], ["Setor", "setor_nome"], ["Natureza", "natureza"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Pago", "total_pago", formatMoney], ["Restante", "restante", formatMoney], ["Status", "status"]], (row) => {
             const open = Number(row.restante) > 0 && !["PAGA", "CANCELADA"].includes(row.status);
             return `${open ? `<button class="button" type="button" data-action="open-financial-form" data-kind="pagamento" data-id="${row.id}">Pagar</button><button class="button button--danger" type="button" data-action="cancel-payable" data-id="${row.id}">Cancelar</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="saida" data-id="${row.id}">Histórico</button>`;
+        }, {
+            selectableRows: true,
+            selectionData: (row) => ({
+                id: row.id,
+                capabilities: Number(row.restante) > 0 && !["PAGA", "CANCELADA"].includes(row.status)
+                    ? ["pay", "cancel", "history"] : ["history"],
+            }),
         });
-        return `<div class="toolbar"><div></div><button class="button" type="button" data-action="open-financial-form" data-kind="conta">Nova conta</button></div>${table}`;
+        const actions = `<div class="selection-actions" aria-label="Ações da conta selecionada"><span class="selection-actions__label">Conta selecionada</span><button class="button" type="button" data-action="open-financial-form" data-kind="pagamento" data-selection-action="pay" disabled>Pagar</button><button class="button button--danger" type="button" data-action="cancel-payable" data-selection-action="cancel" disabled>Cancelar</button><button class="button button--secondary" type="button" data-action="financial-history" data-kind="saida" data-selection-action="history" disabled>Histórico</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button" type="button" data-action="open-financial-form" data-kind="conta">Nova conta</button></div>`;
+        return `<section class="selection-scope"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 
     async function renderExpenses() {

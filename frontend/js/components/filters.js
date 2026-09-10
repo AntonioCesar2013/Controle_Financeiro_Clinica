@@ -21,6 +21,7 @@ export function applyTableFilters(control) {
     let count = 0;
     container.querySelectorAll("tbody tr[data-search]").forEach(row => {
         row.hidden = Boolean(invalid) || !matchesFilters({search: row.dataset.search, status: row.dataset.status, date: row.dataset.date}, fields);
+        if (row.hidden && row.matches(".selectable-row[aria-selected='true']")) row.click();
         if (!row.hidden) count++;
     });
     container.querySelector("[data-filter-count]").textContent = invalid

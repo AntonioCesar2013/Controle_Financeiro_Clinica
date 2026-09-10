@@ -79,6 +79,11 @@ Nos acessos seguintes, utilize o CPF e a senha cadastrados.
 O frontend deve ser aberto pelo servidor. A abertura direta de
 `frontend/index.html` não possui acesso à API Python.
 
+A interface se adapta à área útil do monitor sem aplicar escala global. Em
+monitores comuns, a navegação permanece lateral e limitada a 320 pixels; em
+telas estreitas, o menu passa para o topo e a área de trabalho ocupa a largura
+disponível.
+
 ## Primeira execução
 
 1. Inicie o sistema por `iniciar.cmd` ou `python main.py`.
@@ -224,6 +229,7 @@ Os testes automatizados usam bancos descartáveis, sem alterar os dados locais:
 `node tests/datas.mjs`.
 Para validar a composição dos recibos e das tabelas: `node tests/documentos.mjs`.
 Para validar o registro dos módulos do frontend: `node tests/modulos_frontend.mjs`.
+Para validar o layout fluido e os componentes visuais: `node tests/interface_visual.mjs`.
 
 ## Buscas, extrato e recibos
 
