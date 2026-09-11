@@ -348,6 +348,7 @@ class Requisicao(BaseHTTPRequestHandler):
                     dados.get("conta_pagar_id"), dados.get("data_pagamento"),
                     _centavos(dados.get("valor")), dados.get("forma_pagamento"),
                     dados.get("observacao"), _centavos(dados.get("desconto") or 0),
+                    _centavos(dados.get("multa_juros") or 0),
                 )
             except ValueError as erro:
                 resultado = {"sucesso": False, "erro": str(erro)}
@@ -358,6 +359,7 @@ class Requisicao(BaseHTTPRequestHandler):
                     dados.get("cobranca_id"), dados.get("data_pagamento"),
                     _centavos(dados.get("valor")), dados.get("forma_pagamento"),
                     dados.get("observacao"), _centavos(dados.get("desconto") or 0),
+                    _centavos(dados.get("multa_juros") or 0),
                 )
             except (TypeError, ValueError) as erro:
                 resultado = {"sucesso": False, "erro": str(erro)}

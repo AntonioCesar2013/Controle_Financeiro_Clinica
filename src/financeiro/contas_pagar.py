@@ -232,7 +232,8 @@ def listar_contas(
                 c.valor,
                 c.desconto,
                 c.status,
-                COALESCE((SELECT SUM(p.valor) FROM pagamentos_saida p WHERE p.conta_pagar_id=c.id), 0)
+                COALESCE((SELECT SUM(p.valor) FROM pagamentos_saida p WHERE p.conta_pagar_id=c.id), 0),
+                COALESCE((SELECT SUM(p.multa_juros) FROM pagamentos_saida p WHERE p.conta_pagar_id=c.id), 0)
 
             FROM contas_pagar c
 
@@ -305,6 +306,8 @@ def listar_contas(
                 "status": linha[9],
                 "valor_devido": linha[7] - linha[8],
                 "total_pago": linha[10],
+                "total_multa_juros": linha[11],
+                "total_pago_com_encargos": linha[10] + linha[11],
                 "restante": linha[7] - linha[8] - linha[10],
             }
             for linha in resultados
@@ -353,12 +356,12 @@ def calcular_total_pago(conta_id):
         # --------------------------------------------------------
 
         cursor.execute("""
-            SELECT COALESCE(SUM(valor), 0)
+            SELECT COALESCE(SUM(valor), 0), COALESCE(SUM(multa_juros), 0)
             FROM pagamentos_saida
             WHERE conta_pagar_id = ?
         """, (conta_id,))
 
-        total_pago = cursor.fetchone()[0]
+        total_pago, total_multa_juros = cursor.fetchone()
 
         valor_conta = conta[1]
         desconto = conta[2]
@@ -373,6 +376,8 @@ def calcular_total_pago(conta_id):
             "valor_devido": valor_devido,
             "desconto": desconto,
             "total_pago": total_pago,
+            "total_multa_juros": total_multa_juros,
+            "total_pago_com_encargos": total_pago + total_multa_juros,
             "restante": restante,
             "status": conta[3]
         }

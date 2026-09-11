@@ -6,6 +6,7 @@ import { createState } from "./core/state.js";
 import { businessModules } from "./modules/index.js";
 import { setFormBusy } from "./components/forms.js";
 import { createConference } from "./components/conference.js";
+import { renderDashboardChart } from "./components/dashboard-chart.js";
 import {
     emptyState,
     errorState,
@@ -41,6 +42,10 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     let selectedCanteenWalletId = "";
     let selectedWalletId = "";
     let walletResidents = [];
+    let dashboardChartMovements = [];
+    let dashboardChartRequest = 0;
+    let startupDueAlertShown = false;
+    const dashboardChartState = { metric: "daily", type: "bar", start: "", end: "" };
 
     const api = createApi({
         onUnauthorized: (message) => showLogin(false, message),
@@ -90,12 +95,16 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         // TESTES: reative esta linha para tornar o login obrigatório novamente.
         // checkAccess();
         openGeneralMenu();
+        void openStartupDueAlert();
     }
 
     async function checkAccess() {
         try {
             const status = await api("/api/auth/status", { allowUnauthorized: true });
-            if (status.autenticado) openGeneralMenu();
+            if (status.autenticado) {
+                openGeneralMenu();
+                void openStartupDueAlert();
+            }
             else showLogin(!status.configurado);
         } catch (_) {
             showConnectionError();
@@ -109,6 +118,9 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (action.startsWith("conference-")) return conference.click(trigger);
         if (action === "open-panel") openMainPanel(panel);
         if (action === "open-financial-menu") openFinancialMenu();
+        if (action === "open-registrations-menu") openRegistrationsMenu();
+        if (action === "open-canteen-menu") openCanteenMenu();
+        if (action === "open-administration-menu") openAdministrationMenu();
         if (action === "open-general-menu") openGeneralMenu();
         if (action === "clear-table-filters") clearTableFilters(trigger);
         if (action === "select-report-row") selectReportRow(trigger);
@@ -173,6 +185,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     function handleChange(event) {
         conference.change(event.target);
+        if (event.target.matches("[data-dashboard-chart-control]")) updateDashboardChart(event.target);
         if (event.target.matches("[data-filter-status], [data-filter-start], [data-filter-end]")) applyTableFilters(event.target);
         if (event.target.matches("#wallet-resident")) refreshWalletDetail(event.target);
         if (event.target.matches("#canteen-wallet")) refreshCanteenCart();
@@ -241,6 +254,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             await api("/api/auth/login", { method: "POST", body: data });
             layers.auth.replaceChildren();
             openGeneralMenu();
+            void openStartupDueAlert();
         } catch (error) { form.querySelector("#login-error").textContent = error.message; }
         finally { setFormBusy(form, false); }
     }
@@ -278,48 +292,106 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     function openGeneralMenu() {
         renderMenu("Menu geral", "Controle Financeiro", [
-            ["dashboard", "Dashboard", "Indicadores e movimentos", "open-panel"],
-            ["relatorios", "Relatórios", "Análises por período", "open-panel"],
-            ["financeiro", "Financeiro", "Receber, pagar e caixa", "open-financial-menu"],
-            ["carteiras", "Carteiras", "Saldos por residente", "open-panel"],
-            ["cantina", "Cantina", "Mercadinho dos residentes", "open-panel"],
-            ["internacoes", "Internações", "Acolhimentos e contratos", "open-panel"],
-            ["residentes", "Residentes", "Cadastro e consulta", "open-panel"],
-            ["responsaveis", "Responsáveis", "Contatos e vínculos", "open-panel"],
-            ["colaboradores", "Colaboradores", "Equipe e acessos", "open-panel"],
-            ["itens", "Itens", "Catálogo e valores", "open-panel"],
-            ["configuracoes", "Configurações", "Parâmetros do sistema", "open-panel"],
-            ["", "Sair", "Encerrar esta sessão", "logout"],
+            ["dashboard", "Dashboard", "Indicadores e movimentos", "open-panel", "Visão geral"],
+            ["relatorios", "Relatórios", "Análises por período", "open-panel", "Visão geral"],
+            ["financeiro", "Financeiro", "Receber, pagar e conferir", "open-financial-menu", "Módulos"],
+            ["cadastros", "Cadastros", "Residentes, responsáveis e internações", "open-registrations-menu", "Módulos"],
+            ["cantina", "Cantina", "Vendas, carteiras e estoque", "open-canteen-menu", "Módulos"],
+            ["administracao", "Administração", "Equipe e configurações", "open-administration-menu", "Módulos"],
+            ["", "Sair", "Encerrar esta sessão", "logout", "Sessão"],
         ]);
     }
 
     function openFinancialMenu() {
         renderMenu("Menu financeiro", "Módulo", [
-            ["financeiro", "Visão financeira", "Resumo do módulo", "open-panel"],
-            ["contas_receber", "Contas a receber", "Cobranças e recebimentos", "open-panel"],
-            ["mensalidades", "Mensalidades", "Pagas, vencidas e a vencer", "open-panel"],
-            ["contas_pagar", "Contas a pagar", "Vencimentos e pagamentos", "open-panel"],
-            ["caixa", "Fluxo de caixa", "Entradas, saídas e resultado", "open-panel"],
-            ["conferencia", "Conferência financeira", "Conciliação, saldos e fechamento", "open-panel"],
-            ["despesas", "Despesas", "Setores e classificações", "open-panel"],
-            ["", "Sair", "Encerrar esta sessão", "logout"],
-        ], true);
+            ["financeiro", "Visão financeira", "Resumo do módulo", "open-panel", "Resumo"],
+            ["contas_receber", "Contas a receber", "Cobranças e recebimentos", "open-panel", "Operações"],
+            ["mensalidades", "Mensalidades", "Pagas, vencidas e a vencer", "open-panel", "Operações"],
+            ["contas_pagar", "Contas a pagar", "Vencimentos e pagamentos", "open-panel", "Operações"],
+            ["caixa", "Fluxo de caixa", "Entradas, saídas e resultado", "open-panel", "Controle"],
+            ["conferencia", "Conferência financeira", "Conciliação, saldos e fechamento", "open-panel", "Controle"],
+            ["despesas", "Despesas", "Setores e classificações", "open-panel", "Controle"],
+            ["", "Sair", "Encerrar esta sessão", "logout", "Sessão"],
+        ], true, "financial-menu");
         openMainPanel("financeiro");
     }
 
-    function renderMenu(title, eyebrow, items, back = false) {
-        const body = `<div class="menu-context">${back ? '<button class="menu-context__back" type="button" data-action="open-general-menu">← Menu geral</button>' : ""}<nav class="menu-grid" aria-label="${title}">${items.map(([id, label, description, action]) => `<button class="menu-item${id === state.activePanelName ? " is-active" : ""}" type="button" data-action="${action}"${id ? ` data-panel="${id}"` : ""}${id === state.activePanelName ? ' aria-current="page"' : ""}><span class="menu-item__icon" aria-hidden="true">${menuIcon(id || action)}</span><span class="menu-item__copy"><strong>${label}</strong><span>${description}</span></span></button>`).join("")}</nav></div>`;
-        layers.menu.replaceChildren(createPanel({ id: back ? "financial-menu" : "general-menu", title, eyebrow, body, size: "menu", closable: false }));
+    function openRegistrationsMenu() {
+        renderMenu("Cadastros", "Módulo", [
+            ["residentes", "Residentes", "Cadastro e consulta", "open-panel", "Pessoas"],
+            ["responsaveis", "Responsáveis", "Contatos e vínculos", "open-panel", "Pessoas"],
+            ["internacoes", "Internações", "Acolhimentos e contratos", "open-panel", "Atendimento"],
+            ["", "Sair", "Encerrar esta sessão", "logout", "Sessão"],
+        ], true, "registrations-menu");
+        openMainPanel("residentes");
+    }
+
+    function openCanteenMenu() {
+        renderMenu("Menu da Cantina", "Módulo", [
+            ["cantina", "Caixa da Cantina", "Vendas e estornos", "open-panel", "Operação"],
+            ["carteiras", "Carteiras", "Créditos, saldos e compras", "open-panel", "Residentes"],
+            ["itens", "Produtos e estoque", "Catálogo, preços e movimentações", "open-panel", "Estoque"],
+            ["", "Sair", "Encerrar esta sessão", "logout", "Sessão"],
+        ], true, "canteen-menu");
+        openMainPanel("cantina");
+    }
+
+    function openAdministrationMenu() {
+        renderMenu("Administração", "Módulo", [
+            ["colaboradores", "Colaboradores", "Equipe, senhas e acessos", "open-panel", "Acesso"],
+            ["configuracoes", "Configurações", "Parâmetros e sincronização", "open-panel", "Sistema"],
+            ["", "Sair", "Encerrar esta sessão", "logout", "Sessão"],
+        ], true, "administration-menu");
+        openMainPanel("colaboradores");
+    }
+
+    function renderMenu(title, eyebrow, items, back = false, menuId = "general-menu") {
+        const groups = [];
+        items.forEach((item) => {
+            const groupName = item[4] || "Menu";
+            let group = groups.find(([name]) => name === groupName);
+            if (!group) { group = [groupName, []]; groups.push(group); }
+            group[1].push(item);
+        });
+        const menu = groups.map(([groupName, groupItems]) => `<section class="menu-group" aria-labelledby="menu-group-${groupName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}"><h3 class="menu-group__title" id="menu-group-${groupName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}">${groupName}</h3><div class="menu-group__items">${groupItems.map(([id, label, description, action]) => { const active = menuItemActive(id, back); return `<button class="menu-item${active ? " is-active" : ""}" type="button" data-action="${action}" title="${description}"${id ? ` data-panel="${id}"` : ""}${active ? ' aria-current="page"' : ""}><span class="menu-item__icon" aria-hidden="true">${menuIcon(id || action)}</span><span class="menu-item__copy"><strong>${label}</strong><span>${description}</span></span></button>`; }).join("")}</div></section>`).join("");
+        const body = `<div class="menu-context">${back ? '<button class="menu-context__back" type="button" data-action="open-general-menu">← Menu geral</button>' : ""}<nav class="menu-grid menu-grid--grouped" aria-label="${title}">${menu}</nav></div>`;
+        layers.menu.replaceChildren(createPanel({ id: menuId, title, eyebrow, body, size: "menu", closable: false }));
+    }
+
+    function menuItemActive(id, nestedMenu = false) {
+        if (id === state.activePanelName) return true;
+        if (nestedMenu) return false;
+        const modulePanels = {
+            financeiro: ["financeiro", "contas_receber", "mensalidades", "contas_pagar", "caixa", "conferencia", "despesas"],
+            cadastros: ["residentes", "responsaveis", "internacoes"],
+            cantina: ["cantina", "carteiras", "itens"],
+            administracao: ["colaboradores", "configuracoes"],
+        };
+        return modulePanels[id]?.includes(state.activePanelName) || false;
     }
 
     function menuIcon(name) {
         const icons = {
             dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+            relatorios: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10m5 10V4m6 16v-7m5 7V7"/></svg>',
             financeiro: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 18V9m5 9V5m6 13v-7m5 7V3"/></svg>',
+            cadastros: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v16H4zM8 3v4m8-4v4M8 11h8M8 15h5"/></svg>',
+            administracao: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 3 7.5 12 12l9-4.5L12 3Zm-7 8v6l7 4 7-4v-6"/></svg>',
+            contas_receber: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18m4-14.5c-1-1-2.2-1.5-4-1.5-2.2 0-4 1.2-4 3s1.8 2.7 4 3 4 1.2 4 3-1.8 3-4 3c-1.8 0-3.2-.5-4.3-1.6"/></svg>',
+            contas_pagar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3h10l3 3v15H4V3h3Zm2 7h6m-6 4h6m-6 4h4"/></svg>',
+            mensalidades: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>',
             caixa: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M16 12h5M3 9h14"/></svg>',
             conferencia: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/><path d="M4 4h16v16H4z"/></svg>',
+            despesas: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16v14H4zM8 3v6m8-6v6M8 14h8"/></svg>',
+            carteiras: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h15a3 3 0 0 1 3 3v10H3zM3 6l13-3v3m1 6h4"/></svg>',
             cantina: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18l-2 13H5L3 7Z"/><path d="M8 7a4 4 0 0 1 8 0"/></svg>',
+            itens: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 7 8-4 8 4-8 4-8-4Zm0 0v10l8 4 8-4V7M12 11v10"/></svg>',
+            internacoes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21V5h16v16M8 9h8M8 13h8M10 21v-4h4v4"/></svg>',
+            residentes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+            responsaveis: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="10" r="2"/><path d="M3 20a6 6 0 0 1 12 0m0-5a5 5 0 0 1 6 5"/></svg>',
+            colaboradores: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2M10 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm8-3v6m-3-3h6"/></svg>',
             configuracoes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1A8 8 0 0 0 15 6l-.3-2.6h-4L10.4 6A8 8 0 0 0 8 7.1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1A8 8 0 0 0 10.4 18l.3 2.6h4L15 18a8 8 0 0 0 2.4-1.1l2.4 1 2-3.4-2-1.5a7 7 0 0 0 .1-1Z"/></svg>',
+            logout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 17l5-5-5-5m5 5H3m12-9h6v18h-6"/></svg>',
         };
         return icons[name] || '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5"/></svg>';
     }
@@ -345,9 +417,49 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         });
     }
 
+    async function updateDashboardChart(control) {
+        const panel = control.closest(".panel");
+        const metric = panel?.querySelector("[data-dashboard-chart-metric]")?.value || "daily";
+        const type = panel?.querySelector("[data-dashboard-chart-type]")?.value || "bar";
+        const start = panel?.querySelector("[data-dashboard-chart-start]")?.value || "";
+        const end = panel?.querySelector("[data-dashboard-chart-end]")?.value || "";
+        dashboardChartState.metric = metric;
+        dashboardChartState.type = type;
+        dashboardChartState.start = start;
+        dashboardChartState.end = end;
+        const target = panel?.querySelector("[data-dashboard-chart]");
+        if (!target) return;
+        const startInput = panel.querySelector("[data-dashboard-chart-start]");
+        const endInput = panel.querySelector("[data-dashboard-chart-end]");
+        if (startInput) startInput.max = end;
+        if (endInput) endInput.min = start;
+        const dateChanged = control.matches("[data-dashboard-chart-start], [data-dashboard-chart-end]");
+        const request = dateChanged ? ++dashboardChartRequest : dashboardChartRequest;
+        if (!start || !end || start > end) {
+            target.innerHTML = '<div class="chart-empty chart-empty--error"><strong>Período inválido</strong><span>Informe uma data inicial anterior ou igual à data final.</span></div>';
+            return;
+        }
+        if (!dateChanged) {
+            target.innerHTML = renderDashboardChart(dashboardChartMovements, metric, type);
+            return;
+        }
+        target.setAttribute("aria-busy", "true");
+        target.innerHTML = '<div class="chart-empty"><strong>Atualizando gráfico</strong><span>Consultando as movimentações do período…</span></div>';
+        try {
+            const response = await api(`/api/caixa?data_inicio=${encodeURIComponent(start)}&data_fim=${encodeURIComponent(end)}`);
+            if (request !== dashboardChartRequest) return;
+            dashboardChartMovements = response.dados?.movimentacoes || [];
+            target.innerHTML = renderDashboardChart(dashboardChartMovements, dashboardChartState.metric, dashboardChartState.type);
+        } catch (error) {
+            if (request === dashboardChartRequest) target.innerHTML = `<div class="chart-empty chart-empty--error"><strong>Não foi possível atualizar</strong><span>${escapeHtml(error.message)}</span></div>`;
+        } finally {
+            if (request === dashboardChartRequest) target.removeAttribute("aria-busy");
+        }
+    }
+
     function syncMenuSelection() {
         layers.menu.querySelectorAll(".menu-item[data-panel]").forEach((item) => {
-            const selected = item.dataset.panel === state.activePanelName;
+            const selected = menuItemActive(item.dataset.panel, !item.closest("#general-menu"));
             item.classList.toggle("is-active", selected);
             if (selected) item.setAttribute("aria-current", "page");
             else item.removeAttribute("aria-current");
@@ -386,6 +498,49 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     function showAlert(title, message) {
         layers.modal.replaceChildren(createPanel({ title, body: `<div class="modal-message"><span class="modal-message__icon">i</span><p>${escapeHtml(message)}</p></div>`, footer: '<button class="button" type="button" data-action="close-panel">OK</button>', size: "small", modal: true }));
+    }
+
+    async function openStartupDueAlert() {
+        if (startupDueAlertShown) return;
+        startupDueAlertShown = true;
+        try {
+            const [{ dados: receivables }, { dados: payables }] = await Promise.all([
+                api("/api/contas-receber"),
+                api("/api/contas-pagar"),
+            ]);
+            const today = localDate();
+            const limitDate = new Date(`${today}T12:00:00`);
+            limitDate.setDate(limitDate.getDate() + 5);
+            const limit = `${limitDate.getFullYear()}-${String(limitDate.getMonth() + 1).padStart(2, "0")}-${String(limitDate.getDate()).padStart(2, "0")}`;
+            const activeReceivables = receivables
+                .filter((item) => !["PAGA", "DESCONTADA", "CANCELADA"].includes(item.status) && Number(item.saldo_restante) > 0)
+                .map((item) => ({ type: "A receber", description: item.residente_nome, due: item.data_vencimento, remaining: item.saldo_restante }));
+            const activePayables = payables
+                .filter((item) => !["PAGA", "CANCELADA"].includes(item.status) && Number(item.restante) > 0)
+                .map((item) => ({ type: "A pagar", description: item.despesa_descricao, due: item.data_vencimento, remaining: item.restante }));
+            const accounts = [...activeReceivables, ...activePayables]
+                .filter((item) => item.due <= limit)
+                .sort((left, right) => left.due.localeCompare(right.due) || left.type.localeCompare(right.type));
+            const overdueCount = accounts.filter((item) => item.due < today).length;
+            const upcomingCount = accounts.length - overdueCount;
+            const situation = (due) => due < today
+                ? "Vencida"
+                : due === today ? "Vence hoje" : "Próximos 5 dias";
+            const summary = `<div class="startup-alert__summary"><div><strong>${overdueCount}</strong><span>vencida${overdueCount === 1 ? "" : "s"}</span></div><div><strong>${upcomingCount}</strong><span>a vencer em até 5 dias</span></div></div>`;
+            const body = accounts.length
+                ? `${summary}<p class="startup-alert__intro">Confira os compromissos financeiros que precisam de atenção.</p>${renderTable(accounts, [["Tipo", "type"], ["Conta", "description"], ["Vencimento", "due", formatDate], ["Saldo", "remaining", formatMoney], ["Situação", "due", situation]])}`
+                : `${summary}<div class="placeholder"><div><h3>Nenhuma conta exige atenção</h3><p>Não há contas vencidas nem vencimentos previstos para os próximos cinco dias.</p></div></div>`;
+            layers.modal.replaceChildren(createPanel({
+                title: "Contas que exigem atenção",
+                eyebrow: "Aviso ao iniciar",
+                body,
+                footer: '<button class="button" type="button" data-action="close-panel">Entendido</button>',
+                size: "large",
+                modal: true,
+            }));
+        } catch (_) {
+            startupDueAlertShown = false;
+        }
     }
 
     function openResidentForm() {
@@ -537,7 +692,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const hiddenName = isReceipt ? "cobranca_id" : "conta_pagar_id";
         const action = isReceipt ? "recebido" : "pago";
         const pending = isReceipt ? "receber" : "pagar";
-        return `<input type="hidden" name="${hiddenName}" value="${escapeHtml(id)}"><div class="financial-receipt-grid" data-remaining="${remaining}"><div class="field"><label for="receipt-due-date">Data de vencimento</label><input id="receipt-due-date" type="date" value="${escapeHtml(record.data_vencimento)}" readonly></div><div class="field"><label for="financial-date">Data de pagamento</label><input id="financial-date" name="data_pagamento" type="date" value="${today}" required></div><div class="field"><label for="receipt-total">Valor total</label><input id="receipt-total" type="text" value="${escapeHtml(formatMoney(record.valor))}" readonly></div><div class="field"><label for="receipt-paid">Valor pago parcial</label><input id="receipt-paid" type="text" value="${escapeHtml(formatMoney(totalPaid))}" readonly></div><div class="field"><label for="financial-value">Valor ${action}</label><input id="financial-value" name="valor" type="text" inputmode="numeric" data-mask="currency" value="R$ 0,00" required></div><div class="field"><label for="financial-method">Forma de pagamento</label><select id="financial-method" name="forma_pagamento"><option value="PIX">PIX</option><option value="DINHEIRO">Dinheiro</option><option value="CARTAO">Cartão</option><option value="TRANSFERENCIA">Transferência</option><option value="BOLETO">Boleto</option></select></div><div class="field"><label for="financial-discount">Valor do desconto</label><input id="financial-discount" name="desconto" type="text" inputmode="numeric" data-mask="currency" value="R$ 0,00"></div><div class="field"><label for="receipt-remaining">Ainda falta ${pending}</label><input id="receipt-remaining" type="text" value="${escapeHtml(formatMoney(remainingCents))}" readonly data-receipt-remaining></div></div><div class="field"><label for="financial-note">Observação</label><textarea id="financial-note" name="observacao" rows="3"></textarea></div>`;
+        return `<input type="hidden" name="${hiddenName}" value="${escapeHtml(id)}"><div class="financial-receipt-grid" data-remaining="${remaining}"><div class="field"><label for="receipt-due-date">Data de vencimento</label><input id="receipt-due-date" type="date" value="${escapeHtml(record.data_vencimento)}" readonly></div><div class="field"><label for="financial-date">Data de pagamento</label><input id="financial-date" name="data_pagamento" type="date" value="${today}" required></div><div class="field"><label for="receipt-total">Valor total</label><input id="receipt-total" type="text" value="${escapeHtml(formatMoney(record.valor))}" readonly></div><div class="field"><label for="receipt-paid">Valor pago parcial</label><input id="receipt-paid" type="text" value="${escapeHtml(formatMoney(totalPaid))}" readonly></div><div class="field"><label for="financial-value">Valor ${action}</label><input id="financial-value" name="valor" type="text" inputmode="numeric" data-mask="currency" value="R$ 0,00" required></div><div class="field"><label for="financial-method">Forma de pagamento</label><select id="financial-method" name="forma_pagamento"><option value="PIX">PIX</option><option value="DINHEIRO">Dinheiro</option><option value="CARTAO">Cartão</option><option value="TRANSFERENCIA">Transferência</option><option value="BOLETO">Boleto</option></select></div><div class="field"><label for="financial-discount">Valor do desconto</label><input id="financial-discount" name="desconto" type="text" inputmode="numeric" data-mask="currency" value="R$ 0,00"></div><div class="field"><label for="financial-fees">Multa e juros</label><input id="financial-fees" name="multa_juros" type="text" inputmode="numeric" data-mask="currency" value="R$ 0,00"></div><div class="field financial-receipt-grid__remaining"><label for="receipt-remaining">Ainda falta ${pending}</label><input id="receipt-remaining" type="text" value="${escapeHtml(formatMoney(remainingCents))}" readonly data-receipt-remaining></div></div><div class="field"><label for="financial-note">Observação</label><textarea id="financial-note" name="observacao" rows="3"></textarea></div>`;
     }
 
     function updateSettlementRemaining(form) {
@@ -568,6 +723,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (form.classList.contains("settlement-form")) {
             data.valor = currencyValue(data.valor).toFixed(2);
             data.desconto = currencyValue(data.desconto).toFixed(2);
+            data.multa_juros = currencyValue(data.multa_juros).toFixed(2);
         }
         setFormBusy(form, true);
         try {
@@ -601,8 +757,8 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             const endpoint = isOutgoing ? `/api/contas-pagar/pagamentos?id=${encodeURIComponent(id)}` : `/api/contas-receber/recebimentos?id=${encodeURIComponent(id)}`;
             const { dados } = await api(endpoint);
             const columns = isOutgoing
-                ? [["Data", "data_pagamento", formatDate], ["Valor", "valor", formatMoney], ["Forma", "forma_pagamento"], ["Observação", "observacao"]]
-                : [["Data", "data_recebimento", formatDate], ["Valor", "valor", formatMoney], ["Forma", "forma_recebimento"], ["Observação", "observacao"]];
+                ? [["Data", "data_pagamento", formatDate], ["Principal", "valor", formatMoney], ["Desconto", "desconto", formatMoney], ["Multa e juros", "multa_juros", formatMoney], ["Total pago", "total_lancamento", formatMoney], ["Forma", "forma_pagamento"], ["Observação", "observacao"]]
+                : [["Data", "data_recebimento", formatDate], ["Principal", "valor", formatMoney], ["Desconto", "desconto", formatMoney], ["Multa e juros", "multa_juros", formatMoney], ["Total recebido", "total_lancamento", formatMoney], ["Forma", "forma_recebimento"], ["Observação", "observacao"]];
             columns.push(["Situação", "estornada", (value) => value ? "ESTORNADO" : "EFETIVO"], ["Estornado em", "estornada_em", formatDateTime], ["Motivo do estorno", "motivo_estorno"]);
             let body = renderActionTable(dados, columns, (row) => row.estornada ? "" : `<button class="button button--danger" type="button" data-action="delete-financial-entry" data-kind="${isOutgoing ? "saida" : "entrada"}" data-id="${row.id}">Estornar</button>${!isOutgoing && row.tipo === "MENSALIDADE" ? `<button class="button button--secondary" data-action="generate-receipt" data-id="${row.id}">Gerar recibo</button>` : ""}`);
             if (!isOutgoing) {
@@ -983,8 +1139,20 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     async function renderDashboard() {
-        const { dados } = await api("/api/dashboard");
-        return `<section class="workspace-intro"><div><h3>Visão geral da operação</h3><p>Acompanhe o mês e acesse rapidamente as rotinas financeiras mais utilizadas.</p></div><div class="quick-actions"><button class="button button--secondary" type="button" data-action="open-panel" data-panel="contas_receber">Contas a receber</button><button class="button button--secondary" type="button" data-action="open-panel" data-panel="contas_pagar">Contas a pagar</button><button class="button" type="button" data-action="open-panel" data-panel="conferencia">Abrir conferência</button></div></section><div class="metrics">${metric("Entradas do mês", dados.total_entradas, "success")}${metric("Saídas do mês", dados.total_saidas, "danger")}${metric("Resultado", dados.resultado, "primary")}${metric("A receber", dados.total_receber, "warning")}${metric("A pagar", dados.total_pagar, "warning")}</div><h3 class="section-title">Movimentações recentes</h3>${renderTable(dados.movimentacoes_recentes, [["Data", "data", formatDate], ["Descrição", "descricao"], ["Tipo", "tipo"], ["Forma", "forma_pagamento"], ["Valor", "valor", formatMoney]])}`;
+        const today = localDate();
+        const defaultStart = `${today.slice(0, 8)}01`;
+        const [currentYear, currentMonth] = today.split("-").map(Number);
+        const defaultEnd = localDate(new Date(currentYear, currentMonth, 0));
+        dashboardChartState.start ||= defaultStart;
+        dashboardChartState.end ||= defaultEnd;
+        const [dashboardResponse, cashResponse] = await Promise.all([
+            api("/api/dashboard"),
+            api(`/api/caixa?data_inicio=${encodeURIComponent(dashboardChartState.start)}&data_fim=${encodeURIComponent(dashboardChartState.end)}`),
+        ]);
+        const dados = dashboardResponse.dados;
+        dashboardChartMovements = cashResponse.dados?.movimentacoes || [];
+        const chart = renderDashboardChart(dashboardChartMovements, dashboardChartState.metric, dashboardChartState.type);
+        return `<section class="workspace-intro"><div><h3>Visão geral da operação</h3><p>Acompanhe o mês e acesse rapidamente as rotinas financeiras mais utilizadas.</p></div><div class="quick-actions"><button class="button button--secondary" type="button" data-action="open-panel" data-panel="contas_receber">Contas a receber</button><button class="button button--secondary" type="button" data-action="open-panel" data-panel="contas_pagar">Contas a pagar</button><button class="button" type="button" data-action="open-panel" data-panel="conferencia">Abrir conferência</button></div></section><div class="metrics">${metric("Entradas do mês", dados.total_entradas, "success")}${metric("Saídas do mês", dados.total_saidas, "danger")}${metric("Resultado", dados.resultado, "primary")}${metric("A receber", dados.total_receber, "warning")}${metric("A pagar", dados.total_pagar, "warning")}</div><section class="dashboard-chart"><header class="dashboard-chart__header"><div><p class="panel__eyebrow">Análise por período</p><h3>Evolução financeira</h3></div><div class="dashboard-chart__controls"><label>Data inicial<input type="date" value="${dashboardChartState.start}" max="${dashboardChartState.end}" data-dashboard-chart-control data-dashboard-chart-start></label><label>Data final<input type="date" value="${dashboardChartState.end}" min="${dashboardChartState.start}" data-dashboard-chart-control data-dashboard-chart-end></label><label>Apresentar<select data-dashboard-chart-control data-dashboard-chart-metric><option value="daily"${dashboardChartState.metric === "daily" ? " selected" : ""}>Entradas e saídas por dia</option><option value="balance"${dashboardChartState.metric === "balance" ? " selected" : ""}>Resultado acumulado</option><option value="payment"${dashboardChartState.metric === "payment" ? " selected" : ""}>Movimentações por forma</option></select></label><label>Tipo do gráfico<select data-dashboard-chart-control data-dashboard-chart-type><option value="bar"${dashboardChartState.type === "bar" ? " selected" : ""}>Barras</option><option value="line"${dashboardChartState.type === "line" ? " selected" : ""}>Linhas</option><option value="area"${dashboardChartState.type === "area" ? " selected" : ""}>Área</option></select></label></div></header><div class="dashboard-chart__canvas" data-dashboard-chart>${chart}</div></section><h3 class="section-title">Movimentações recentes</h3>${renderTable(dados.movimentacoes_recentes, [["Data", "data", formatDate], ["Descrição", "descricao"], ["Tipo", "tipo"], ["Forma", "forma_pagamento"], ["Valor", "valor", formatMoney]])}`;
     }
 
     async function renderResidents() {
@@ -1121,7 +1289,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function renderReceivables() {
         const { dados } = await api("/api/contas-receber");
-        const table = renderActionTable(dados, [["Residente", "residente_nome"], ["Responsável", "responsavel_nome"], ["Tipo", "tipo"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Recebido", "total_recebido", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "situacao_temporal", valueOrStatus]], (row) => {
+        const table = renderActionTable(dados, [["Residente", "residente_nome"], ["Responsável", "responsavel_nome"], ["Tipo", "tipo"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Recebido", "total_recebido_com_encargos", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "situacao_temporal", valueOrStatus]], (row) => {
             const open = Number(row.saldo_restante) > 0 && !["PAGA", "DESCONTADA"].includes(row.status);
             return `${open ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento" data-id="${row.id}">Receber</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`;
         }, {
@@ -1143,7 +1311,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     function monthlyFeesContent(rows) {
-        const table = renderActionTable(rows, [["Residente", "residente_nome"], ["Modalidade", "modalidade"], ["Convênio", "convenio_nome"], ["Parcela", "numero_parcela"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor_devido", formatMoney], ["Recebido", "total_recebido", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "status", (_, row) => monthlyStatus(row)]], (row) => `${!["PAGA", "DESCONTADA"].includes(monthlyStatus(row)) ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-id="${row.id}">Receber</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`, {
+        const table = renderActionTable(rows, [["Residente", "residente_nome"], ["Modalidade", "modalidade"], ["Convênio", "convenio_nome"], ["Parcela", "numero_parcela"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor_devido", formatMoney], ["Recebido", "total_recebido_com_encargos", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "status", (_, row) => monthlyStatus(row)]], (row) => `${!["PAGA", "DESCONTADA"].includes(monthlyStatus(row)) ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-id="${row.id}">Receber</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`, {
             allStatusesLabel: "Todas as mensalidades",
             statuses: [["A VENCER", "A pagar"], ["PAGA", "Pagas"], ["VENCIDA", "Vencidas"], ["DESCONTADA", "Descontadas"], ["PARCIAL", "Parcialmente pagas"]],
             selectableRows: true,
@@ -1164,7 +1332,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function renderPayables() {
         const { dados } = await api("/api/contas-pagar");
-        const table = renderActionTable(dados, [["Descrição", "despesa_descricao"], ["Setor", "setor_nome"], ["Natureza", "natureza"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Pago", "total_pago", formatMoney], ["Restante", "restante", formatMoney], ["Status", "status"]], (row) => {
+        const table = renderActionTable(dados, [["Descrição", "despesa_descricao"], ["Setor", "setor_nome"], ["Natureza", "natureza"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Pago", "total_pago_com_encargos", formatMoney], ["Restante", "restante", formatMoney], ["Status", "status"]], (row) => {
             const open = Number(row.restante) > 0 && !["PAGA", "CANCELADA"].includes(row.status);
             return `${open ? `<button class="button" type="button" data-action="open-financial-form" data-kind="pagamento" data-id="${row.id}">Pagar</button><button class="button button--danger" type="button" data-action="cancel-payable" data-id="${row.id}">Cancelar</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="saida" data-id="${row.id}">Histórico</button>`;
         }, {
@@ -1210,8 +1378,8 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     async function renderInstitutionalReport(type, start, end) {
         const { dados } = await api(`/api/relatorios?tipo=${encodeURIComponent(type)}&data_inicio=${encodeURIComponent(start)}&data_fim=${encodeURIComponent(end)}`);
         const summary = dados.resumo.map((item) => `<article><span>${escapeHtml(item.rotulo)}</span><strong>${escapeHtml(formatReportValue(item.valor, item.formato))}</strong></article>`).join("");
-        const head = dados.colunas.map((column) => `<th>${escapeHtml(column.rotulo)}</th>`).join("");
-        const body = dados.linhas.length ? dados.linhas.map((row) => `<tr>${dados.colunas.map((column) => `<td>${escapeHtml(formatReportValue(row[column.campo], column.formato))}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${dados.colunas.length}">Nenhum registro encontrado para este relatório.</td></tr>`;
+        const head = dados.colunas.map((column) => `<th data-column-key="${escapeHtml(column.campo)}"${column.formato === "centavos" || column.formato === "reais" ? ' data-column-type="money"' : ""}>${escapeHtml(column.rotulo)}</th>`).join("");
+        const body = dados.linhas.length ? dados.linhas.map((row) => `<tr>${dados.colunas.map((column) => `<td data-column-key="${escapeHtml(column.campo)}"${column.formato === "centavos" || column.formato === "reais" ? ' data-column-type="money"' : ""}>${escapeHtml(formatReportValue(row[column.campo], column.formato))}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${dados.colunas.length}">Nenhum registro encontrado para este relatório.</td></tr>`;
         const period = dados.usa_periodo ? `<p>Período: ${formatDate(dados.data_inicio)} a ${formatDate(dados.data_fim)}</p>` : "";
         return `<article class="print-report"><header class="print-report__header"><div class="print-report__mark">CF</div><div><strong>CLÍNICA DA CRUZ DE REABILITAÇÃO</strong><span>Controle institucional</span></div></header><section class="print-report__title"><p>RELATÓRIO INSTITUCIONAL</p><h3>${escapeHtml(dados.titulo)}</h3>${period}</section><div class="print-report__summary">${summary}</div><div class="print-report__table"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><footer class="print-report__footer"><span>Emitido em ${formatDateTime(dados.emitido_em)}</span><span>Clínica da Cruz de Reabilitação</span></footer></article>`;
     }

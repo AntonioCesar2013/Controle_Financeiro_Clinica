@@ -223,6 +223,7 @@ def registrar_pagamento(
     forma_pagamento=None,
     observacao=None,
     valor_desconto=0,
+    multa_juros=0,
 ):
     """
     Registra um pagamento de saída.
@@ -261,6 +262,13 @@ def registrar_pagamento(
             raise ValueError
     except (TypeError, ValueError):
         return {"sucesso": False, "erro": "O desconto deve ser um valor válido."}
+
+    try:
+        multa_juros = int(multa_juros)
+        if multa_juros < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        return {"sucesso": False, "erro": "Multa e juros devem ser um valor válido."}
 
     # --------------------------------------------------------
     # VALIDAR DATA
@@ -368,15 +376,19 @@ def registrar_pagamento(
                 conta_pagar_id,
                 data_pagamento,
                 valor,
+                desconto,
+                multa_juros,
                 forma_pagamento,
                 observacao
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 conta_pagar_id,
                 data_pagamento,
                 valor,
+                valor_desconto,
+                multa_juros,
                 forma_pagamento,
                 observacao
             )
@@ -404,7 +416,10 @@ def registrar_pagamento(
             "conta_pagar_id": conta_pagar_id,
             "data_pagamento": data_pagamento,
             "valor": valor,
+            "multa_juros": multa_juros,
+            "total_lancamento": valor + multa_juros,
             "desconto": novo_desconto,
+            "desconto_lancamento": valor_desconto,
             "forma_pagamento": forma_pagamento,
             "total_pago": status["total_pago"],
             "restante": status["restante"],
@@ -494,6 +509,9 @@ def listar_pagamentos(conta_pagar_id):
                 p.conta_pagar_id,
                 p.data_pagamento,
                 p.valor,
+                p.desconto,
+                p.multa_juros,
+                p.valor + p.multa_juros AS total_lancamento,
                 p.forma_pagamento,
                 p.observacao,
                 c.data_vencimento,
@@ -550,6 +568,7 @@ def buscar_pagamento(pagamento_id):
                 ps.conta_pagar_id,
                 ps.data_pagamento,
                 ps.valor,
+                ps.desconto,
                 ps.forma_pagamento,
                 ps.observacao,
                 cp.data_vencimento,
@@ -610,7 +629,8 @@ def excluir_pagamento(pagamento_id, motivo=None):
             """
             SELECT
                 id,
-                conta_pagar_id
+                conta_pagar_id,
+                desconto
             FROM pagamentos_saida
             WHERE id = ?
             """,
@@ -626,6 +646,7 @@ def excluir_pagamento(pagamento_id, motivo=None):
             }
 
         conta_pagar_id = pagamento["conta_pagar_id"]
+        desconto_lancamento = pagamento["desconto"]
 
         conta = _buscar_conta(
             conn,
@@ -655,6 +676,11 @@ def excluir_pagamento(pagamento_id, motivo=None):
             WHERE id = ?
             """,
             (pagamento_id,)
+        )
+
+        conn.execute(
+            "UPDATE contas_pagar SET desconto = MAX(desconto - ?, 0) WHERE id = ?",
+            (desconto_lancamento, conta_pagar_id),
         )
 
         status = _atualizar_status(

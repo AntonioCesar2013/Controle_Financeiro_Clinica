@@ -34,7 +34,9 @@ def painel():
         return {
             'entradas': listar(conn),
             'recebimentos': [dict(r) for r in conn.execute("""
-                SELECT r.id,r.valor,r.data_recebimento AS data,res.nome,c.numero_parcela
+                SELECT r.id,r.valor + COALESCE(r.multa_juros,0) AS valor,
+                       r.valor AS valor_principal,r.multa_juros,
+                       r.data_recebimento AS data,res.nome,c.numero_parcela
                 FROM recebimentos r JOIN cobrancas c ON c.id=r.cobranca_id
                 JOIN internacoes i ON i.id=c.internacao_id JOIN residentes res ON res.id=i.residente_id
                 WHERE NOT EXISTS(SELECT 1 FROM conciliacoes_vinculos v WHERE v.recebimento_id=r.id)
@@ -73,7 +75,7 @@ def conciliar(entrada_id, destino, ids, motivo):
             if conn.execute(f'SELECT 1 FROM conciliacoes_vinculos WHERE {coluna}=?', (identificador,)).fetchone():
                 raise ValueError('Um dos lançamentos já está vinculado a outra entrada.')
             if destino == 'RECEBIMENTO':
-                linha = conn.execute('SELECT *,valor AS valor_conciliado FROM recebimentos WHERE id=?', (identificador,)).fetchone()
+                linha = conn.execute('SELECT *,valor + COALESCE(multa_juros,0) AS valor_conciliado FROM recebimentos WHERE id=?', (identificador,)).fetchone()
             else:
                 linha = conn.execute("SELECT *,valor_total AS valor_conciliado FROM movimentacoes_carteira WHERE id=? AND tipo='CREDITO' AND estornada=0", (identificador,)).fetchone()
             if not linha:

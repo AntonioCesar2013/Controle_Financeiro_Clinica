@@ -84,7 +84,7 @@ def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None):
             SELECT
                 r.id,
                 r.data_recebimento AS data,
-                r.valor,
+                r.valor + COALESCE(r.multa_juros, 0) AS valor,
                 r.forma_recebimento AS forma_pagamento,
                 r.observacao,
                 r.cobranca_id AS origem_id,
@@ -115,7 +115,7 @@ def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None):
             SELECT
                 ps.id,
                 ps.data_pagamento AS data,
-                ps.valor,
+                ps.valor + COALESCE(ps.multa_juros, 0) AS valor,
                 ps.forma_pagamento,
                 ps.observacao,
                 ps.conta_pagar_id AS origem_id,

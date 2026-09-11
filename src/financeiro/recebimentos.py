@@ -16,6 +16,7 @@ def registrar_pagamento(
     forma_pagamento=None,
     observacao=None,
     valor_desconto=0,
+    multa_juros=0,
 ):
     try:
         if date.fromisoformat(data_pagamento).isoformat() != data_pagamento:
@@ -26,6 +27,8 @@ def registrar_pagamento(
         return {"sucesso": False, "erro": "Informe um valor positivo em centavos inteiros."}
     if isinstance(valor_desconto, bool) or not isinstance(valor_desconto, int) or valor_desconto < 0:
         return {"sucesso": False, "erro": "Informe um desconto válido em centavos inteiros."}
+    if isinstance(multa_juros, bool) or not isinstance(multa_juros, int) or multa_juros < 0:
+        return {"sucesso": False, "erro": "Informe multa e juros válidos em centavos inteiros."}
     forma_pagamento = str(forma_pagamento or "PIX").strip().upper() or "PIX"
     conexao = conectar()
     conexao.row_factory = sqlite3.Row
@@ -131,15 +134,19 @@ def registrar_pagamento(
             cobranca_id,
             data_recebimento,
             valor,
+            desconto,
+            multa_juros,
             forma_recebimento,
             observacao
         )
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
             cobranca_id,
             data_pagamento,
             valor,
+            valor_desconto,
+            multa_juros,
             forma_pagamento,
             observacao
         )
@@ -179,7 +186,10 @@ def registrar_pagamento(
         "id": pagamento_id,
         "cobranca_id": cobranca_id,
         "valor": valor,
+        "multa_juros": multa_juros,
+        "total_lancamento": valor + multa_juros,
         "desconto": novo_desconto,
+        "desconto_lancamento": valor_desconto,
         "total_pago": novo_total_pago,
         "restante": novo_valor_devido - novo_total_pago,
         "status": novo_status
@@ -199,6 +209,9 @@ def buscar_pagamentos(cobranca_id):
             cobranca_id,
             data_recebimento,
             valor,
+            desconto,
+            multa_juros,
+            valor + multa_juros AS total_lancamento,
             forma_recebimento,
             observacao,
             (SELECT tipo FROM cobrancas WHERE id=recebimentos.cobranca_id) AS tipo
@@ -229,6 +242,9 @@ def buscar_recebimento(recebimento_id):
                 cobranca_id,
                 data_recebimento,
                 valor,
+                desconto,
+                multa_juros,
+                valor + multa_juros AS total_lancamento,
                 forma_recebimento,
                 observacao
             FROM recebimentos
@@ -264,7 +280,8 @@ def excluir_recebimento(recebimento_id, motivo=None):
             """
             SELECT
                 id,
-                cobranca_id
+                cobranca_id,
+                desconto
             FROM recebimentos
             WHERE id = ?
             """,
@@ -280,6 +297,7 @@ def excluir_recebimento(recebimento_id, motivo=None):
             }
 
         cobranca_id = recebimento["cobranca_id"]
+        desconto_lancamento = recebimento["desconto"]
 
         cursor.execute(
             """
@@ -312,6 +330,12 @@ def excluir_recebimento(recebimento_id, motivo=None):
             (recebimento_id,)
         )
 
+        novo_desconto = max(cobranca["desconto"] - desconto_lancamento, 0)
+        cursor.execute(
+            "UPDATE cobrancas SET desconto = ? WHERE id = ?",
+            (novo_desconto, cobranca_id),
+        )
+
         cursor.execute(
             """
             SELECT COALESCE(SUM(valor), 0)
@@ -324,7 +348,7 @@ def excluir_recebimento(recebimento_id, motivo=None):
         total_recebido = cursor.fetchone()[0]
         valor_devido = calcular_valor_devido(
             cobranca["valor"],
-            cobranca["desconto"],
+            novo_desconto,
         )
 
         if valor_devido == 0:

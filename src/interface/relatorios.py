@@ -64,7 +64,7 @@ def gerar(tipo, data_inicio=None, data_fim=None):
         linhas = _consulta(
             """SELECT s.nome AS setor, COUNT(cp.id) AS quantidade,
                       COALESCE(SUM(cp.valor),0) AS total_previsto,
-                      (SELECT COALESCE(SUM(ps.valor),0) FROM pagamentos_saida ps
+                      (SELECT COALESCE(SUM(ps.valor + COALESCE(ps.multa_juros,0)),0) FROM pagamentos_saida ps
                        JOIN contas_pagar pcp ON pcp.id=ps.conta_pagar_id
                        JOIN despesas pd ON pd.id=pcp.despesa_id
                        WHERE pd.setor_id=s.id AND pcp.status!='CANCELADA'

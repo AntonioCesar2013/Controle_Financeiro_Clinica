@@ -10,7 +10,8 @@ def gerar(recebimento_id):
     try:
         conn.execute("BEGIN IMMEDIATE")
         dados = conn.execute(
-            """SELECT r.*,c.tipo,c.numero_parcela,c.data_vencimento,c.valor-c.desconto AS valor_devido,
+            """SELECT r.*,r.valor + COALESCE(r.multa_juros,0) AS total_lancamento,
+                      c.tipo,c.numero_parcela,c.data_vencimento,c.valor-c.desconto AS valor_devido,
                       i.id AS internacao_id,res.nome AS residente_nome,res.cpf AS residente_cpf,
                       rp.nome AS responsavel_nome,rp.cpf AS responsavel_cpf,
                       COALESCE((SELECT SUM(valor) FROM recebimentos WHERE cobranca_id=c.id),0) AS total_recebido

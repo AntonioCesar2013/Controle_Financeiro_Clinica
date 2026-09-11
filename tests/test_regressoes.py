@@ -20,7 +20,7 @@ class Regressoes(unittest.TestCase):
         self.pasta = tempfile.TemporaryDirectory(prefix="regressao_clinica_")
         self.addCleanup(self.pasta.cleanup)
         caminho = Path(self.pasta.name) / "teste.db"
-        for alvo in [banco, produtos]:
+        for alvo in [banco]:
             p = patch.object(alvo, "CAMINHO_BANCO", caminho)
             p.start()
             self.addCleanup(p.stop)
@@ -141,8 +141,34 @@ class Regressoes(unittest.TestCase):
             self.sql("SELECT desconto,status FROM contas_pagar WHERE id=?", (conta_id,))[0],
             (2000, "PARCIAL"),
         )
+        self.assertEqual(
+            self.sql("SELECT desconto FROM pagamentos_saida WHERE id=?", (resultado["id"],))[0][0],
+            2000,
+        )
         consolidada = next(item for item in contas_pagar.listar_contas() if item["id"] == conta_id)
         self.assertEqual((consolidada["total_pago"], consolidada["restante"]), (3000, 5000))
+
+    def test_multa_juros_entra_no_caixa_sem_reduzir_principal(self):
+        _, iid = self.internar()
+        cid = self.sql("SELECT id FROM cobrancas WHERE internacao_id=? ORDER BY id", (iid,))[0][0]
+        recebido = recebimentos.registrar_pagamento(
+            cid, self.hoje, 4000, "PIX", multa_juros=600,
+        )
+        self.assertTrue(recebido["sucesso"], recebido)
+        self.assertEqual((recebido["restante"], recebido["total_lancamento"]), (6000, 4600))
+        self.assertEqual(caixa.resumo_caixa()["total_entradas"], 4600)
+        self.assertEqual(
+            self.sql("SELECT valor,multa_juros FROM recebimentos WHERE id=?", (recebido["id"],))[0],
+            (4000, 600),
+        )
+
+        conta_id = self.conta()
+        pago = pagamentos.registrar_pagamento(
+            conta_id, self.hoje, 3000, "PIX", multa_juros=450,
+        )
+        self.assertTrue(pago["sucesso"], pago)
+        self.assertEqual((pago["restante"], pago["total_lancamento"]), (7000, 3450))
+        self.assertEqual(caixa.resumo_caixa()["total_saidas"], 3450)
 
     def test_estornos_preservam_lancamentos_e_recalculam_caixa(self):
         _, iid = self.internar()
@@ -209,6 +235,10 @@ class Regressoes(unittest.TestCase):
         self.assertEqual(
             self.sql("SELECT desconto,status FROM cobrancas WHERE id=?", (cid,))[0],
             (5000, "PARCIAL"),
+        )
+        self.assertEqual(
+            self.sql("SELECT desconto FROM recebimentos WHERE id=?", (resultado["id"],))[0][0],
+            5000,
         )
         recusado = recebimentos.registrar_pagamento(
             cid, self.hoje, 15001, "PIX", valor_desconto=0,

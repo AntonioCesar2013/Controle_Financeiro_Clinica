@@ -230,6 +230,7 @@ Os testes automatizados usam bancos descartáveis, sem alterar os dados locais:
 Para validar a composição dos recibos e das tabelas: `node tests/documentos.mjs`.
 Para validar o registro dos módulos do frontend: `node tests/modulos_frontend.mjs`.
 Para validar o layout fluido e os componentes visuais: `node tests/interface_visual.mjs`.
+Para validar os gráficos interativos do dashboard: `node tests/dashboard_chart.mjs`.
 
 ## Buscas, extrato e recibos
 

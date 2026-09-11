@@ -17,11 +17,43 @@ def _adicionar_desconto_contas_pagar(conexao):
         conexao.execute("ALTER TABLE contas_pagar ADD COLUMN desconto INTEGER NOT NULL DEFAULT 0")
 
 
+def _adicionar_multa_juros(conexao):
+    for tabela in ("recebimentos", "pagamentos_saida"):
+        colunas = {linha[1] for linha in conexao.execute(f"PRAGMA table_info({tabela})")}
+        if "multa_juros" not in colunas:
+            conexao.execute(
+                f"ALTER TABLE {tabela} ADD COLUMN multa_juros INTEGER NOT NULL DEFAULT 0"
+            )
+
+    # O valor adicional também faz parte de um recebimento conciliado.
+    conexao.execute("DROP TRIGGER IF EXISTS proteger_conciliado_recebimentos_update")
+    conexao.execute("""CREATE TRIGGER proteger_conciliado_recebimentos_update
+        BEFORE UPDATE OF valor,multa_juros,data_recebimento,cobranca_id ON recebimentos
+        WHEN EXISTS(SELECT 1 FROM conciliacoes_vinculos WHERE recebimento_id=OLD.id)
+        BEGIN SELECT RAISE(ABORT, 'Desfaça a conciliação bancária antes de alterar este lançamento.'); END""")
+
+
+def _adicionar_desconto_movimentacoes(conexao):
+    for tabela in ("recebimentos", "pagamentos_saida"):
+        colunas = {linha[1] for linha in conexao.execute(f"PRAGMA table_info({tabela})")}
+        if "desconto" not in colunas:
+            conexao.execute(
+                f"ALTER TABLE {tabela} ADD COLUMN desconto INTEGER NOT NULL DEFAULT 0"
+            )
+    conexao.execute("DROP TRIGGER IF EXISTS proteger_conciliado_recebimentos_update")
+    conexao.execute("""CREATE TRIGGER proteger_conciliado_recebimentos_update
+        BEFORE UPDATE OF valor,desconto,multa_juros,data_recebimento,cobranca_id ON recebimentos
+        WHEN EXISTS(SELECT 1 FROM conciliacoes_vinculos WHERE recebimento_id=OLD.id)
+        BEGIN SELECT RAISE(ABORT, 'Desfaça a conciliação bancária antes de alterar este lançamento.'); END""")
+
+
 def preparar_banco(conexao):
     aplicar_migracoes(conexao, (
         Migracao("financeiro", 1, _validar_schema),
         Migracao("financeiro", 2, _adicionar_desconto_contas_pagar),
         Migracao("financeiro", 3, preparar_conferencia),
+        Migracao("financeiro", 4, _adicionar_multa_juros),
+        Migracao("financeiro", 5, _adicionar_desconto_movimentacoes),
     ))
 
 

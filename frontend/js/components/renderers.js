@@ -2,7 +2,7 @@ import { escapeHtml, formatMoney, valueOrDash } from "../utils/formatters.js";
 
 export function renderTable(rows, columns) {
     if (!rows?.length) return emptyState();
-    return `<div class="table-wrap"><table><thead><tr>${columns.map(([label, key]) => `<th${cellType(key)}>${label}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${columns.map(([, key, formatter]) => `<td${cellType(key)}>${renderCell(row, key, formatter)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    return `<div class="table-wrap"><table><thead><tr>${columns.map(([label, key]) => `<th${cellAttributes(key)}>${label}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${columns.map(([, key, formatter]) => `<td${cellAttributes(key)}>${renderCell(row, key, formatter)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
 
 export function renderActionTable(rows, columns, actions, options = {}) {
@@ -13,11 +13,11 @@ export function renderActionTable(rows, columns, actions, options = {}) {
     const statuses = options.statuses || [...new Set(rows.map(status))].filter(Boolean).sort().map(value => [value, value]);
     const controls = `<div class="table-filters"><label>Buscar<input type="search" data-filter-search placeholder="Nome, CPF ou descrição" aria-label="Buscar nesta tabela"></label>${statusColumn ? `<label>Situação<select data-filter-status><option value="">${escapeHtml(options.allStatusesLabel || "Todas")}</option>${statuses.map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join("")}</select></label>` : ""}${dateColumn ? `<label>${escapeHtml(dateColumn[0])} de<input type="date" data-filter-start></label><label>Até<input type="date" data-filter-end></label>` : ""}</div><div class="filterable__meta"><p class="filterable__count" data-filter-count aria-live="polite">${rows.length} registro(s).</p><button class="button button--secondary button--compact" type="button" data-action="clear-table-filters">Limpar filtros</button></div>`;
     const selectable = Boolean(options.selectableRows);
-    const header = `${columns.map(([label, key]) => `<th${cellType(key)}>${label}</th>`).join("")}${selectable ? "" : "<th>Ações</th>"}`;
+    const header = `${columns.map(([label, key]) => `<th${cellAttributes(key)}>${label}</th>`).join("")}${selectable ? "" : '<th data-column-key="acoes">Ações</th>'}`;
     const body = rows.map((row) => {
-        const cells = columns.map(([, key, formatter]) => `<td${cellType(key)}>${renderCell(row, key, formatter, statusColumn?.[1] === key)}</td>`).join("");
+        const cells = columns.map(([, key, formatter]) => `<td${cellAttributes(key)}>${renderCell(row, key, formatter, statusColumn?.[1] === key)}</td>`).join("");
         const attributes = `data-search="${escapeHtml(Object.values(row).filter(v => typeof v !== "object").join(" "))}" data-status="${escapeHtml(status(row))}" data-date="${escapeHtml(dateColumn ? row[dateColumn[1]] : "")}"`;
-        if (!selectable) return `<tr ${attributes}>${cells}<td><div class="report-actions">${actions(row)}</div></td></tr>`;
+        if (!selectable) return `<tr ${attributes}>${cells}<td data-column-key="acoes"><div class="report-actions">${actions(row)}</div></td></tr>`;
         const selection = options.selectionData?.(row) || {};
         const capabilities = Array.isArray(selection.capabilities)
             ? selection.capabilities.join(" ")
@@ -27,8 +27,10 @@ export function renderActionTable(rows, columns, actions, options = {}) {
     return `<section class="filterable${selectable ? " filterable--selectable" : ""}">${controls}${selectable ? '<p class="table-interaction-hint">Selecione uma linha para habilitar as ações acima da tabela.</p>' : ""}<div class="table-wrap"><table><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table></div></section>`;
 }
 
-function cellType(key) {
-    return /valor|saldo|total|recebido|restante|preco|desconto/.test(key) ? ' data-column-type="money"' : "";
+function cellAttributes(key) {
+    const safeKey = escapeHtml(key);
+    const type = /valor|saldo|total|recebido|restante|preco|desconto/.test(key) ? ' data-column-type="money"' : "";
+    return ` data-column-key="${safeKey}"${type}`;
 }
 
 function renderCell(row, key, formatter, isStatus = false) {

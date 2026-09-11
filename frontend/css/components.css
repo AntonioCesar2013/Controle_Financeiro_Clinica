@@ -56,6 +56,10 @@
     font-weight: 700;
 }
 
+.financial-receipt-grid__remaining {
+    grid-column: 1 / -1;
+}
+
 .field input:focus,
 .field select:focus,
 .field textarea:focus {
@@ -134,7 +138,8 @@ form[aria-busy="true"] .button:disabled { cursor: wait; }
 
 .table-wrap {
     max-width: 100%;
-    overflow: auto;
+    overflow-x: auto;
+    overflow-y: visible;
     border: 1px solid var(--color-border);
     border-radius: 12px;
     background: #fff;
@@ -142,20 +147,30 @@ form[aria-busy="true"] .button:disabled { cursor: wait; }
 
 table {
     width: 100%;
-    min-width: 680px;
+    min-width: 0;
+    table-layout: auto;
     border-collapse: collapse;
     background: #fff;
 }
 
 th,
 td {
-    padding: 12px 14px;
+    padding: clamp(8px, 1.1vw, 12px) clamp(8px, 1.25vw, 14px);
     border-bottom: 1px solid #e8edf3;
     text-align: left;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    line-height: 1.35;
+    vertical-align: middle;
 }
 
-td[data-column-type="money"], th[data-column-type="money"] { text-align: right; font-variant-numeric: tabular-nums; }
+td[data-column-type="money"], th[data-column-type="money"] { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+[data-column-key^="data_"],
+[data-column-key="status"],
+[data-column-key="situacao_temporal"],
+[data-column-key="ativo"],
+[data-column-key="estornada"],
+.status { white-space: nowrap; overflow-wrap: normal; }
 
 td:last-child .report-actions {
     flex-wrap: nowrap;
@@ -240,6 +255,28 @@ tbody tr:hover { background: var(--color-action-soft); }
 
 .modal-message p { margin: 0; }
 
+.startup-alert__summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.startup-alert__summary > div {
+    display: flex;
+    min-width: 0;
+    padding: 14px 16px;
+    align-items: baseline;
+    gap: 9px;
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    background: var(--color-surface-muted);
+}
+
+.startup-alert__summary strong { color: var(--color-primary); font-size: 1.5rem; }
+.startup-alert__summary span { color: var(--color-text-muted); }
+.startup-alert__intro { margin: 0 0 14px; color: var(--color-text-muted); }
+
 .demo-actions {
     display: flex;
     flex-wrap: wrap;
@@ -291,4 +328,63 @@ tbody tr:hover { background: var(--color-action-soft); }
     justify-content: flex-end;
     padding: 10px 0;
     background: var(--color-surface);
+}
+
+.dashboard-chart {
+    margin: 0 0 22px;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 5px 16px rgba(22, 27, 35, .04);
+}
+.dashboard-chart__header { display: flex; padding: 16px 18px; align-items: end; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--color-border); background: var(--color-surface-subtle); }
+.dashboard-chart__header h3 { margin: 0; font-size: 1rem; }
+.dashboard-chart__controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.dashboard-chart__controls label { display: grid; gap: 5px; color: var(--color-text-muted); font-size: .72rem; font-weight: 700; }
+.dashboard-chart__controls select,
+.dashboard-chart__controls input { min-height: 36px; padding: 6px 10px; border: 1px solid var(--color-border-strong); border-radius: 8px; background: #fff; color: var(--color-text); }
+.dashboard-chart__controls select { padding-right: 32px; }
+.dashboard-chart__canvas { min-height: 310px; padding: 12px 16px 4px; overflow: hidden; }
+.dashboard-chart__svg { display: block; width: 100%; height: auto; max-height: 330px; }
+.chart-grid line { stroke: #e5e8ed; stroke-width: 1; }
+.chart-grid text, .chart-labels text { fill: #737984; font-size: 10px; }
+.chart-axis { stroke: #aeb4be; stroke-width: 1; }
+.chart-bar { transition: opacity .15s ease; }
+.chart-bar:hover { opacity: .76; }
+.dashboard-chart__legend { display: flex; padding: 4px 4px 0; justify-content: flex-end; gap: 16px; color: var(--color-text-muted); font-size: .75rem; }
+.dashboard-chart__legend span { display: inline-flex; align-items: center; gap: 6px; }
+.dashboard-chart__legend i { width: 9px; height: 9px; border-radius: 50%; background: var(--legend-color); }
+.chart-empty { display: grid; min-height: 280px; place-content: center; gap: 6px; text-align: center; }
+.chart-empty span { color: var(--color-text-muted); font-size: .82rem; }
+.chart-empty--error strong { color: var(--color-danger); }
+
+@container (max-width: 920px) {
+    [data-column-key="responsavel_nome"],
+    [data-column-key="natureza"],
+    [data-column-key="modalidade"],
+    [data-column-key="convenio_nome"],
+    [data-column-key="cidade_origem"],
+    [data-column-key="telefone"],
+    [data-column-key="email"],
+    [data-column-key="forma_pagamento"],
+    [data-column-key="observacao"],
+    [data-column-key="motivo_estorno"],
+    [data-column-key="unidade_medida"],
+    [data-column-key="estoque_minimo"] { display: none; }
+
+    table { font-size: .84rem; }
+}
+
+@container (max-width: 680px) {
+    [data-column-key="setor_nome"],
+    [data-column-key="tipo"],
+    [data-column-key="codigo_barras"],
+    [data-column-key="categoria"],
+    [data-column-key="numero_parcela"],
+    [data-column-key="total_recebido"],
+    [data-column-key="total_pago"] { display: none; }
+
+    th, td { padding: 8px 7px; }
+    .status { padding: 3px 6px; font-size: .68rem; }
 }

@@ -37,7 +37,7 @@ OBRIGATORIOS = {
     '/api/conferencia/reabrir': ('id','motivo'),
 }
 MONETARIOS = {'valor','desconto','saldo_inicial','custo_unitario','valor_diaria',
-              'valor_contrato','valor_acolhimento','valor_mensalidade'}
+              'valor_contrato','valor_acolhimento','valor_mensalidade','multa_juros'}
 INTEIROS = {'quantidade','estoque_inicial','estoque_minimo','periodo_tratamento'}
 BOOLEANOS = {'ativo','recorrente','autorizar_ajuste_desconto'}
 

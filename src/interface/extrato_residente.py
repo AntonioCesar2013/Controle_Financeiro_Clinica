@@ -26,7 +26,9 @@ def consultar(residente_id, inicio=None, fim=None):
             for c in listar_cobrancas_consolidadas(internacao["id"]):
                 todas.append(c)
                 ativos = [dict(r) for r in conn.execute("SELECT * FROM recebimentos WHERE cobranca_id=?", (c["id"],))]
-                pagamentos.extend({**r, "numero_parcela": c["numero_parcela"], "tipo": c["tipo"]}
+                pagamentos.extend({**r,
+                                    "total_lancamento": r["valor"] + r.get("multa_juros", 0),
+                                    "numero_parcela": c["numero_parcela"], "tipo": c["tipo"]}
                                   for r in historico("recebimentos", c["id"], ativos) if no_periodo(r["data_recebimento"]))
         cobrancas = [c for c in todas if no_periodo(c["data_vencimento"])]
         carteira = conn.execute("SELECT id,saldo FROM carteiras WHERE residente_id=?", (residente_id,)).fetchone()
@@ -55,7 +57,7 @@ def consultar(residente_id, inicio=None, fim=None):
             "cobrancas": cobrancas, "recebimentos": sorted(pagamentos, key=lambda r: (r["data_recebimento"], r["id"])),
             "movimentacoes_carteira": movimentos,
             "resumo": {"devido_periodo": sum(c["valor_devido"] for c in cobrancas),
-                       "recebido_periodo": sum(r["valor"] for r in pagamentos if not r["estornada"]),
+                       "recebido_periodo": sum(r["total_lancamento"] for r in pagamentos if not r["estornada"]),
                        "pendente_periodo": sum(c["saldo_restante"] for c in cobrancas),
                        "pendente_total": sum(c["saldo_restante"] for c in todas),
                        "carteira_atual": carteira["saldo"] if carteira else 0,

@@ -3,6 +3,7 @@
 @page { size: A4 portrait; margin: 12mm; }
 
 @media print {
+    [data-column-key] { display: table-cell !important; }
     body:has(#document-print-target) > :not(#document-print-target) { display: none !important; }
     #document-print-target { display: block !important; }
     #document-print-target .resident-document { padding: 0; }

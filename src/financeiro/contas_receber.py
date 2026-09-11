@@ -74,6 +74,8 @@ def consolidar_cobranca(cobranca, data_referencia=None):
         "status": cobranca["status"],
         "valor_devido": valor_devido,
         "total_recebido": total_recebido,
+        "total_multa_juros": cobranca.get("total_multa_juros", 0),
+        "total_recebido_com_encargos": cobranca.get("total_recebido_com_encargos", total_recebido),
         "saldo_restante": saldo_restante,
         "data_pagamento": cobranca["data_pagamento"],
         "situacao_temporal": _situacao_temporal(cobranca, data_referencia),
@@ -114,6 +116,7 @@ def _consultar_cobrancas(cobranca_id=None, internacao_id=None):
             c.desconto,
             c.status,
             COALESCE(SUM(r.valor), 0) AS total_recebido,
+            COALESCE(SUM(r.multa_juros), 0) AS total_multa_juros,
             MAX(r.data_recebimento) AS data_pagamento,
             res.nome AS residente_nome, rp.nome AS responsavel_nome
         FROM cobrancas c
@@ -142,9 +145,11 @@ def _consultar_cobrancas(cobranca_id=None, internacao_id=None):
             "desconto": cobranca[6],
             "status": cobranca[7],
             "total_recebido": cobranca[8],
-            "data_pagamento": cobranca[9],
-            "residente_nome": cobranca[10],
-            "responsavel_nome": cobranca[11],
+            "total_multa_juros": cobranca[9],
+            "total_recebido_com_encargos": cobranca[8] + cobranca[9],
+            "data_pagamento": cobranca[10],
+            "residente_nome": cobranca[11],
+            "responsavel_nome": cobranca[12],
         }
         for cobranca in cobrancas
     ]
