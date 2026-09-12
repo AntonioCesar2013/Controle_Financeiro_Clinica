@@ -504,6 +504,19 @@ def editar_produto(item_id, nome, codigo_barras=None, descricao=None, categoria=
         unidade_medida = "SERV"
     conexao = conectar()
     try:
+        conexao.execute("BEGIN IMMEDIATE")
+        anterior = conexao.execute("SELECT categoria,estoque_atual FROM itens WHERE id=?", (item_id,)).fetchone()
+        if not anterior:
+            return {"sucesso": False, "erro": "Produto não encontrado."}
+        if _eh_servico(anterior[0]) != _eh_servico(categoria):
+            possui_historico = conexao.execute(
+                """SELECT 1 FROM movimentacoes_estoque WHERE item_id=?
+                   UNION ALL SELECT 1 FROM movimentacoes_carteira WHERE item_id=?
+                   UNION ALL SELECT 1 FROM vendas_cantina_itens WHERE item_id=? LIMIT 1""",
+                (item_id, item_id, item_id),
+            ).fetchone()
+            if anterior[1] or possui_historico:
+                return {"sucesso": False, "erro": "Não é possível trocar produto por serviço (ou o contrário) com estoque ou histórico. Cadastre um novo item."}
         cursor = conexao.execute(
             """UPDATE itens SET nome=?,codigo_barras=?,descricao=?,categoria=?,
                unidade_medida=?,estoque_minimo=?,estoque_atual=CASE WHEN ? THEN 0 ELSE estoque_atual END,ativo=? WHERE id=?""",

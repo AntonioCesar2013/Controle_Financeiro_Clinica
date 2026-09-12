@@ -40,7 +40,7 @@ def ajustar_convenio_ao_encerrar(internacao_id, data_encerramento, conexao=None,
         )}
         cobrancas = conexao.execute(
             """SELECT c.id,c.numero_parcela,c.valor,c.desconto,
-                      COALESCE((SELECT SUM(r.valor) FROM recebimentos r WHERE r.cobranca_id=c.id),0)
+                      COALESCE((SELECT SUM(r.valor) FROM recebimentos_liquidos r WHERE r.cobranca_id=c.id),0)
                FROM cobrancas c WHERE c.internacao_id=?""", (internacao_id,)
         ).fetchall()
         for cobranca_id, numero, valor_anterior, desconto, recebido in cobrancas:
@@ -279,7 +279,7 @@ def aplicar_desconto(cobranca_id, valor_desconto):
         }
 
     total_recebido = cursor.execute(
-        "SELECT COALESCE(SUM(valor), 0) FROM recebimentos WHERE cobranca_id = ?",
+        "SELECT COALESCE(SUM(valor), 0) FROM recebimentos_liquidos WHERE cobranca_id = ?",
         (cobranca_id,),
     ).fetchone()[0]
     desconto_disponivel = valor - desconto_atual - total_recebido

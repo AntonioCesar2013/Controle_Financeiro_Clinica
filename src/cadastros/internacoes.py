@@ -3,7 +3,6 @@ import sqlite3
 
 from src.infraestrutura.banco import conectar
 from src.financeiro.api_publica import (
-    ajustar_contrato_encerramento,
     criar_contrato_internacao,
     data_final_contrato,
 )
@@ -38,6 +37,13 @@ def sincronizar_status_residentes(data_referencia=None):
         if ativas:
             marcadores = ",".join("?" for _ in ativas)
             conexao.execute(f"UPDATE residentes SET ativo=1 WHERE id IN ({marcadores})", tuple(ativas))
+        # Inicializa apenas contatos ausentes e inequívocos. Uma escolha atual
+        # existente (ou ambígua) nunca é substituída por agendamento/reativação.
+        for residente_id in ativas:
+            atuais = conexao.execute("SELECT responsavel_id FROM internacoes WHERE residente_id=? AND status='ATIVA'", (residente_id,)).fetchall()
+            if len(atuais) == 1 and not conexao.execute('SELECT 1 FROM residente_responsavel WHERE residente_id=? AND principal=1', (residente_id,)).fetchone():
+                conexao.execute('''INSERT INTO residente_responsavel(residente_id,responsavel_id,relacao,principal)
+                    VALUES(?,?,'Contato inicial',1) ON CONFLICT(residente_id,responsavel_id) DO UPDATE SET principal=1''', (residente_id, atuais[0][0]))
         conexao.commit()
         return {"ativos": len(ativas), "data_referencia": referencia.isoformat()}
     finally:
@@ -186,8 +192,8 @@ def cadastrar_internacao(
 
     cursor.execute(
         """INSERT INTO residente_responsavel (residente_id,responsavel_id,relacao,principal)
-           VALUES (?,?,?,1)
-           ON CONFLICT(residente_id,responsavel_id) DO UPDATE SET principal=1""",
+           VALUES (?,?,?,0)
+           ON CONFLICT(residente_id,responsavel_id) DO NOTHING""",
         (residente_id, responsavel_id, "Responsável pela internação"),
     )
 
@@ -269,7 +275,7 @@ def buscar_internacao(internacao_id):
 
 
 def encerrar_internacao(internacao_id, data_encerramento=None, motivo=None,
-                       autorizar_ajuste_desconto=False):
+                       autorizar_ajuste_desconto=False, politica=None, assinatura=None):
     data_encerramento = data_encerramento or date.today().isoformat()
     motivo = str(motivo or "Encerramento antecipado").strip()
     try:
@@ -292,9 +298,9 @@ def encerrar_internacao(internacao_id, data_encerramento=None, motivo=None,
             return {"sucesso": False, "erro": "O encerramento não pode ser anterior ao acolhimento."}
         if internacao[3] != "VOLUNTARIO" and encerramento > data_final_contrato(internacao[0], internacao[2]):
             return {"sucesso": False, "erro": "O encerramento não pode ultrapassar o período contratado."}
-        ajustar_contrato_encerramento(
-            internacao_id, data_encerramento, conexao, autorizar_ajuste_desconto
-        )
+        from src.financeiro.api_publica import aplicar_acerto_encerramento
+        acerto = aplicar_acerto_encerramento(
+            internacao_id, data_encerramento, conexao, politica, motivo, autorizar_ajuste_desconto, assinatura)
         conexao.execute(
             "UPDATE internacoes SET status='ENCERRADA',encerrada_em=?,motivo_encerramento=? WHERE id=?",
             (data_encerramento, motivo, internacao_id),
@@ -306,17 +312,22 @@ def encerrar_internacao(internacao_id, data_encerramento=None, motivo=None,
     finally:
         conexao.close()
     sincronizar_status_residentes()
-    return {"sucesso": True, "id": internacao_id, "status": "ENCERRADA", "encerrada_em": data_encerramento}
+    return {"sucesso": True, "id": internacao_id, "status": "ENCERRADA", "encerrada_em": data_encerramento, "acerto": acerto}
 
 
 def alterar_responsavel_principal(internacao_id, responsavel_id):
+    """Altera somente o responsável contratual de internação ainda vigente/futura."""
+    sincronizar_status_residentes()
     conexao = conectar()
     try:
+        conexao.execute('BEGIN IMMEDIATE')
         internacao = conexao.execute(
-            "SELECT residente_id FROM internacoes WHERE id=?", (internacao_id,)
+            "SELECT residente_id,status FROM internacoes WHERE id=?", (internacao_id,)
         ).fetchone()
         if not internacao:
             return {"sucesso": False, "erro": "Internação não encontrada."}
+        if internacao[1] in ('ENCERRADA', 'CANCELADA'):
+            return {'sucesso': False, 'erro': 'O responsável de um contrato encerrado ou cancelado é histórico. Para atualizar o contato, use Contato principal no residente.'}
         responsavel = conexao.execute(
             "SELECT id,ativo FROM responsaveis WHERE id=?", (responsavel_id,)
         ).fetchone()
@@ -325,14 +336,12 @@ def alterar_responsavel_principal(internacao_id, responsavel_id):
         if not responsavel[1]:
             return {"sucesso": False, "erro": "O responsável está inativo."}
         residente_id = internacao[0]
-        conexao.execute("BEGIN")
         conexao.execute("UPDATE internacoes SET responsavel_id=? WHERE id=?", (responsavel_id, internacao_id))
-        conexao.execute("UPDATE residente_responsavel SET principal=0 WHERE residente_id=?", (residente_id,))
         conexao.execute(
             """INSERT INTO residente_responsavel(residente_id,responsavel_id,relacao,principal)
-               VALUES(?,?,?,1) ON CONFLICT(residente_id,responsavel_id)
-               DO UPDATE SET principal=1""",
-            (residente_id, responsavel_id, "Responsável principal"),
+               VALUES(?,?,?,0) ON CONFLICT(residente_id,responsavel_id)
+               DO NOTHING""",
+            (residente_id, responsavel_id, "Responsável contratual"),
         )
         conexao.commit()
         return {"sucesso": True, "id": internacao_id, "responsavel_id": responsavel_id}
@@ -351,7 +360,7 @@ def cancelar_agendamento(internacao_id, motivo=None):
         if not registro or registro[1] == "CANCELADA" or registro[0] <= date.today().isoformat():
             return {"sucesso": False, "erro": "Somente agendamentos futuros podem ser cancelados."}
         if conexao.execute(
-            "SELECT 1 FROM recebimentos r JOIN cobrancas c ON c.id=r.cobranca_id WHERE c.internacao_id=? LIMIT 1",
+            "SELECT 1 FROM recebimentos_liquidos r JOIN cobrancas c ON c.id=r.cobranca_id WHERE c.internacao_id=? AND (r.valor>0 OR r.multa_juros>0) LIMIT 1",
             (internacao_id,),
         ).fetchone():
             return {"sucesso": False, "erro": "Faça o acerto dos recebimentos antes de cancelar o agendamento."}
@@ -369,3 +378,38 @@ def cancelar_agendamento(internacao_id, motivo=None):
         conexao.close()
     sincronizar_status_residentes()
     return {"sucesso": True, "id": internacao_id, "status": "CANCELADA"}
+
+
+def prorrogar_internacao(internacao_id, periodo_atual, novo_periodo, motivo):
+    """Período esperado impede prorrogação sobre uma tela desatualizada."""
+    from src.financeiro.api_publica import acrescentar_cobrancas_prorrogacao
+    from src.nucleo.validacao import inteiro
+    periodo_atual = inteiro(periodo_atual, 'periodo_atual', 1)
+    novo_periodo = inteiro(novo_periodo, 'novo_periodo', 1)
+    if novo_periodo <= periodo_atual or novo_periodo > 120:
+        raise ValueError('O novo período total deve aumentar o contrato e não ultrapassar 120 meses.')
+    if not isinstance(motivo, str) or not motivo.strip():
+        raise ValueError('Informe o motivo da prorrogação.')
+    conn = conectar()
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute('BEGIN IMMEDIATE')
+        i = conn.execute('SELECT * FROM internacoes WHERE id=?', (internacao_id,)).fetchone()
+        if not i or i['encerrada_em'] or i['status'] == 'CANCELADA' or i['modalidade'] == 'VOLUNTARIO':
+            raise ValueError('Esta internação não pode ser prorrogada.')
+        if i['periodo_tratamento'] != periodo_atual:
+            raise ValueError('O período mudou. Atualize a tela antes de prorrogar.')
+        fim = data_final_contrato(i['data_acolhimento'], novo_periodo)
+        for outra in conn.execute("SELECT * FROM internacoes WHERE residente_id=? AND id<>? AND status!='CANCELADA'", (i['residente_id'], i['id'])):
+            fim_outra = (date.fromisoformat(outra['encerrada_em']) if outra['encerrada_em'] else
+                         date.max if outra['modalidade'] == 'VOLUNTARIO' else data_final_contrato(outra['data_acolhimento'], outra['periodo_tratamento']))
+            if date.fromisoformat(i['data_acolhimento']) <= fim_outra and date.fromisoformat(outra['data_acolhimento']) <= fim:
+                raise ValueError('A prorrogação coincide com outra internação do residente.')
+        quantidade, valor = acrescentar_cobrancas_prorrogacao(conn, i, novo_periodo)
+        conn.execute('UPDATE internacoes SET periodo_tratamento=?,valor_contrato=valor_contrato+? WHERE id=?', (novo_periodo, valor, i['id']))
+        conn.execute('INSERT INTO prorrogacoes_internacoes(internacao_id,periodo_anterior,periodo_novo,motivo) VALUES(?,?,?,?)', (i['id'], periodo_atual, novo_periodo, motivo.strip()))
+        conn.commit()
+    finally:
+        conn.close()
+    sincronizar_status_residentes()
+    return {'sucesso': True, 'id': internacao_id, 'periodo_tratamento': novo_periodo, 'cobrancas': quantidade, 'valor_adicional': valor}

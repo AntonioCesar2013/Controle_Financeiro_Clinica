@@ -1,4 +1,5 @@
 from src.infraestrutura.banco import conectar
+from src.financeiro.despesas import validar_para_lancamento
 
 
 # ============================================================
@@ -57,7 +58,11 @@ def cadastrar_conta(despesa_id, data_vencimento, valor):
     cursor = conexao.cursor()
 
     try:
-
+        cursor.execute('BEGIN IMMEDIATE')
+        try:
+            validar_para_lancamento(conexao, despesa_id)
+        except ValueError as erro:
+            return {'sucesso': False, 'erro': str(erro)}
         # --------------------------------------------------------
         # Verifica se a despesa existe
         # --------------------------------------------------------

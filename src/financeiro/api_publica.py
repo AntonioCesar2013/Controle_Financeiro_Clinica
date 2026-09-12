@@ -7,6 +7,8 @@ chamador. Erros de regra são retornados no resultado ou levantados como
 
 from src.financeiro.cobrancas import ajustar_convenio_ao_encerrar, gerar_cobrancas
 from src.financeiro.parcelas import calcular_data_vencimento
+from src.financeiro.acertos import aplicar as aplicar_acerto_encerramento
+from src.financeiro.prorrogacoes import acrescentar as acrescentar_cobrancas_prorrogacao
 
 
 def criar_contrato_internacao(internacao_id, conexao=None):

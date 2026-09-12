@@ -1,14 +1,21 @@
 """Validação estrutural da API; regras financeiras permanecem no domínio."""
-import re
+from src.nucleo.validacao import inteiro
 from datetime import date
 from src.financeiro.moeda import reais_para_centavos
 
 
 OBRIGATORIOS = {
+    '/api/recebimentos/devolucoes/estornar': ('id','motivo'),
+    '/api/residentes/contato-principal': ('residente_id','responsavel_id','motivo'),
+    '/api/recebimentos/devolver': ('recebimento_id','valor','data_devolucao','forma_pagamento','motivo','documento'),
+    '/api/carteiras/devolver': ('carteira_id','valor','data_movimentacao','forma_pagamento','motivo','documento'),
+    '/api/recorrencias': ('despesa_id','valor','data_inicio','data_fim','intervalo_meses'),
+    '/api/recorrencias/gerar': ('id','data_limite'), '/api/recorrencias/encerrar': ('id',),
+    '/api/internacoes/prorrogar': ('id','periodo_atual','novo_periodo','motivo'),
     '/api/residentes': ('nome','cpf'), '/api/residentes/editar': ('id','nome','cpf'),
     '/api/responsaveis': ('nome','cpf'), '/api/responsaveis/editar': ('id','nome','cpf'),
     '/api/internacoes': ('residente_id','responsavel_id','data_acolhimento','periodo_tratamento'),
-    '/api/internacoes/cancelar': ('id','motivo'), '/api/internacoes/encerrar': ('id','data_encerramento','motivo'),
+    '/api/internacoes/cancelar': ('id','motivo'), '/api/internacoes/encerrar': ('id','data_encerramento','motivo','assinatura'),
     '/api/internacoes/responsavel': ('id','responsavel_id'),
     '/api/convenios': ('nome','valor_diaria'), '/api/colaboradores': ('nome','cpf','senha'),
     '/api/colaboradores/editar': ('id','nome','cpf','status'), '/api/colaboradores/senha': ('id','senha'),
@@ -38,17 +45,10 @@ OBRIGATORIOS = {
 }
 MONETARIOS = {'valor','desconto','saldo_inicial','custo_unitario','valor_diaria',
               'valor_contrato','valor_acolhimento','valor_mensalidade','multa_juros'}
-INTEIROS = {'quantidade','estoque_inicial','estoque_minimo','periodo_tratamento'}
+INTEIROS = {'quantidade','estoque_inicial','estoque_minimo','periodo_tratamento','periodo_atual','novo_periodo','intervalo_meses'}
 BOOLEANOS = {'ativo','recorrente','autorizar_ajuste_desconto'}
 
 
-def inteiro(valor, nome, minimo=None):
-    if isinstance(valor, bool) or not isinstance(valor, (str,int)) or not re.fullmatch(r'-?\d+', str(valor)):
-        raise ValueError(f'O campo {nome} deve ser um número inteiro.')
-    numero = int(valor)
-    if abs(numero) > 2_000_000_000 or (minimo is not None and numero < minimo):
-        raise ValueError(f'O campo {nome} está fora do intervalo permitido.')
-    return numero
 
 
 def validar(rota, dados):

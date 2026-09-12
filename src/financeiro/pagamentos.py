@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 import sqlite3
 
 from src.infraestrutura.banco import conectar
@@ -279,6 +279,8 @@ def registrar_pagamento(
             "sucesso": False,
             "erro": "Data de pagamento inválida. Use YYYY-MM-DD."
         }
+    if data_pagamento > date.today().isoformat():
+        return {"sucesso": False, "erro": "Pagamento efetivo não aceita data futura. Informe quando o dinheiro saiu."}
 
     # --------------------------------------------------------
     # FORMA DE PAGAMENTO PADRÃO

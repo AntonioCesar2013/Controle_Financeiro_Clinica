@@ -7,6 +7,7 @@ import unicodedata
 
 from src.infraestrutura.banco import conectar
 from src.cadastros.internacoes import sincronizar_status_residentes
+from src.cadastros.vigencia import possui_internacao_vigente
 
 
 def _eh_servico(categoria):
@@ -100,6 +101,33 @@ def alterar_status_carteira(carteira_id, ativo):
         conn.close()
 
 
+def devolver_saldo(carteira_id, valor, data_movimentacao, forma_pagamento, motivo, documento):
+    """Devolve dinheiro ao responsável, inclusive após a saída do residente."""
+    valor = validar_centavos(valor)
+    if valor <= 0 or not _data_valida(data_movimentacao) or data_movimentacao > date.today().isoformat():
+        raise ValueError('Informe um valor positivo e uma data válida, não futura.')
+    if any(not isinstance(x, str) or not x.strip() for x in (forma_pagamento, motivo, documento)):
+        raise ValueError('Informe a forma, o motivo e o comprovante da devolução realizada.')
+    conn = conectar()
+    try:
+        conn.execute('BEGIN IMMEDIATE')
+        carteira = conn.execute('SELECT saldo FROM carteiras WHERE id=?', (carteira_id,)).fetchone()
+        if not carteira or valor > carteira[0]:
+            raise ValueError('Carteira não encontrada ou saldo insuficiente para devolver.')
+        ultima = conn.execute('SELECT MAX(data_movimentacao) FROM movimentacoes_carteira WHERE carteira_id=? AND estornada=0', (carteira_id,)).fetchone()[0]
+        if ultima and data_movimentacao < ultima:
+            raise ValueError('A devolução não pode anteceder a última movimentação da carteira.')
+        conn.execute('UPDATE carteiras SET saldo=saldo-? WHERE id=?', (valor, carteira_id))
+        cur = conn.execute('''INSERT INTO movimentacoes_carteira
+            (carteira_id,tipo,valor_total,data_movimentacao,motivo,documento,forma_pagamento)
+            VALUES(?,'DEVOLUCAO',?,?,?,?,?)''',
+            (carteira_id, valor, data_movimentacao, motivo.strip(), documento.strip(), forma_pagamento.strip()))
+        conn.commit()
+        return {'sucesso': True, 'id': cur.lastrowid, 'carteira_id': carteira_id, 'saldo': carteira[0]-valor}
+    finally:
+        conn.close()
+
+
 def estornar_movimentacao(movimentacao_id, motivo=None):
     motivo = str(motivo or "Correção de lançamento").strip()
     conn = conectar()
@@ -128,6 +156,11 @@ def estornar_movimentacao(movimentacao_id, motivo=None):
                 "UPDATE carteiras SET saldo=saldo-? WHERE id=?",
                 (movimento["valor_total"], movimento["carteira_id"]),
             )
+        elif movimento["tipo"] == "DEVOLUCAO":
+            if not isinstance(motivo, str) or not motivo.strip():
+                return {"sucesso": False, "erro": "Informe o motivo da correção da devolução."}
+            conn.execute('UPDATE carteiras SET saldo=saldo+? WHERE id=?',
+                         (movimento['valor_total'], movimento['carteira_id']))
         elif movimento["tipo"] == "COMPRA_CANTINA":
             conn.execute(
                 "UPDATE carteiras SET saldo=saldo+? WHERE id=?",
@@ -228,22 +261,24 @@ def registrar_venda(carteira_id, item_id, quantidade=1, data_movimentacao=None):
     data_movimentacao = data_movimentacao or date.today().isoformat()
     if quantidade <= 0:
         return {"sucesso": False, "erro": "A quantidade deve ser maior que zero."}
-    if not _data_valida(data_movimentacao):
-        return {"sucesso": False, "erro": "Data inválida. Use YYYY-MM-DD."}
+    if not _data_valida(data_movimentacao) or data_movimentacao > date.today().isoformat():
+        return {"sucesso": False, "erro": "Informe uma data válida e não futura para a venda."}
 
     conn = conectar()
     conn.row_factory = sqlite3.Row
     try:
         conn.execute("BEGIN IMMEDIATE")
         carteira = conn.execute(
-            """SELECT c.id, c.saldo, c.ativo, r.nome, r.ativo AS residente_ativo
+            """SELECT c.id, c.residente_id, c.saldo, c.ativo, r.nome, r.ativo AS residente_ativo
                FROM carteiras c JOIN residentes r ON r.id=c.residente_id WHERE c.id=?""",
             (carteira_id,),
         ).fetchone()
         if not carteira:
             return {"sucesso": False, "erro": "Carteira não encontrada."}
-        if not carteira["ativo"] or not carteira["residente_ativo"]:
-            return {"sucesso": False, "erro": "Carteira ou residente inativo."}
+        if not carteira["ativo"]:
+            return {"sucesso": False, "erro": "Carteira inativa."}
+        if not possui_internacao_vigente(conn, carteira["residente_id"], data_movimentacao):
+            return {"sucesso": False, "erro": "Não há internação vigente para este residente na data da venda."}
         item = conn.execute("SELECT id, nome, categoria, ativo, estoque_atual FROM itens WHERE id=?", (item_id,)).fetchone()
         if not item:
             return {"sucesso": False, "erro": "Item não encontrado."}
@@ -329,8 +364,8 @@ def buscar_produto_codigo(codigo_barras, data_referencia=None):
 def registrar_compra(carteira_id, produtos, data_movimentacao=None):
     sincronizar_status_residentes()
     data_movimentacao = data_movimentacao or date.today().isoformat()
-    if not _data_valida(data_movimentacao):
-        return {"sucesso": False, "erro": "Data inválida. Use YYYY-MM-DD."}
+    if not _data_valida(data_movimentacao) or data_movimentacao > date.today().isoformat():
+        return {"sucesso": False, "erro": "Informe uma data válida e não futura para a venda."}
     if not isinstance(produtos, list) or not produtos:
         return {"sucesso": False, "erro": "Adicione pelo menos um produto ao carrinho."}
     agrupados = {}
@@ -349,14 +384,16 @@ def registrar_compra(carteira_id, produtos, data_movimentacao=None):
     try:
         conn.execute("BEGIN IMMEDIATE")
         carteira = conn.execute(
-            """SELECT c.id,c.saldo,c.ativo,r.nome,r.ativo AS residente_ativo
+            """SELECT c.id,c.residente_id,c.saldo,c.ativo,r.nome,r.ativo AS residente_ativo
                FROM carteiras c JOIN residentes r ON r.id=c.residente_id WHERE c.id=?""",
             (carteira_id,),
         ).fetchone()
         if not carteira:
             return {"sucesso": False, "erro": "Carteira não encontrada."}
-        if not carteira["ativo"] or not carteira["residente_ativo"]:
-            return {"sucesso": False, "erro": "Carteira ou residente inativo."}
+        if not carteira["ativo"]:
+            return {"sucesso": False, "erro": "Carteira inativa."}
+        if not possui_internacao_vigente(conn, carteira["residente_id"], data_movimentacao):
+            return {"sucesso": False, "erro": "Não há internação vigente para este residente na data da venda."}
 
         itens_venda = []
         total_venda = 0
@@ -543,7 +580,7 @@ def consultar_carteira(carteira_id):
             return {"sucesso": False, "erro": "Carteira não encontrada."}
         movimentos = [dict(x) for x in conn.execute(
             """SELECT m.id,m.tipo,m.data_movimentacao,m.valor_total,m.estornada,
-                      m.estornada_em,m.motivo_estorno,i.nome AS item_nome,m.quantidade
+                      m.estornada_em,m.motivo_estorno,m.motivo,m.documento,m.forma_pagamento,i.nome AS item_nome,m.quantidade
                FROM movimentacoes_carteira m
                LEFT JOIN itens i ON i.id=m.item_id
                WHERE m.carteira_id=?

@@ -23,6 +23,8 @@ def registrar_pagamento(
             raise ValueError
     except (TypeError, ValueError):
         return {"sucesso": False, "erro": "Data de recebimento inválida. Use YYYY-MM-DD."}
+    if data_pagamento > date.today().isoformat():
+        return {"sucesso": False, "erro": "Recebimento efetivo não aceita data futura. Informe quando o dinheiro foi recebido."}
     if isinstance(valor, bool) or not isinstance(valor, int) or valor <= 0:
         return {"sucesso": False, "erro": "Informe um valor positivo em centavos inteiros."}
     if isinstance(valor_desconto, bool) or not isinstance(valor_desconto, int) or valor_desconto < 0:
@@ -88,7 +90,7 @@ def registrar_pagamento(
     cursor.execute(
         """
         SELECT COALESCE(SUM(valor), 0)
-        FROM recebimentos
+        FROM recebimentos_liquidos
         WHERE cobranca_id = ?
         """,
         (cobranca_id,)
@@ -339,7 +341,7 @@ def excluir_recebimento(recebimento_id, motivo=None):
         cursor.execute(
             """
             SELECT COALESCE(SUM(valor), 0)
-            FROM recebimentos
+            FROM recebimentos_liquidos
             WHERE cobranca_id = ?
             """,
             (cobranca_id,)
@@ -428,7 +430,7 @@ def resumo_cobranca(cobranca_id):
     cursor.execute(
         """
         SELECT COALESCE(SUM(valor), 0)
-        FROM recebimentos
+        FROM recebimentos_liquidos
         WHERE cobranca_id = ?
         """,
         (cobranca_id,)

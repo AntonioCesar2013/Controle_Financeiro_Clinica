@@ -31,6 +31,10 @@ def consultar(residente_id, inicio=None, fim=None):
                                     "numero_parcela": c["numero_parcela"], "tipo": c["tipo"]}
                                   for r in historico("recebimentos", c["id"], ativos) if no_periodo(r["data_recebimento"]))
         cobrancas = [c for c in todas if no_periodo(c["data_vencimento"])]
+        devolucoes = [dict(r) for r in conn.execute('''SELECT d.*,d.valor+d.multa_juros AS total_lancamento,r.cobranca_id FROM devolucoes_recebimentos d
+            JOIN recebimentos r ON r.id=d.recebimento_id JOIN cobrancas c ON c.id=r.cobranca_id
+            JOIN internacoes i ON i.id=c.internacao_id WHERE i.residente_id=? ORDER BY d.data_devolucao,d.id''', (residente_id,))
+            if no_periodo(r['data_devolucao'])]
         carteira = conn.execute("SELECT id,saldo FROM carteiras WHERE residente_id=?", (residente_id,)).fetchone()
         movimentos, saldo_abertura, saldo_fechamento = [], 0, 0
         if carteira:
@@ -56,8 +60,10 @@ def consultar(residente_id, inicio=None, fim=None):
             "residente": dict(residente), "internacoes": internacoes, "data_inicio": inicio, "data_fim": fim,
             "cobrancas": cobrancas, "recebimentos": sorted(pagamentos, key=lambda r: (r["data_recebimento"], r["id"])),
             "movimentacoes_carteira": movimentos,
+            "devolucoes": devolucoes,
             "resumo": {"devido_periodo": sum(c["valor_devido"] for c in cobrancas),
                        "recebido_periodo": sum(r["total_lancamento"] for r in pagamentos if not r["estornada"]),
+                       "devolvido_periodo": sum(r['total_lancamento'] for r in devolucoes if not r['estornada']),
                        "pendente_periodo": sum(c["saldo_restante"] for c in cobrancas),
                        "pendente_total": sum(c["saldo_restante"] for c in todas),
                        "carteira_atual": carteira["saldo"] if carteira else 0,

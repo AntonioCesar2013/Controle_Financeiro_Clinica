@@ -34,6 +34,16 @@ class Regressoes(unittest.TestCase):
             cur = conn.execute(consulta, args)
             return cur.fetchall() if cur.description else cur.lastrowid
 
+    def post(self, req):
+        """Exercita o pipeline com os atributos fornecidos pelo servidor HTTP."""
+        import uuid
+        req.headers = {'Idempotency-Key': uuid.uuid4().hex}
+        req.client_address = ('127.0.0.1', 0)
+        req.command = 'POST'
+        req._sessao = lambda: None
+        req._json = lambda payload, status=200, cookie=None: (payload, int(status), cookie) if req._capturando else ({**payload, 'sucesso': False} if status >= 400 else payload)
+        return req.do_POST()
+
     def internar(self, inicio=None, modalidade="PARTICULAR", contrato=70000, acolhimento=10000, mensalidade=30000):
         rid = self.sql("INSERT INTO residentes(nome,cpf) VALUES('Teste',?)", (str(self.sql("SELECT COUNT(*) FROM residentes")[0][0]),))
         r = internacoes.cadastrar_internacao_com_cobrancas(rid, 1, inicio or self.hoje, 2, contrato, acolhimento, mensalidade, modalidade, 1)
@@ -255,13 +265,13 @@ class Regressoes(unittest.TestCase):
         requisicao.path = "/api/recebimentos"
         requisicao._corpo_json = lambda: {"cobranca_id": cid, "data_pagamento": "2026-02-30", "valor": "100"}
         with patch("src.interface.servidor.somente_leitura", return_value=False):
-            self.assertFalse(requisicao.do_POST()["sucesso"])
+            self.assertFalse(self.post(requisicao)["sucesso"])
             requisicao._corpo_json = lambda: {"cobranca_id": cid, "data_pagamento": self.hoje, "valor": "100"}
-            r = requisicao.do_POST()
+            r = self.post(requisicao)
             self.assertTrue(r["sucesso"])
             requisicao.path = "/api/recebimentos/excluir"
             requisicao._corpo_json = lambda: {"recebimento_id": r["id"], "motivo": "Teste de estorno"}
-            self.assertTrue(requisicao.do_POST()["sucesso"])
+            self.assertTrue(self.post(requisicao)["sucesso"])
         h = requisicao._get_api("/api/contas-receber/recebimentos", {"id": [str(cid)]})
         self.assertTrue(h["dados"][0]["estornada"])
         self.assertEqual(requisicao._get_api("/api/cobrancas/ajustes", {"id": [str(cid)]})["dados"], [])
@@ -288,10 +298,10 @@ class Regressoes(unittest.TestCase):
         req.path = "/api/carteiras/credito"
         req._corpo_json = lambda: {"carteira_id": wid, "valor": "1,25"}
         with patch("src.interface.servidor.somente_leitura", return_value=False):
-            self.assertTrue(req.do_POST()["sucesso"])
+            self.assertTrue(self.post(req)["sucesso"])
             req.path = "/api/itens"
             req._corpo_json = lambda: {"nome": "Novo produto", "valor": "12.34"}
-            self.assertTrue(req.do_POST()["sucesso"])
+            self.assertTrue(self.post(req)["sucesso"])
         self.assertEqual(self.sql("SELECT valor_total FROM movimentacoes_carteira ORDER BY id DESC LIMIT 1")[0][0], 125)
         self.assertEqual(self.sql("SELECT valor FROM itens_valores ORDER BY id DESC LIMIT 1")[0][0], 1234)
 

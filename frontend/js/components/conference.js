@@ -26,7 +26,7 @@ function historyBalances(rows) {
 
 function totals(dados) {
     return `<p><strong>Clínica:</strong> entradas ${formatMoney(dados.clinica.entradas)} · saídas ${formatMoney(dados.clinica.saidas)} · resultado ${formatMoney(dados.clinica.entradas-dados.clinica.saidas)}</p>
-        <p><strong>Carteiras, separadas:</strong> saldo de abertura ${formatMoney(dados.carteiras.saldo_abertura)} · créditos ${formatMoney(dados.carteiras.creditos)} · compras ${formatMoney(dados.carteiras.compras)} · saldo final ${formatMoney(dados.carteiras.saldo_fechamento)}</p>`;
+        <p><strong>Carteiras, separadas:</strong> saldo de abertura ${formatMoney(dados.carteiras.saldo_abertura)} · créditos ${formatMoney(dados.carteiras.creditos)} · compras ${formatMoney(dados.carteiras.compras)} · devoluções ${formatMoney(dados.carteiras.devolucoes || 0)} · saldo final ${formatMoney(dados.carteiras.saldo_fechamento)}</p>`;
 }
 
 export function createConference({ api, refresh, showPanel, showAlert }) {

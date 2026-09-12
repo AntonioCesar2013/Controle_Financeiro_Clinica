@@ -1,3 +1,4 @@
+import { createWorkflows } from './components/workflows.js';
 import { applyTableFilters, normalizeSearch } from "./components/filters.js";
 import { createResidentDocuments, printDocument } from "./components/resident-documents.js";
 import { createApi } from "./core/api.js";
@@ -50,6 +51,8 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     const api = createApi({
         onUnauthorized: (message) => showLogin(false, message),
     });
+
+    const workflows = createWorkflows({ api, showAlert, showPanel: (title, body) => layers.auxiliary.replaceChildren(createPanel({ title, body, size: 'large' })) });
 
     const residentDocuments = createResidentDocuments({
         api, showAlert,
@@ -153,6 +156,8 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (action === "select-wallet-resident") selectWalletResident(trigger.dataset.id);
         if (action === "wallet-status") runMaintenanceCommand("/api/carteiras/status", { carteira_id: trigger.dataset.id, ativo: trigger.dataset.ativo }, "Alterar a situação desta carteira?", "carteiras");
         if (action === "wallet-reversal") runMaintenanceCommand("/api/carteiras/movimentacoes/estornar", { movimentacao_id: trigger.dataset.id, motivo: "Estorno realizado pela tela" }, "Estornar esta movimentação? O saldo e o estoque serão recalculados.", "carteiras");
+        if (action === "preview-settlement") workflows.preview(trigger.closest("form"));
+        if (action === "end-recurrence") runMaintenanceCommand("/api/recorrencias/encerrar", { id: trigger.dataset.id }, "Encerrar a programação? Contas já geradas permanecem registradas.", "despesas");
         if (action === "open-maintenance-form") openMaintenanceForm(trigger.dataset.kind, trigger.dataset.id);
         if (action === "product-history") openProductHistory(trigger.dataset.id);
         if (action === "canteen-cart-change") changeCanteenQuantity(trigger.dataset.id, Number(trigger.dataset.delta));
@@ -760,8 +765,10 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
                 ? [["Data", "data_pagamento", formatDate], ["Principal", "valor", formatMoney], ["Desconto", "desconto", formatMoney], ["Multa e juros", "multa_juros", formatMoney], ["Total pago", "total_lancamento", formatMoney], ["Forma", "forma_pagamento"], ["Observação", "observacao"]]
                 : [["Data", "data_recebimento", formatDate], ["Principal", "valor", formatMoney], ["Desconto", "desconto", formatMoney], ["Multa e juros", "multa_juros", formatMoney], ["Total recebido", "total_lancamento", formatMoney], ["Forma", "forma_recebimento"], ["Observação", "observacao"]];
             columns.push(["Situação", "estornada", (value) => value ? "ESTORNADO" : "EFETIVO"], ["Estornado em", "estornada_em", formatDateTime], ["Motivo do estorno", "motivo_estorno"]);
-            let body = renderActionTable(dados, columns, (row) => row.estornada ? "" : `<button class="button button--danger" type="button" data-action="delete-financial-entry" data-kind="${isOutgoing ? "saida" : "entrada"}" data-id="${row.id}">Estornar</button>${!isOutgoing && row.tipo === "MENSALIDADE" ? `<button class="button button--secondary" data-action="generate-receipt" data-id="${row.id}">Gerar recibo</button>` : ""}`);
+            let body = renderActionTable(dados, columns, (row) => row.estornada ? "" : `<button class="button button--danger" type="button" data-action="delete-financial-entry" data-kind="${isOutgoing ? "saida" : "entrada"}" data-id="${row.id}">Estornar</button>${!isOutgoing ? `<button class="button button--secondary" data-action="open-maintenance-form" data-kind="refund" data-id="${row.id}">Devolver valor</button>` : ""}${!isOutgoing && row.tipo === "MENSALIDADE" ? `<button class="button button--secondary" data-action="generate-receipt" data-id="${row.id}">Gerar recibo</button>` : ""}`);
             if (!isOutgoing) {
+                const { dados: refunds } = await api(`/api/recebimentos/devolucoes?cobranca_id=${encodeURIComponent(id)}`);
+                if (refunds.length) body += `<h3>Devoluções realizadas</h3>${renderActionTable(refunds, [["Data", "data_devolucao", formatDate], ["Recebimento", "recebimento_id"], ["Total devolvido", "total_lancamento", formatMoney], ["Situação", "estornada", value => value ? "ESTORNADA" : "EFETIVA"], ["Motivo", "motivo"], ["Documento", "documento"], ["Motivo da correção", "motivo_estorno"]], row => row.estornada ? "" : `<button class="button button--danger" data-action="open-maintenance-form" data-kind="refund-reversal" data-id="${row.id}">Corrigir lançamento</button>`)}`;
                 const { dados: ajustes } = await api(`/api/cobrancas/ajustes?id=${encodeURIComponent(id)}`);
                 if (ajustes.length) body += `<h3>Ajustes da cobrança</h3>${renderTable(ajustes, [["Data", "criado_em", formatDateTime], ["Valor anterior", "valor_anterior", formatMoney], ["Valor ajustado", "valor_novo", formatMoney], ["Desconto anterior", "desconto_anterior", formatMoney], ["Desconto ajustado", "desconto_novo", formatMoney], ["Motivo", "motivo"]])}`;
             }
@@ -800,6 +807,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     async function openMaintenanceForm(kind, id) {
+        if (['internment-end', 'internment-extend', 'refund', 'refund-reversal', 'wallet-refund', 'contact-primary', 'recurrence', 'recurrence-generate'].includes(kind)) return workflows.open(kind, id);
         try {
             const today = localDate();
             let title;
@@ -814,9 +822,6 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
                 const item = (await api("/api/responsaveis")).dados.find((row) => String(row.id) === String(id));
                 title = "Editar responsável"; endpoint = "/api/responsaveis/editar"; refresh = "responsaveis";
                 fields = `<input type="hidden" name="id" value="${item.id}"><div class="field"><label>Nome</label><input name="nome" value="${escapeHtml(item.nome)}" required></div><div class="field"><label>CPF ou CNPJ</label><input name="cpf" value="${escapeHtml(item.cpf)}" inputmode="numeric" data-mask="document" maxlength="18" required></div><div class="field"><label>Telefone</label><input name="telefone" type="tel" inputmode="numeric" data-mask="phone" maxlength="15" value="${escapeHtml(item.telefone || "")}"></div><div class="field"><label>E-mail</label><input name="email" type="email" value="${escapeHtml(item.email || "")}"></div>${activeSelect(item.ativo)}`;
-            } else if (kind === "internment-end") {
-                title = "Encerrar internação"; endpoint = "/api/internacoes/encerrar"; refresh = "internacoes";
-                fields = `<input type="hidden" name="id" value="${escapeHtml(id)}"><div class="field"><label>Data de encerramento</label><input name="data_encerramento" type="date" max="${today}" value="${today}" required></div><div class="field"><label>Motivo</label><textarea name="motivo" rows="3" required></textarea></div><label class="form-note"><input type="checkbox" name="autorizar_ajuste_desconto" value="1"> Autorizar a redução dos descontos de convênio que ultrapassem o saldo após o encerramento. O ajuste ficará registrado no histórico.</label><p class="form-note">Em contratos particulares, as mensalidades permanecem devidas; eventuais descontos devem ser lançados nas cobranças.</p>`;
             } else if (kind === "internment-guardian") {
                 const guardians = (await api("/api/responsaveis")).dados.filter((row) => Number(row.ativo) === 1);
                 title = "Alterar responsável principal"; endpoint = "/api/internacoes/responsavel"; refresh = "internacoes";
@@ -852,6 +857,10 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     async function submitMaintenanceForm(form) {
         const data = Object.fromEntries(new FormData(form));
         const errorElement = form.querySelector("[data-maintenance-error]");
+        if (form.dataset.kind === 'internment-end' && !data.assinatura) {
+            errorElement.textContent = 'Consulte e confira a prévia do acerto antes de confirmar o encerramento.';
+            return;
+        }
         if (form.dataset.kind === "collaborator-password") {
             if (data.senha !== data.confirmacao_senha) {
                 errorElement.textContent = "A confirmação da senha não confere.";
@@ -861,11 +870,16 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         }
         setFormBusy(form, true);
         try {
-            await api(form.dataset.endpoint, { method: "POST", body: data });
+            const result = await api(form.dataset.endpoint, { method: "POST", body: data });
             const refresh = form.dataset.refresh;
             closeLayer("auxiliary");
             await openMainPanel(refresh, { preserveWalletResident: refresh === "carteiras" });
-            showAlert("Cadastro atualizado", "A alteração foi salva com sucesso.");
+            const message = form.dataset.kind === 'recurrence-generate'
+                ? `${result.quantidade} conta(s) criada(s). ${result.contas_existentes.length} vencimento(s) já possuíam conta e foram preservados.`
+                : form.dataset.kind === 'internment-extend'
+                    ? `Prorrogação salva. ${result.cobrancas} cobrança(s) adicionada(s), no total de ${formatMoney(result.valor_adicional)}.`
+                    : 'A alteração foi salva com sucesso.';
+            showAlert("Operação concluída", message);
         } catch (error) { errorElement.textContent = error.message; }
         finally { setFormBusy(form, false); }
     }
@@ -1157,7 +1171,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function renderResidents() {
         const { dados } = await api("/api/residentes");
-        return `<div class="toolbar"><div></div><button class="button" type="button" data-action="open-new-resident">Novo residente</button></div>${renderActionTable(dados, [["Nome", "nome"], ["CPF", "cpf", formatCpf], ["Cidade de origem", "cidade_origem"], ["Situação", "ativo", formatActive]], (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="resident" data-id="${row.id}">Editar</button><button class="button" data-action="open-statement" data-id="${row.id}">Extrato</button>`)}`;
+        return `<div class="toolbar"><div></div><button class="button" type="button" data-action="open-new-resident">Novo residente</button></div>${renderActionTable(dados, [["Nome", "nome"], ["CPF", "cpf", formatCpf], ["Cidade de origem", "cidade_origem"], ["Contato principal", "contato_principal", (value, row) => Number(row.contatos_principais) > 1 ? "REVISAR — múltiplos contatos" : valueOrDash(value)], ["Situação", "ativo", formatActive]], (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="resident" data-id="${row.id}">Editar</button><button class="button button--secondary" data-action="open-maintenance-form" data-kind="contact-primary" data-id="${row.id}">Contato principal</button><button class="button" data-action="open-statement" data-id="${row.id}">Extrato</button>`)}`;
     }
 
     async function renderGuardians() {
@@ -1171,10 +1185,10 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             selectableRows: true,
             selectionData: (row) => ({
                 id: row.id,
-                capabilities: ["guardian", ...(row.status === "AGENDADA" ? ["cancel"] : []), ...(row.status === "ATIVA" && !row.encerrada_em ? ["end"] : [])],
+                capabilities: ["guardian", ...(!row.encerrada_em && row.status !== "CANCELADA" && row.modalidade !== "VOLUNTARIO" ? ["extend"] : []), ...(row.status === "AGENDADA" ? ["cancel"] : []), ...(row.status === "ATIVA" && !row.encerrada_em ? ["end"] : [])],
             }),
         });
-        const actions = `<div class="selection-actions" aria-label="Ações da internação selecionada"><span class="selection-actions__label">Internação selecionada</span><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-guardian" data-selection-action="guardian" disabled>Responsável</button><button class="button button--danger" type="button" data-action="cancel-internment" data-selection-action="cancel" disabled>Cancelar agendamento</button><button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-selection-action="end" disabled>Encerrar</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button" type="button" data-action="open-new-internment">Nova internação</button></div>`;
+        const actions = `<div class="selection-actions" aria-label="Ações da internação selecionada"><span class="selection-actions__label">Internação selecionada</span><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-guardian" data-selection-action="guardian" disabled>Responsável</button><button class="button button--danger" type="button" data-action="cancel-internment" data-selection-action="cancel" disabled>Cancelar agendamento</button><button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-selection-action="end" disabled>Encerrar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-extend" data-selection-action="extend" disabled>Prorrogar</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button" type="button" data-action="open-new-internment">Nova internação</button></div>`;
         return `<section class="selection-scope"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 
@@ -1241,7 +1255,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const credits = renderActionTable(dados.creditos, [["Data", "data_movimentacao", formatDate], ["Valor", "valor_total", formatMoney], ["Situação", "estornada", formatReversal], ["Motivo do estorno", "motivo_estorno"]], (row) => Number(row.estornada) === 0 ? `<button class="button button--secondary" type="button" data-action="open-wallet-form" data-kind="correct" data-id="${row.id}" data-value="${row.valor_total}" data-date="${row.data_movimentacao}">Corrigir</button><button class="button button--danger" type="button" data-action="wallet-reversal" data-id="${row.id}">Estornar</button>` : "");
         const purchases = renderActionTable(dados.compras, [["Cupom", "venda_id"], ["Data", "data_movimentacao", formatDate], ["Produto", "item_nome"], ["Quantidade", "quantidade"], ["Valor unitário", "valor_unitario", formatMoney], ["Total descontado", "valor_total", formatMoney], ["Situação", "estornada", formatReversal]], (row) => Number(row.estornada) === 0 && !row.venda_id ? `<button class="button button--danger" type="button" data-action="wallet-reversal" data-id="${row.id}">Estornar compra</button>` : "");
         const walletActions = Number(wallet.ativo) === 1 ? `<button class="button" type="button" data-action="open-wallet-form" data-kind="credit" data-id="${wallet.id}">Adicionar crédito</button><button class="button button--danger" type="button" data-action="wallet-status" data-id="${wallet.id}" data-ativo="0">Inativar carteira</button>` : `<button class="button" type="button" data-action="wallet-status" data-id="${wallet.id}" data-ativo="1">Reativar carteira</button>`;
-        return `<div class="toolbar"><div></div><div class="report-actions">${walletActions}</div></div><div class="wallet-summary"><article><span>Residente</span><strong>${escapeHtml(wallet.residente_nome)}</strong></article><article><span>Saldo disponível</span><strong class="${Number(wallet.saldo) > 0 ? "amount--positive" : "amount--negative"}">${escapeHtml(formatMoney(wallet.saldo))}</strong></article><article><span>Situação</span><strong>${escapeHtml(formatActive(wallet.ativo))}</strong></article></div><h3 class="section-title">Créditos</h3>${credits}<h3 class="section-title">Compras na Cantina</h3>${purchases}`;
+        return `<div class="toolbar"><div></div><div class="report-actions">${walletActions}${Number(wallet.saldo) > 0 ? `<button class="button button--secondary" data-action="open-maintenance-form" data-kind="wallet-refund" data-id="${wallet.id}">Devolver saldo</button>` : ""}</div></div><div class="wallet-summary"><article><span>Residente</span><strong>${escapeHtml(wallet.residente_nome)}</strong></article><article><span>Saldo disponível</span><strong class="${Number(wallet.saldo) > 0 ? "amount--positive" : "amount--negative"}">${escapeHtml(formatMoney(wallet.saldo))}</strong></article><article><span>Situação</span><strong>${escapeHtml(formatActive(wallet.ativo))}</strong></article></div><h3 class="section-title">Créditos</h3>${credits}<h3 class="section-title">Compras na Cantina</h3>${purchases}<h3>Devoluções da carteira</h3>${renderActionTable(dados.movimentacoes.filter(m => m.tipo === "DEVOLUCAO"), [["Data", "data_movimentacao", formatDate], ["Valor", "valor_total", formatMoney], ["Situação", "estornada", formatReversal], ["Motivo", "motivo"], ["Documento", "documento"], ["Motivo da correção", "motivo_estorno"]], row => Number(row.estornada) === 0 ? `<button class="button button--danger" data-action="wallet-reversal" data-id="${row.id}">Corrigir lançamento</button>` : "")}`;
     }
 
     async function renderCantina() {
@@ -1289,7 +1303,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function renderReceivables() {
         const { dados } = await api("/api/contas-receber");
-        const table = renderActionTable(dados, [["Residente", "residente_nome"], ["Responsável", "responsavel_nome"], ["Tipo", "tipo"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Recebido", "total_recebido_com_encargos", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "situacao_temporal", valueOrStatus]], (row) => {
+        const table = renderActionTable(dados, [["Residente", "residente_nome"], ["Responsável", "responsavel_nome"], ["Tipo", "tipo"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Recebido", "total_recebido_com_encargos", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Pagamento", "status"], ["Prazo", "situacao_temporal", valueOrStatus], ["Dias em atraso", "dias_atraso"]], (row) => {
             const open = Number(row.saldo_restante) > 0 && !["PAGA", "DESCONTADA"].includes(row.status);
             return `${open ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento" data-id="${row.id}">Receber</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`;
         }, {
@@ -1349,9 +1363,11 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function renderExpenses() {
         const { dados } = await api("/api/financeiro/cadastros");
+        const { dados: schedules } = await api('/api/recorrencias');
+        const scheduleTable = renderActionTable(schedules, [["Despesa", "descricao"], ["Valor", "valor", formatMoney], ["Início", "data_inicio", formatDate], ["Fim", "data_fim", formatDate], ["Intervalo (meses)", "intervalo_meses"], ["Ativa", "ativo", formatYesNo]], row => Number(row.ativo) === 1 ? `<button class="button" data-action="open-maintenance-form" data-kind="recurrence-generate" data-id="${row.id}">Gerar contas</button><button class="button button--secondary" data-action="end-recurrence" data-id="${row.id}">Encerrar programação</button>` : '');
         const sectors = renderActionTable(dados.setores, [["Setor", "nome"], ["Situação", "ativo", formatActive]], (row) => `<button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="editar_setor" data-id="${row.id}">Editar</button>`);
-        const expenses = renderActionTable(dados.despesas, [["Descrição", "descricao"], ["Setor", "setor_nome"], ["Natureza", "natureza"], ["Recorrente", "recorrente", formatYesNo], ["Situação", "ativo", formatActive]], (row) => Number(row.ativo) === 1 ? `<button class="button button--danger" type="button" data-action="deactivate-expense" data-id="${row.id}">Inativar</button>` : "");
-        return `<div class="toolbar"><div></div><div class="report-actions"><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="setor">Novo setor</button><button class="button" type="button" data-action="open-financial-form" data-kind="despesa">Nova despesa</button></div></div><h3 class="section-title">Setores</h3>${sectors}<h3 class="section-title">Despesas cadastradas</h3>${expenses}`;
+        const expenses = renderActionTable(dados.despesas, [["Descrição", "descricao"], ["Setor", "setor_nome"], ["Natureza", "natureza"], ["Recorrente", "recorrente", formatYesNo], ["Situação", "ativo", formatActive]], (row) => Number(row.ativo) === 1 ? `<button class="button button--danger" type="button" data-action="deactivate-expense" data-id="${row.id}">Inativar</button>${Number(row.recorrente) === 1 ? `<button class="button button--secondary" data-action="open-maintenance-form" data-kind="recurrence" data-id="${row.id}">Programar</button>` : ""}` : "");
+        return `<div class="toolbar"><div></div><div class="report-actions"><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="setor">Novo setor</button><button class="button" type="button" data-action="open-financial-form" data-kind="despesa">Nova despesa</button></div></div><h3 class="section-title">Setores</h3>${sectors}<h3 class="section-title">Despesas cadastradas</h3>${expenses}<h3>Programações recorrentes</h3>${scheduleTable}`;
     }
 
     async function renderCashFlow(url = "/api/caixa") {

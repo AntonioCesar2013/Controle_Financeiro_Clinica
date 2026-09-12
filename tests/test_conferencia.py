@@ -209,7 +209,7 @@ class Conferencia(unittest.TestCase):
         valores = {r['chave']: str(r['valor']) if r['tipo']=='ESTOQUE' else str(r['valor']/100) for r in d['itens']}
         payload = {'assinatura':d['assinatura'],'responsavel':'Operador','observacao':'Conferido','valores':valores}
         with patch('src.interface.servidor.somente_leitura', return_value=False):
-            with urlopen(Request(url+'/api/conferencia/saldos', json.dumps(payload).encode(), {'Content-Type':'application/json'})) as r:
+            with urlopen(Request(url+'/api/conferencia/saldos', json.dumps(payload).encode(), {'Content-Type':'application/json', 'Idempotency-Key':'teste_conferencia_http_001'})) as r:
                 self.assertEqual(json.load(r)['status'], 'CONFERIDA')
             payload['valores']['CARTEIRA:1']=''
             with self.assertRaises(HTTPError) as erro:

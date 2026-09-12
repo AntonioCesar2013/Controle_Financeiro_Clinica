@@ -15,7 +15,11 @@ def _listar(sql, parametros=()):
 def listar_residentes():
     from src.cadastros.internacoes import sincronizar_status_residentes
     sincronizar_status_residentes()
-    return _listar("SELECT id, nome, cpf, cidade_origem, ativo FROM residentes ORDER BY nome")
+    return _listar('''SELECT r.id,r.nome,r.cpf,r.cidade_origem,r.ativo,
+        (SELECT COUNT(*) FROM residente_responsavel rr WHERE rr.residente_id=r.id AND rr.principal=1) AS contatos_principais,
+        (SELECT GROUP_CONCAT(rp.nome, ' / ') FROM residente_responsavel rr JOIN responsaveis rp ON rp.id=rr.responsavel_id
+            WHERE rr.residente_id=r.id AND rr.principal=1) AS contato_principal
+        FROM residentes r ORDER BY r.nome''')
 
 
 def listar_responsaveis():

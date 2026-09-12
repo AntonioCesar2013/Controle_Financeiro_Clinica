@@ -1,5 +1,6 @@
 from src.nucleo.migracoes import Migracao, aplicar_migracoes
 from src.nucleo.modulos import Modulo
+from src.cadastros.contatos import preparar_schema
 
 
 def _validar_schema(conexao):
@@ -12,7 +13,7 @@ def _validar_schema(conexao):
 
 
 def preparar_banco(conexao):
-    aplicar_migracoes(conexao, (Migracao("cadastros", 1, _validar_schema),))
+    aplicar_migracoes(conexao, (Migracao("cadastros", 1, _validar_schema), Migracao("cadastros", 2, preparar_schema)))
 
 
 MODULO = Modulo("cadastros", preparar_banco)

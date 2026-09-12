@@ -14,7 +14,7 @@ def gerar(recebimento_id):
                       c.tipo,c.numero_parcela,c.data_vencimento,c.valor-c.desconto AS valor_devido,
                       i.id AS internacao_id,res.nome AS residente_nome,res.cpf AS residente_cpf,
                       rp.nome AS responsavel_nome,rp.cpf AS responsavel_cpf,
-                      COALESCE((SELECT SUM(valor) FROM recebimentos WHERE cobranca_id=c.id),0) AS total_recebido
+                      COALESCE((SELECT SUM(valor) FROM recebimentos_liquidos WHERE cobranca_id=c.id),0) AS total_recebido
                FROM recebimentos r JOIN cobrancas c ON c.id=r.cobranca_id
                JOIN internacoes i ON i.id=c.internacao_id JOIN residentes res ON res.id=i.residente_id
                JOIN responsaveis rp ON rp.id=i.responsavel_id WHERE r.id=?""", (recebimento_id,)
@@ -42,6 +42,7 @@ def consultar(recibo_id):
             raise ValueError("Recibo não encontrado.")
         return {"id": registro[0], "numero": f"REC-{registro[0]:06d}",
                 "recebimento_id": registro[1], "dados": json.loads(registro[2]),
-                "emitido_em": registro[3], "cancelado": not bool(registro[4])}
+                "emitido_em": registro[3], "cancelado": not bool(registro[4]),
+                "total_devolvido": conn.execute('SELECT COALESCE(SUM(valor+multa_juros),0) FROM devolucoes_recebimentos WHERE recebimento_id=? AND estornada=0', (registro[1],)).fetchone()[0]}
     finally:
         conn.close()

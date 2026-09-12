@@ -35,4 +35,5 @@ def dados_conferencia(conexao, inicio=None, fim=None):
     return {'carteiras': carteiras, 'estoque': estoque, 'movimentos': movimentos,
             'saldo_abertura': abertura, 'saldo_fechamento': fechamento,
             'creditos': sum(m['valor_total'] for m in movimentos if not m['estornada'] and m['tipo']=='CREDITO'),
-            'compras': sum(abs(m['valor_total']) for m in movimentos if not m['estornada'] and m['tipo']!='CREDITO')}
+            'devolucoes': sum(m['valor_total'] for m in movimentos if not m['estornada'] and m['tipo']=='DEVOLUCAO'),
+            'compras': sum(abs(m['valor_total']) for m in movimentos if not m['estornada'] and m['tipo'] not in ('CREDITO','DEVOLUCAO'))}

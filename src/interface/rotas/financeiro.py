@@ -13,6 +13,7 @@ from src.financeiro import (
     conferencia,
 )
 from src.financeiro.estornos import historico, historico_ajustes
+from src.financeiro import acertos, devolucoes, recorrencias
 
 
 def _parametro(query, nome, padrao=None):
@@ -24,6 +25,9 @@ def rotas_get(query):
     inicio = _parametro(query, "data_inicio")
     fim = _parametro(query, "data_fim")
     return {
+        '/api/internacoes/acerto': lambda: acertos.previa(_parametro(query, 'id'), _parametro(query, 'data_encerramento'), _parametro(query, 'politica')),
+        '/api/recebimentos/devolucoes': lambda: devolucoes.listar(_parametro(query, 'cobranca_id')),
+        '/api/recorrencias': recorrencias.listar,
         "/api/conciliacao": conciliacao.painel,
         "/api/conferencia/saldos": conferencia.saldos,
         "/api/conferencia/mensal": lambda: conferencia.mensal(_parametro(query, "competencia")),

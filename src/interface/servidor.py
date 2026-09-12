@@ -16,11 +16,14 @@ from src.infraestrutura import operacoes, logs
 from src.interface import validacao
 from src.financeiro import caixa
 from src.financeiro import conciliacao, conferencia
+from src.financeiro import devolucoes, recorrencias
+from src.cadastros.internacoes import prorrogar_internacao
 from src.cantina import vendas as cantina
 from src.financeiro import configuracoes_financeiras
 from src.financeiro import contas_pagar
 from src.financeiro import contas_receber
 from src.cadastros import convenios
+from src.cadastros import contatos
 from src.financeiro import despesas
 from src.cantina import produtos as itens
 from src.interface import relatorios
@@ -194,6 +197,20 @@ class Requisicao(BaseHTTPRequestHandler):
                 HTTPStatus.FORBIDDEN,
             )
         operacoes_conferencia = {
+            '/api/recebimentos/devolucoes/estornar': lambda: devolucoes.estornar(dados.get('id'), dados.get('motivo')),
+            '/api/residentes/contato-principal': lambda: contatos.definir(dados.get('residente_id'), dados.get('responsavel_id'), dados.get('motivo')),
+            '/api/recebimentos/devolver': lambda: devolucoes.registrar(
+                dados.get('recebimento_id'), _centavos(dados.get('valor')), dados.get('data_devolucao'),
+                dados.get('forma_pagamento'), dados.get('motivo'), dados.get('documento'), _centavos(dados.get('multa_juros', 0))),
+            '/api/carteiras/devolver': lambda: cantina.devolver_saldo(
+                dados.get('carteira_id'), _centavos(dados.get('valor')), dados.get('data_movimentacao'),
+                dados.get('forma_pagamento'), dados.get('motivo'), dados.get('documento')),
+            '/api/recorrencias': lambda: recorrencias.configurar(dados.get('despesa_id'), _centavos(dados.get('valor')),
+                dados.get('data_inicio'), dados.get('data_fim'), dados.get('intervalo_meses', 1)),
+            '/api/recorrencias/gerar': lambda: recorrencias.gerar(dados.get('id'), dados.get('data_limite')),
+            '/api/recorrencias/encerrar': lambda: recorrencias.encerrar(dados.get('id')),
+            '/api/internacoes/prorrogar': lambda: prorrogar_internacao(dados.get('id'), dados.get('periodo_atual'),
+                dados.get('novo_periodo'), dados.get('motivo')),
             "/api/conciliacao/vincular": lambda: conciliacao.conciliar(
                 dados.get("entrada_id"), dados.get("destino"), dados.get("ids"), dados.get("motivo")),
             "/api/conciliacao/desfazer": lambda: conciliacao.desfazer(dados.get("id"), dados.get("motivo")),
@@ -297,7 +314,7 @@ class Requisicao(BaseHTTPRequestHandler):
         if rota == "/api/internacoes/cancelar":
             return self._resultado_operacao(cancelar_agendamento(dados.get("id"), dados.get("motivo")))
         if rota == "/api/internacoes/encerrar":
-            return self._resultado_operacao(encerrar_internacao(dados.get("id"), dados.get("data_encerramento"), dados.get("motivo"), str(dados.get("autorizar_ajuste_desconto", "")).lower() in ("1", "true")), criado=False)
+            return self._resultado_operacao(encerrar_internacao(dados.get("id"), dados.get("data_encerramento"), dados.get("motivo"), str(dados.get("autorizar_ajuste_desconto", "")).lower() in ("1", "true"), dados.get('politica'), dados.get('assinatura')), criado=False)
         if rota == "/api/internacoes/responsavel":
             return self._resultado_operacao(alterar_responsavel_principal(dados.get("id"), dados.get("responsavel_id")), criado=False)
         if rota == "/api/itens/editar":

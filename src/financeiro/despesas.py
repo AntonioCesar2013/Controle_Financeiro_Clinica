@@ -6,6 +6,17 @@ from src.infraestrutura.banco import conectar
 NATUREZAS_VALIDAS = {"FIXA", "VARIAVEL", "EXTRAORDINARIA"}
 
 
+def validar_para_lancamento(conexao, despesa_id):
+    """Regra única para criar contas; não restringe pagamento de contas antigas."""
+    linha = conexao.execute('''SELECT d.ativo,s.ativo,d.recorrente FROM despesas d
+        JOIN setores s ON s.id=d.setor_id WHERE d.id=?''', (despesa_id,)).fetchone()
+    if not linha:
+        raise ValueError('Despesa ou setor não encontrado.')
+    if not linha[0] or not linha[1]:
+        raise ValueError('Não é possível criar contas: a despesa ou o setor está inativo.')
+    return bool(linha[2])
+
+
 def cadastrar_setor(nome):
     nome = str(nome or "").strip()
     if not nome:

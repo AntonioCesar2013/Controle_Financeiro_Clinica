@@ -18,12 +18,11 @@ from src.financeiro.regras_financeiras import (
 def _situacao_temporal(cobranca, data_referencia=None):
     """Calcula a situação temporal sem substituir o status financeiro salvo.
 
-    ``PARCIAL`` e ``DESCONTADA`` não recebem mapeamento temporal porque suas
-    regras financeiras não são equivalentes aos estados do motor de parcelas.
+    Uma cobrança parcial mantém o estado financeiro e pode estar atrasada.
     """
     status_financeiro = cobranca["status"]
 
-    if status_financeiro == "ABERTA":
+    if status_financeiro in ("ABERTA", "PARCIAL"):
         return calcular_status_parcela(
             cobranca["data_vencimento"],
             data_referencia=data_referencia,
@@ -84,6 +83,9 @@ def consolidar_cobranca(cobranca, data_referencia=None):
             cobranca["data_vencimento"],
             cobranca["data_pagamento"],
         ),
+        "dias_atraso": max(0, ((date.fromisoformat(data_referencia) if isinstance(data_referencia, str)
+                               else data_referencia or date.today()) - date.fromisoformat(cobranca["data_vencimento"])).days)
+                       if saldo_restante > 0 else 0,
     }
 
 
@@ -117,13 +119,13 @@ def _consultar_cobrancas(cobranca_id=None, internacao_id=None):
             c.status,
             COALESCE(SUM(r.valor), 0) AS total_recebido,
             COALESCE(SUM(r.multa_juros), 0) AS total_multa_juros,
-            MAX(r.data_recebimento) AS data_pagamento,
+            MAX(CASE WHEN r.valor > 0 THEN r.data_recebimento END) AS data_pagamento,
             res.nome AS residente_nome, rp.nome AS responsavel_nome
         FROM cobrancas c
         JOIN internacoes i ON i.id=c.internacao_id
         JOIN residentes res ON res.id=i.residente_id
         JOIN responsaveis rp ON rp.id=i.responsavel_id
-        LEFT JOIN recebimentos r
+        LEFT JOIN recebimentos_liquidos r
             ON r.cobranca_id = c.id
         {where}
         GROUP BY c.id

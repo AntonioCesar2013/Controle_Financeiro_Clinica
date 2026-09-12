@@ -10,8 +10,14 @@ def _validar_schema(conexao):
             raise RuntimeError(f"Tabela da Cantina ausente: {tabela}")
 
 
+def _preparar_devolucoes(conexao):
+    for campo in ('motivo', 'documento', 'forma_pagamento'):
+        conexao.execute(f'ALTER TABLE movimentacoes_carteira ADD COLUMN {campo} TEXT')
+
+
 def preparar_banco(conexao):
-    aplicar_migracoes(conexao, (Migracao("cantina", 1, _validar_schema),))
+    aplicar_migracoes(conexao, (Migracao("cantina", 1, _validar_schema),
+                               Migracao("cantina", 2, _preparar_devolucoes)))
 
 
 MODULO = Modulo(

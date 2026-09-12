@@ -130,6 +130,12 @@ def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None):
             """,
             parametros_saida,
         ).fetchall()
+        devolucoes = conexao.execute('''SELECT d.*,r.cobranca_id,res.nome AS residente_nome
+            FROM devolucoes_recebimentos d JOIN recebimentos r ON r.id=d.recebimento_id
+            JOIN cobrancas c ON c.id=r.cobranca_id JOIN internacoes i ON i.id=c.internacao_id
+            JOIN residentes res ON res.id=i.residente_id
+            WHERE d.estornada=0 AND (? IS NULL OR d.data_devolucao>=?) AND (? IS NULL OR d.data_devolucao<=?)''',
+            (data_inicio, data_inicio, data_fim, data_fim)).fetchall()
     finally:
         if propria:
             conexao.close()
@@ -177,6 +183,12 @@ def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None):
             "observacao": saida["observacao"],
         })
 
+    for devolucao in devolucoes:
+        movimentacoes.append({'id': devolucao['id'], 'origem': 'DEVOLUCAO', 'tipo': 'SAIDA',
+            'data': devolucao['data_devolucao'], 'valor': devolucao['valor'] + devolucao['multa_juros'],
+            'descricao': f"Devolução a {devolucao['residente_nome']}",
+            'forma_pagamento': devolucao['forma_pagamento'], 'origem_id': devolucao['cobranca_id'],
+            'observacao': devolucao['motivo'], 'documento': devolucao['documento']})
     return sorted(movimentacoes, key=lambda movimento: (movimento["data"], movimento["id"]))
 
 

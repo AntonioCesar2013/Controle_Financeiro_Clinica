@@ -33,7 +33,7 @@ def _abrir():
 def _posicao(conn):
     receber = [dict(r) for r in conn.execute('''
         SELECT c.id,r.nome || ' — parcela ' || c.numero_parcela AS nome,
-               c.valor-c.desconto-COALESCE((SELECT SUM(valor) FROM recebimentos WHERE cobranca_id=c.id),0) AS valor
+               c.valor-c.desconto-COALESCE((SELECT SUM(valor) FROM recebimentos_liquidos WHERE cobranca_id=c.id),0) AS valor
         FROM cobrancas c JOIN internacoes i ON i.id=c.internacao_id
         JOIN residentes r ON r.id=i.residente_id WHERE c.status!='CANCELADA' ORDER BY c.id''')]
     pagar = [dict(r) for r in conn.execute('''
@@ -105,7 +105,7 @@ def _mes(conn, competencia):
     movimentos = caixa.listar_movimentacoes(inicio, fim, conexao=conn)
     cantina = dados_conferencia(conn, inicio, fim)
     entradas = [r for r in conciliacao.listar(conn) if inicio <= r['data_entrada'] <= fim]
-    return {
+    dados = {
         'competencia': competencia, 'inicio': inicio, 'fim': fim,
         'clinica': {'entradas': sum(r['valor'] for r in movimentos if r['tipo']=='ENTRADA'),
                     'saidas': sum(r['valor'] for r in movimentos if r['tipo']=='SAIDA'),
@@ -113,6 +113,10 @@ def _mes(conn, competencia):
         'carteiras': {k: cantina[k] for k in ('saldo_abertura','saldo_fechamento','creditos','compras','movimentos')},
         'banco': entradas, 'pendentes': sum(r['destino']=='PENDENTE' for r in entradas),
     }
+    # Não altera a assinatura de fechamentos antigos sem devoluções.
+    if cantina['devolucoes']:
+        dados['carteiras']['devolucoes'] = cantina['devolucoes']
+    return dados
 
 
 def mensal(competencia):

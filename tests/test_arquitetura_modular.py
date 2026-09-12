@@ -31,7 +31,9 @@ class ArquiteturaModular(unittest.TestCase):
             linhas = conexao.execute(
                 "SELECT modulo,versao FROM migracoes_schema ORDER BY modulo"
             ).fetchall()
-        self.assertEqual(linhas, [("cadastros", 1), ("cantina", 1), ("financeiro", 1), ("financeiro", 2), ("financeiro", 3)])
+        self.assertEqual(linhas, [("cadastros", 1), ("cadastros", 2),
+                                 ("cantina", 1), ("cantina", 2),
+                                 *[("financeiro", n) for n in range(1, 8)], ("infraestrutura", 1)])
 
     def test_migracoes_futuras_fazem_rollback_com_transacao_externa(self):
         conexao = sqlite3.connect(":memory:")
