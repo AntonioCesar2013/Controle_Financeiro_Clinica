@@ -20,7 +20,7 @@ def main():
     )
     thread_servidor.start()
     print(f"Controle Financeiro iniciado em janela WebView2: {endereco}")
-    print(f"Backup diário verificado: {backup}")
+    print(backup)
 
     janela = webview.create_window(
         "Controle Financeiro — Clínica da Cruz",

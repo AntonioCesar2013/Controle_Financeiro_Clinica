@@ -3,3 +3,4 @@ __pycache__/
 .venv/
 dados/
 configuracao_local.json
+tmp/backup-deps/

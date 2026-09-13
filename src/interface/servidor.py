@@ -36,7 +36,9 @@ from src.financeiro.estornos import historico, historico_ajustes
 from src.cadastros.internacoes import cancelar_agendamento
 from src.infraestrutura import sincronizacao_nuvem
 from src.infraestrutura.banco import criar_tabelas
-from src.infraestrutura.backup_banco import criar_backup_diario
+from src.infraestrutura.backup.service import BackupService
+from src.infraestrutura.backup.scheduler import BackupScheduler
+from src.interface.rotas.backup import dispatch as dispatch_backup
 from src.infraestrutura.configuracao_instalacao import somente_leitura
 from src.cadastros.colaboradores import (
     autenticar_colaborador, cadastrar_colaborador, editar_colaborador,
@@ -126,6 +128,8 @@ class Requisicao(BaseHTTPRequestHandler):
 
     def _despachar_get(self):
         rota = urlparse(self.path)
+        if rota.path.startswith('/api/backup/'):
+            return dispatch_backup(self, rota.path)
         if rota.path == '/api/operacoes/status':
             return self._json({'dados': operacoes.consultar(_parametro(parse_qs(rota.query), 'chave'))})
         if rota.path == "/api/auth/status":
@@ -145,6 +149,8 @@ class Requisicao(BaseHTTPRequestHandler):
         try:
             rota = urlparse(self.path).path
             dados = self._corpo_json()
+            if rota.startswith('/api/backup/'):
+                return dispatch_backup(self, rota, dados)
             if rota.startswith('/api/auth/') or rota.startswith('/api/sincronizacao/'):
                 return self._despachar_post(rota, dados)
             if rota == '/api/operacoes/cancelar':
@@ -549,7 +555,7 @@ class Requisicao(BaseHTTPRequestHandler):
 def executar(host="127.0.0.1", porta=8000, abrir_navegador=False):
     servidor, endereco, backup = criar_servidor(host, porta)
     print(f"Controle Financeiro disponível em {endereco}")
-    print(f"Backup diário verificado: {backup}")
+    print(backup)
     print("Pressione Ctrl+C para encerrar.")
     if abrir_navegador:
         threading.Timer(0.8, webbrowser.open, args=(endereco,)).start()
@@ -561,20 +567,31 @@ def executar(host="127.0.0.1", porta=8000, abrir_navegador=False):
         servidor.server_close()
 
 
+class ServidorClinica(ThreadingHTTPServer):
+    def server_close(self):
+        if hasattr(self, 'backup_scheduler'):
+            self.backup_scheduler.stop()
+        super().server_close()
+
+
 def criar_servidor(host="127.0.0.1", porta=8000):
     """Prepara o backend sem iniciar navegador nem bloquear a thread atual."""
     criar_tabelas()
-    backup = criar_backup_diario()
+    from src.infraestrutura import banco
+    backup = 'Agendamento configurável em Configurações → Backup'
     sincronizar_status_residentes()
     endereco = f"http://{host}:{porta}"
     try:
-        servidor = ThreadingHTTPServer((host, porta), Requisicao)
+        servidor = ServidorClinica((host, porta), Requisicao)
     except OSError as erro:
         raise SystemExit(
             f"Não foi possível iniciar o sistema em {endereco}. "
             "Verifique se ele já está aberto em outra janela."
         ) from erro
 
+    servidor.backup_service = BackupService(banco.CAMINHO_BANCO)
+    servidor.backup_scheduler = BackupScheduler(servidor.backup_service)
+    servidor.backup_scheduler.start()
     return servidor, endereco, backup
 
 

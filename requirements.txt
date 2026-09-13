@@ -1,2 +1,10 @@
 python-dateutil==2.9.0.post0
 pywebview==6.2.1
+platformdirs>=4,<5
+keyring>=25,<26
+boto3>=1.35,<2
+google-auth>=2.35,<3
+google-auth-oauthlib>=1.2,<2
+google-api-python-client>=2.150,<3
+google-auth-httplib2>=0.2,<1
+httplib2>=0.22,<1

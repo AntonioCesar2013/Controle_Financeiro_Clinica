@@ -25,13 +25,8 @@ def criar_backup(rotulo="automatico"):
     PASTA_BACKUPS.mkdir(parents=True, exist_ok=True)
     seguro = "".join(c for c in str(rotulo) if c.isalnum() or c in "-_") or "backup"
     destino = PASTA_BACKUPS / f"clinica_{datetime.now():%Y%m%d_%H%M%S_%f}_{seguro}.db"
-    origem = banco.conectar()
-    copia = sqlite3.connect(destino)
-    try:
-        origem.backup(copia)
-    finally:
-        copia.close()
-        origem.close()
+    from src.infraestrutura.backup.snapshot import create_snapshot
+    create_snapshot(banco.CAMINHO_BANCO, destino)
     _validar_banco(destino)
     return destino
 
@@ -46,9 +41,7 @@ def criar_backup_diario(retencao=30):
     existentes = listar_backups()
     diario = next((item for item in existentes if item.name.startswith(f"clinica_{hoje}_") and item.name.endswith("_diario.db")), None)
     criado = diario or criar_backup("diario")
-    diarios = [item for item in listar_backups() if item.name.endswith("_diario.db")]
-    for antigo in diarios[int(retencao):]:
-        antigo.unlink()
+    # Compatibilidade: nenhuma exclusão automática sem política configurada.
     return criado
 
 

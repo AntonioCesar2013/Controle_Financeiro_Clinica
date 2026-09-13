@@ -270,3 +270,7 @@ As telas de cadastro permitem editar residentes e responsáveis, alterar o
 responsável principal ou encerrar uma internação antecipadamente, editar
 produtos, registrar novos preços sem apagar o histórico, ajustar estoque com
 motivo, ativar ou inativar cadastros e redefinir a senha de colaboradores.
+# Backup automático SQLite
+
+Configuração, credenciais no Windows Credential Manager, provedores R2/Drive,
+agendamento e testes estão documentados em [docs/BACKUP.md](docs/BACKUP.md).

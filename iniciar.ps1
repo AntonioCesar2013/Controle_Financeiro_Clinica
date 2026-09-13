@@ -41,7 +41,7 @@ Write-Host "Iniciando o Controle Financeiro da Clínica..." -ForegroundColor Cya
 Write-Host "Python: $pythonExecutavel"
 
 try {
-    & $pythonExecutavel -c "import webview" 2>$null
+    & $pythonExecutavel -c "import webview, platformdirs, keyring, boto3, google.auth, google_auth_oauthlib, googleapiclient" 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Preparando a interface WebView2..." -ForegroundColor Yellow
         & $pythonExecutavel -m pip install -r requirements.txt

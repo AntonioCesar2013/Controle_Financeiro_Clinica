@@ -1,4 +1,5 @@
 import { createWorkflows } from './components/workflows.js';
+import { createBackupPanel } from './components/backup.js';
 import { applyTableFilters, normalizeSearch } from "./components/filters.js";
 import { createResidentDocuments, printDocument } from "./components/resident-documents.js";
 import { createApi } from "./core/api.js";
@@ -48,6 +49,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     let startupDueAlertShown = false;
     const dashboardChartState = { metric: "daily", type: "bar", start: "", end: "" };
 
+    let backupPanel;
     const api = createApi({
         onUnauthorized: (message) => showLogin(false, message),
     });
@@ -1418,7 +1420,8 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const financial = dados ? renderTable([dados], [["Aplicar juros", "aplicar_juros", formatYesNo], ["Tipo de juros", "tipo_juros"], ["Valor dos juros", "valor_juros"], ["Aplicar multa", "aplicar_multa", formatYesNo], ["Tipo da multa", "tipo_multa"], ["Valor da multa", "valor_multa"]]) : emptyState();
         const actions = cloud.ativa ? `<div class="report-actions">${cloud.modo === "ESCRITA" ? '<button class="button" type="button" data-action="cloud-publish">Publicar versão</button>' : '<button class="button" type="button" data-action="cloud-update">Buscar versão mais recente</button>'}</div>` : "";
         const cloudTable = renderTable([cloud], [["Situação", "ativa", (value) => value ? "Ativa" : "Desativada"], ["Modo preparado", "modo"], ["Pasta Google Drive", "pasta_google_drive", valueOrDash], ["Última versão", "ultima_versao", valueOrDash], ["Versões disponíveis", "quantidade_versoes"]]);
-        return `<h3 class="section-title">Parâmetros financeiros</h3>${financial}<h3 class="section-title">Sincronização futura com Google Drive</h3><p class="form-note">${escapeHtml(cloud.mensagem)}</p>${actions}${cloudTable}`;
+        backupPanel ||= createBackupPanel(api);
+        return `<h3 class="section-title">Parâmetros financeiros</h3>${financial}<h3 class="section-title">Sincronização futura com Google Drive</h3><p class="form-note">${escapeHtml(cloud.mensagem)}</p>${actions}${cloudTable}${await backupPanel.render()}`;
     }
 
     async function runCloudCommand(endpoint, message) {
