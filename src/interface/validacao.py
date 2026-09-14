@@ -11,6 +11,8 @@ OBRIGATORIOS = {
     '/api/carteiras/devolver': ('carteira_id','valor','data_movimentacao','forma_pagamento','motivo','documento'),
     '/api/recorrencias': ('despesa_id','valor','data_inicio','data_fim','intervalo_meses'),
     '/api/recorrencias/gerar': ('id','data_limite'), '/api/recorrencias/encerrar': ('id',),
+    '/api/recorrencias/reajustar': ('id','valor','data_inicio_vigencia','motivo'),
+    '/api/recorrencias/dispensar': ('id','data_vencimento','motivo'),
     '/api/internacoes/prorrogar': ('id','periodo_atual','novo_periodo','motivo'),
     '/api/residentes': ('nome','cpf'), '/api/residentes/editar': ('id','nome','cpf'),
     '/api/responsaveis': ('nome','cpf'), '/api/responsaveis/editar': ('id','nome','cpf'),

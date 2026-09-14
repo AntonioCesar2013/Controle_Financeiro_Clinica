@@ -41,12 +41,24 @@ Write-Host "Iniciando o Controle Financeiro da Clínica..." -ForegroundColor Cya
 Write-Host "Python: $pythonExecutavel"
 
 try {
-    & $pythonExecutavel -c "import webview, platformdirs, keyring, boto3, google.auth, google_auth_oauthlib, googleapiclient" 2>$null
+    $verificarDependencias = @'
+import importlib
+import sys
+
+try:
+    for nome in ('webview', 'dateutil', 'platformdirs', 'keyring', 'boto3',
+                 'google.auth', 'google_auth_oauthlib', 'googleapiclient',
+                 'google_auth_httplib2', 'httplib2'):
+        importlib.import_module(nome)
+except ImportError:
+    sys.exit(1)
+'@
+    & $pythonExecutavel -c $verificarDependencias
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "Preparando a interface WebView2..." -ForegroundColor Yellow
+        Write-Host "Preparando os componentes do sistema e de backup..." -ForegroundColor Yellow
         & $pythonExecutavel -m pip install -r requirements.txt
         if ($LASTEXITCODE -ne 0) {
-            throw "Não foi possível instalar os componentes da interface WebView2."
+            throw "Não foi possível instalar os componentes do sistema e de backup."
         }
     }
     & $pythonExecutavel main.py

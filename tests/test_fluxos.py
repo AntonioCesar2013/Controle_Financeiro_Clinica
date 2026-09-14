@@ -25,9 +25,9 @@ class Fluxos(unittest.TestCase):
         venda = vendas.registrar_compra(wid, [{'item_id': pid, 'quantidade': 20}])
         self.assertTrue(venda['sucesso'])
         self.assertFalse(produtos.editar_produto(pid, 'Teste', categoria='Serviço')['sucesso'])
-        self.assertEqual(self.sql('SELECT estoque_atual FROM itens WHERE id=?', (pid,))[0][0], 0)
+        self.assertEqual(self.sql('SELECT estoque_atual FROM itens_cantina WHERE id=?', (pid,))[0][0], 0)
         self.assertTrue(vendas.estornar_compra(venda['id'])['sucesso'])
-        self.assertEqual(self.sql('SELECT estoque_atual FROM itens WHERE id=?', (pid,))[0][0], 20)
+        self.assertEqual(self.sql('SELECT estoque_atual FROM itens_cantina WHERE id=?', (pid,))[0][0], 20)
 
     def test_servico_vendido_nao_vira_produto(self):
         wid, _ = self.carteira()
@@ -35,7 +35,7 @@ class Fluxos(unittest.TestCase):
         venda = vendas.registrar_venda(wid, pid)
         self.assertFalse(produtos.editar_produto(pid, 'Corte', categoria='Produto')['sucesso'])
         self.assertTrue(vendas.estornar_movimentacao(venda['id'])['sucesso'])
-        self.assertEqual(self.sql('SELECT estoque_atual FROM itens WHERE id=?', (pid,))[0][0], 0)
+        self.assertEqual(self.sql('SELECT estoque_atual FROM itens_cantina WHERE id=?', (pid,))[0][0], 0)
 
     def test_item_sem_historico_pode_mudar(self):
         pid = produtos.cadastrar_produto('Novo', 100)['id']
@@ -111,6 +111,20 @@ class Fluxos(unittest.TestCase):
         self.assertEqual(recorrencias.gerar(rid, '2026-12-31')['quantidade'], 0)
         recorrencias.encerrar(rid)
         with self.assertRaises(ValueError): recorrencias.gerar(rid, '2026-12-31')
+
+    def test_recorrencia_previa_reajuste_conflito_e_dispensa(self):
+        rid = self.programar()
+        recorrencias.reajustar(rid, 12000, '2026-03-01', 'Reajuste contratual')
+        previa = recorrencias.previa(rid, '2026-04-30')['itens']
+        self.assertEqual([item['valor_programado'] for item in previa], [10000, 10000, 12000, 12000])
+        recorrencias.dispensar_competencia(rid, '2026-02-28', 'Despesa dispensada no mês')
+        resultado = recorrencias.gerar(rid, '2026-04-30')
+        self.assertEqual(resultado['quantidade'], 3)
+        self.assertEqual(resultado['competencias_dispensadas'], ['2026-02-28'])
+        self.sql("UPDATE contas_pagar SET valor=13000 WHERE data_vencimento='2026-03-31'")
+        conflito = next(item for item in recorrencias.previa(rid, '2026-04-30')['itens']
+                        if item['data_vencimento'] == '2026-03-31')
+        self.assertEqual(conflito['situacao'], 'CONFLITO_VALOR')
 
     def test_prorrogacao_preserva_pagamento_e_rejeita_repeticao(self):
         _, iid = self.internar()

@@ -32,7 +32,7 @@ class Conferencia(unittest.TestCase):
             VALUES(1,1,1,'2025-01-01',12,100000,0,100000)""")
         self.sql("INSERT INTO cobrancas(id,internacao_id,numero_parcela,tipo,data_vencimento,valor) VALUES(1,1,1,'MENSALIDADE','2025-01-10',100000)")
         self.sql("INSERT INTO carteiras(id,residente_id,saldo) VALUES(1,1,0)")
-        self.sql("INSERT INTO itens(id,nome,ativo,estoque_atual) VALUES(1,'Produto',1,7)")
+        self.sql("INSERT INTO itens_cantina(id,nome,ativo,estoque_atual) VALUES(1,'Produto',1,7)")
 
     def sql(self, query, args=()):
         with closing(banco.conectar()) as conn, conn:
@@ -126,7 +126,7 @@ class Conferencia(unittest.TestCase):
         valores['ESTOQUE:1'] = 5
         r = conferencia.conferir_saldos(d['assinatura'], valores, 'Operador', 'Contagem física')
         self.assertEqual(r['status'], 'DIVERGENTE')
-        self.assertEqual(self.sql('SELECT estoque_atual FROM itens')[0][0], 7)
+        self.assertEqual(self.sql('SELECT estoque_atual FROM itens_cantina')[0][0], 7)
         historico = conferencia.saldos()['historico'][0]
         self.assertEqual(next(r for r in historico['dados']['itens'] if r['tipo']=='ESTOQUE')['diferenca'], -2)
         valores['ESTOQUE:1'] = 7
@@ -140,20 +140,21 @@ class Conferencia(unittest.TestCase):
         with self.assertRaises(ValueError):
             conferencia.conferir_saldos(d['assinatura'], {r['chave']:r['valor'] for r in d['itens']}, 'Operador', 'Documentos')
 
-    def test_fechamento_bloqueia_pendencias_e_detecta_ajuste_posterior(self):
+    def test_fechamento_bloqueia_pendencias_e_exige_reabertura(self):
         eid = self.entrada()
         with self.assertRaises(ValueError):
             self.fechar()
         conciliacao.conciliar(eid, 'OUTRA_RECEITA', [], 'Doação sem cobrança')
         primeiro = self.fechar()
         self.assertEqual(conferencia.mensal('2025-01')['historico'][0]['status'], 'FECHADO')
+        recusado = recebimentos.registrar_pagamento(1, '2025-01-10', 5000)
+        self.assertFalse(recusado['sucesso'])
+        self.assertIn('período financeiro está fechado', recusado['erro'])
+        conferencia.reabrir(primeiro['id'], 'Recebimento retroativo conferido')
         self.receber(5000)
         d = conferencia.mensal('2025-01')
-        self.assertEqual(d['historico'][0]['status'], 'REVISAR')
+        self.assertEqual(d['historico'][0]['status'], 'REABERTO')
         self.assertEqual(d['historico'][0]['dados']['clinica']['entradas'], 10000)
-        with self.assertRaises(ValueError):
-            self.fechar()
-        conferencia.reabrir(primeiro['id'], 'Recebimento retroativo conferido')
         self.assertEqual(self.fechar()['revisao'], 2)
         self.assertEqual(len(conferencia.mensal('2025-01')['historico']), 2)
 
@@ -184,17 +185,20 @@ class Conferencia(unittest.TestCase):
         self.assertEqual(caixa.resumo_caixa()['total_entradas'], 10000)
         self.assertEqual(conferencia.mensal('2025-01')['historico'][0]['status'], 'FECHADO')
 
-    def test_saldo_negativo_carteira_e_estorno_alteram_revisao(self):
+    def test_saldo_negativo_carteira_e_estorno_exigem_reabertura(self):
         self.credito(1000)
         self.sql("INSERT INTO movimentacoes_carteira(carteira_id,tipo,valor_total,data_movimentacao) VALUES(1,'COMPRA',-1500,'2025-01-15')")
         self.sql('UPDATE carteiras SET saldo=-500 WHERE id=1')
         d = conferencia.mensal('2025-01')
         self.assertEqual(d['carteiras']['compras'], 1500)
         self.assertEqual(d['carteiras']['saldo_fechamento'], -500)
-        self.fechar()
+        fechamento = self.fechar()
+        with self.assertRaisesRegex(Exception, 'período financeiro está fechado'):
+            self.sql("UPDATE movimentacoes_carteira SET estornada=1 WHERE tipo='COMPRA'")
+        conferencia.reabrir(fechamento['id'], 'Estorno conferido')
         self.sql("UPDATE movimentacoes_carteira SET estornada=1 WHERE tipo='COMPRA'")
         self.sql('UPDATE carteiras SET saldo=1000 WHERE id=1')
-        self.assertEqual(conferencia.mensal('2025-01')['historico'][0]['status'], 'REVISAR')
+        self.assertEqual(conferencia.mensal('2025-01')['historico'][0]['status'], 'REABERTO')
 
     def test_api_http_converte_moeda_e_registra_conferencia(self):
         servidor = ThreadingHTTPServer(('127.0.0.1', 0), Requisicao)

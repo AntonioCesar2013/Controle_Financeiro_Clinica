@@ -5,16 +5,20 @@ from datetime import datetime
 from src.financeiro.moeda import reais_para_centavos
 
 CAMPOS = {
-    "itens_valores": {"valor"}, "carteiras": {"saldo"},
+    "itens_cantina_valores": {"valor"}, "carteiras": {"saldo"},
     "vendas_cantina": {"valor_total"},
-    "vendas_cantina_itens": {"valor_unitario", "valor_total"},
+    "vendas_cantina_itens_cantina": {"valor_unitario", "valor_total"},
     "movimentacoes_carteira": {"valor_total"},
     "movimentacoes_estoque": {"custo_unitario"},
+}
+CAMPOS_LEGADOS = {
+    "itens_valores": {"valor"},
+    "vendas_cantina_itens": {"valor_unitario", "valor_total"},
 }
 
 
 def tabelas_antigas(conn):
-    return {tabela: campos for tabela, campos in CAMPOS.items()
+    return {tabela: campos for tabela, campos in (CAMPOS_LEGADOS | CAMPOS).items()
             if any(nome in campos and tipo.upper() == "REAL"
                    for _, nome, tipo, *_ in conn.execute(f'PRAGMA table_info("{tabela}")'))}
 

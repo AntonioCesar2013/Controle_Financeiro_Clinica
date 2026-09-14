@@ -53,8 +53,8 @@ class Regressoes(unittest.TestCase):
     def carteira(self):
         rid, _ = self.internar()
         wid = vendas.criar_carteira(rid, 10)["id"]
-        pid = self.sql("INSERT INTO itens(nome,ativo,estoque_atual) VALUES('Teste',1,20)")
-        self.sql("INSERT INTO itens_valores(item_id,valor,data_inicio_valor) VALUES(?,15,?)", (pid, self.hoje))
+        pid = self.sql("INSERT INTO itens_cantina(nome,ativo,estoque_atual) VALUES('Teste',1,20)")
+        self.sql("INSERT INTO itens_cantina_valores(item_id,valor,data_inicio_valor) VALUES(?,15,?)", (pid, self.hoje))
         return wid, pid
 
     def test_venda_negativa_permitida_e_estorno(self):
@@ -64,7 +64,7 @@ class Regressoes(unittest.TestCase):
         self.assertEqual(compra["saldo"], -5)
         self.assertEqual(vendas.estornar_compra(compra["id"])["saldo"], 10)
         self.assertFalse(vendas.estornar_compra(compra["id"])["sucesso"])
-        self.assertEqual(self.sql("SELECT estoque_atual FROM itens")[0][0], 20)
+        self.assertEqual(self.sql("SELECT estoque_atual FROM itens_cantina")[0][0], 20)
         self.assertEqual(vendas.registrar_venda(wid, pid)["saldo"], -5)
 
     def test_corrigir_credito_consumido_inclusive_carteira_negativa(self):
@@ -120,7 +120,7 @@ class Regressoes(unittest.TestCase):
 
     def test_preco_futuro_nao_aparece_no_relatorio(self):
         _, pid = self.carteira()
-        self.sql("INSERT INTO itens_valores(item_id,valor,data_inicio_valor) VALUES(?,99,?)", (pid, (date.today()+timedelta(days=30)).isoformat()))
+        self.sql("INSERT INTO itens_cantina_valores(item_id,valor,data_inicio_valor) VALUES(?,99,?)", (pid, (date.today()+timedelta(days=30)).isoformat()))
         self.assertEqual(relatorios.gerar("estoque")["linhas"][0]["valor_atual"], 15)
 
     def conta(self, status="ABERTA"):
@@ -284,7 +284,7 @@ class Regressoes(unittest.TestCase):
         for invalido in ["NaN", "Infinity", "abc", True]:
             with self.assertRaises(ValueError): reais_para_centavos(invalido)
         wid, pid = self.carteira()
-        self.sql("UPDATE itens_valores SET valor=10")
+        self.sql("UPDATE itens_cantina_valores SET valor=10")
         self.sql("UPDATE carteiras SET saldo=100")
         for _ in range(10):
             self.assertTrue(vendas.registrar_compra(wid, [{"item_id": pid, "quantidade": 1}])["sucesso"])
@@ -303,22 +303,22 @@ class Regressoes(unittest.TestCase):
             req._corpo_json = lambda: {"nome": "Novo produto", "valor": "12.34"}
             self.assertTrue(self.post(req)["sucesso"])
         self.assertEqual(self.sql("SELECT valor_total FROM movimentacoes_carteira ORDER BY id DESC LIMIT 1")[0][0], 125)
-        self.assertEqual(self.sql("SELECT valor FROM itens_valores ORDER BY id DESC LIMIT 1")[0][0], 1234)
+        self.assertEqual(self.sql("SELECT valor FROM itens_cantina_valores ORDER BY id DESC LIMIT 1")[0][0], 1234)
 
     def test_falha_monetaria_reverte_toda_migracao(self):
         from src.infraestrutura.migracao_centavos import migrar
         with closing(banco.conectar()) as conn:
             conn.execute("PRAGMA foreign_keys=OFF")
-            conn.execute("DROP TABLE itens_valores")
+            conn.execute("DROP TABLE itens_cantina_valores")
             conn.execute("DROP TABLE carteiras")
-            conn.execute("CREATE TABLE itens_valores(id INTEGER PRIMARY KEY AUTOINCREMENT,valor REAL)")
+            conn.execute("CREATE TABLE itens_cantina_valores(id INTEGER PRIMARY KEY AUTOINCREMENT,valor REAL)")
             conn.execute("CREATE TABLE carteiras(id INTEGER PRIMARY KEY AUTOINCREMENT,saldo REAL)")
-            conn.execute("INSERT INTO itens_valores(valor) VALUES(12.34)")
+            conn.execute("INSERT INTO itens_cantina_valores(valor) VALUES(12.34)")
             conn.execute("INSERT INTO carteiras(saldo) VALUES('invalido')")
             conn.commit()
             with self.assertRaises(ValueError): migrar(conn)
-            self.assertEqual(conn.execute("SELECT valor FROM itens_valores").fetchone()[0], 12.34)
-            self.assertEqual(conn.execute("PRAGMA table_info(itens_valores)").fetchall()[1][2], "REAL")
+            self.assertEqual(conn.execute("SELECT valor FROM itens_cantina_valores").fetchone()[0], 12.34)
+            self.assertEqual(conn.execute("PRAGMA table_info(itens_cantina_valores)").fetchall()[1][2], "REAL")
 
     def test_recibo_parcial_idempotente_preserva_dados_e_sinaliza_estorno(self):
         from src.financeiro import recibos
@@ -368,18 +368,18 @@ class Regressoes(unittest.TestCase):
                 conn.execute(f'DROP TABLE {tabela}')
                 conn.execute(f'ALTER TABLE {tabela}_legada RENAME TO {tabela}')
             conn.execute("INSERT INTO carteiras(id,residente_id,saldo) VALUES(1,?,-12.34)", (rid,))
-            conn.execute("INSERT INTO itens(id,nome) VALUES(1,'Legado')")
-            conn.execute("INSERT INTO itens_valores(id,item_id,valor,data_inicio_valor) VALUES(1,1,0.10,'2026-08-01')")
+            conn.execute("INSERT INTO itens_cantina(id,nome) VALUES(1,'Legado')")
+            conn.execute("INSERT INTO itens_cantina_valores(id,item_id,valor,data_inicio_valor) VALUES(1,1,0.10,'2026-08-01')")
             conn.execute("INSERT INTO vendas_cantina(id,carteira_id,data_movimentacao,valor_total) VALUES(1,1,'2026-08-01',12.34)")
-            conn.execute("INSERT INTO vendas_cantina_itens(venda_id,item_id,item_valor_id,quantidade,valor_unitario,valor_total) VALUES(1,1,1,1,12.34,12.34)")
+            conn.execute("INSERT INTO vendas_cantina_itens_cantina(venda_id,item_id,item_valor_id,quantidade,valor_unitario,valor_total) VALUES(1,1,1,1,12.34,12.34)")
             conn.execute("INSERT INTO movimentacoes_carteira(carteira_id,tipo,quantidade,valor_total,data_movimentacao) VALUES(1,'CREDITO',1,10.25,'2026-08-01')")
             conn.execute("INSERT INTO movimentacoes_estoque(item_id,quantidade_anterior,quantidade_movimentada,quantidade_atual,motivo,data_movimentacao,custo_unitario) VALUES(1,0,1,1,'Teste','2026-08-01',1.99)")
             conn.commit()
         banco.criar_tabelas()
         self.assertEqual(self.sql("SELECT saldo,typeof(saldo) FROM carteiras")[0], (-1234, "integer"))
-        self.assertEqual(self.sql("SELECT valor FROM itens_valores")[0][0], 10)
+        self.assertEqual(self.sql("SELECT valor FROM itens_cantina_valores")[0][0], 10)
         self.assertEqual(self.sql("SELECT valor_total FROM vendas_cantina")[0][0], 1234)
-        self.assertEqual(self.sql("SELECT valor_unitario FROM vendas_cantina_itens")[0][0], 1234)
+        self.assertEqual(self.sql("SELECT valor_unitario FROM vendas_cantina_itens_cantina")[0][0], 1234)
         self.assertEqual(self.sql("SELECT valor_total FROM movimentacoes_carteira")[0][0], 1025)
         self.assertEqual(self.sql("SELECT custo_unitario FROM movimentacoes_estoque")[0][0], 199)
         self.assertEqual(self.sql("PRAGMA foreign_key_check"), [])

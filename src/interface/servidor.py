@@ -215,6 +215,10 @@ class Requisicao(BaseHTTPRequestHandler):
                 dados.get('data_inicio'), dados.get('data_fim'), dados.get('intervalo_meses', 1)),
             '/api/recorrencias/gerar': lambda: recorrencias.gerar(dados.get('id'), dados.get('data_limite')),
             '/api/recorrencias/encerrar': lambda: recorrencias.encerrar(dados.get('id')),
+            '/api/recorrencias/reajustar': lambda: recorrencias.reajustar(
+                dados.get('id'), _centavos(dados.get('valor')), dados.get('data_inicio_vigencia'), dados.get('motivo')),
+            '/api/recorrencias/dispensar': lambda: recorrencias.dispensar_competencia(
+                dados.get('id'), dados.get('data_vencimento'), dados.get('motivo')),
             '/api/internacoes/prorrogar': lambda: prorrogar_internacao(dados.get('id'), dados.get('periodo_atual'),
                 dados.get('novo_periodo'), dados.get('motivo')),
             "/api/conciliacao/vincular": lambda: conciliacao.conciliar(
@@ -571,7 +575,11 @@ class ServidorClinica(ThreadingHTTPServer):
     def server_close(self):
         if hasattr(self, 'backup_scheduler'):
             self.backup_scheduler.stop()
-        super().server_close()
+        try:
+            super().server_close()
+        finally:
+            if hasattr(self, 'trava_uso_banco'):
+                self.trava_uso_banco.liberar()
 
 
 def criar_servidor(host="127.0.0.1", porta=8000):
@@ -589,7 +597,13 @@ def criar_servidor(host="127.0.0.1", porta=8000):
             "Verifique se ele já está aberto em outra janela."
         ) from erro
 
-    servidor.backup_service = BackupService(banco.CAMINHO_BANCO)
+    try:
+        from src.infraestrutura.uso_banco import TravaUsoBanco
+        servidor.trava_uso_banco = TravaUsoBanco(banco.CAMINHO_BANCO).adquirir()
+        servidor.backup_service = BackupService(banco.CAMINHO_BANCO)
+    except Exception:
+        servidor.server_close()
+        raise
     servidor.backup_scheduler = BackupScheduler(servidor.backup_service)
     servidor.backup_scheduler.start()
     return servidor, endereco, backup

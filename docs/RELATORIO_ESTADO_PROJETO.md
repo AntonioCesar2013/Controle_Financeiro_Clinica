@@ -97,11 +97,11 @@ Principais tabelas existentes:
 - `contas_pagar`
 - `pagamentos_saida`
 - `configuracoes_financeiras`
-- `itens`
-- `itens_valores`
+- `itens_cantina`
+- `itens_cantina_valores`
 - `carteiras`
 - `vendas_cantina`
-- `vendas_cantina_itens`
+- `vendas_cantina_itens_cantina`
 - `movimentacoes_carteira`
 - `movimentacoes_estoque`
 

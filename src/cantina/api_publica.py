@@ -15,7 +15,7 @@ def dados_conferencia(conexao, inicio=None, fim=None):
         SELECT c.id,r.nome,c.saldo,c.ativo FROM carteiras c
         JOIN residentes r ON r.id=c.residente_id ORDER BY c.id''')]
     estoque = [dict(r) for r in conexao.execute('''
-        SELECT id,nome,unidade_medida,estoque_atual,categoria FROM itens ORDER BY id''')
+        SELECT id,nome,unidade_medida,estoque_atual,categoria FROM itens_cantina ORDER BY id''')
         if not _eh_servico(r['categoria'])]
     todos = [dict(r) for r in conexao.execute('''
         SELECT id,carteira_id,tipo,valor_total,data_movimentacao,estornada

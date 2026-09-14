@@ -21,9 +21,9 @@ MESES = tuple((2026, mes) for mes in range(3, 9))
 TABELAS_LIMPEZA = (
     "conciliacoes_vinculos", "conciliacoes_bancarias", "conferencias_saldos", "fechamentos_mensais",
     "recibos", "estornos_financeiros", "ajustes_cobrancas", "auditoria",
-    "recebimentos", "cobrancas", "vendas_cantina_itens", "movimentacoes_carteira",
-    "movimentacoes_estoque", "vendas_cantina", "carteiras", "itens_valores",
-    "itens", "pagamentos_saida", "contas_pagar", "despesas", "setores",
+    "recebimentos", "cobrancas", "vendas_cantina_itens_cantina", "movimentacoes_carteira",
+    "movimentacoes_estoque", "vendas_cantina", "carteiras", "itens_cantina_valores",
+    "itens_cantina", "pagamentos_saida", "contas_pagar", "despesas", "setores",
     "entradas_bancarias", "internacoes", "residente_responsavel", "convenios",
     "responsaveis", "residentes", "colaboradores", "configuracoes_financeiras",
 )
@@ -170,11 +170,11 @@ def _cantina(conn):
              ("Kit de higiene", "7891000000005", "Higiene", 2200, 400),
              ("Corte de cabelo", "7891000000006", "Serviços", 3000, 0))
     conn.executemany(
-        """INSERT INTO itens(nome,codigo_barras,descricao,categoria,unidade_medida,
+        """INSERT INTO itens_cantina(nome,codigo_barras,descricao,categoria,unidade_medida,
            estoque_atual,estoque_minimo,ativo) VALUES(?,?,?,?,'UN',?,?,1)""",
         [(n, c, f"{n} fictício", cat, estoque, 20 if estoque else 0) for n, c, cat, _, estoque in itens],
     )
-    conn.executemany("INSERT INTO itens_valores(item_id,valor,data_inicio_valor,ativo) VALUES(?,?,?,1)",
+    conn.executemany("INSERT INTO itens_cantina_valores(item_id,valor,data_inicio_valor,ativo) VALUES(?,?,?,1)",
                      [(i, item[3], "2026-03-01") for i, item in enumerate(itens, 1)])
     conn.executemany("INSERT INTO carteiras(residente_id,saldo,ativo) VALUES(?,0,1)", [(i,) for i in range(1, 13)])
     estoques = {i: item[4] for i, item in enumerate(itens, 1)}
@@ -197,7 +197,7 @@ def _cantina(conn):
             total = quantidade * unitario
             conn.execute("INSERT INTO vendas_cantina(carteira_id,data_movimentacao,valor_total,status) VALUES(?,?,?,'FINALIZADA')",
                          (carteira, _data(ano, mes, 5 + carteira), total))
-            conn.execute("INSERT INTO vendas_cantina_itens(venda_id,item_id,item_valor_id,quantidade,valor_unitario,valor_total) VALUES(?,?,?,?,?,?)",
+            conn.execute("INSERT INTO vendas_cantina_itens_cantina(venda_id,item_id,item_valor_id,quantidade,valor_unitario,valor_total) VALUES(?,?,?,?,?,?)",
                          (venda, item, item, quantidade, unitario, total))
             conn.execute("""INSERT INTO movimentacoes_carteira(carteira_id,tipo,item_id,quantidade,item_valor_id,
                          valor_total,data_movimentacao,venda_id) VALUES(?,'COMPRA_CANTINA',?,?,?,?,?,?)""",
@@ -210,7 +210,7 @@ def _cantina(conn):
                              quantidade_atual,motivo,data_movimentacao,tipo,venda_id) VALUES(?,?,?,?,?,?,'VENDA',?)""",
                              (item, anterior, -quantidade, estoques[item], f"Venda Cantina #{venda}", _data(ano, mes, 5 + carteira), venda))
     conn.executemany("UPDATE carteiras SET saldo=? WHERE id=?", [(v, k) for k, v in saldos.items()])
-    conn.executemany("UPDATE itens SET estoque_atual=? WHERE id=?", [(v, k) for k, v in estoques.items()])
+    conn.executemany("UPDATE itens_cantina SET estoque_atual=? WHERE id=?", [(v, k) for k, v in estoques.items()])
 
 
 def _auditoria(conn):

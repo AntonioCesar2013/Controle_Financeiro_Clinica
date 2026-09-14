@@ -20,10 +20,13 @@ def conectar():
 
 def _preparar_schema_legado():
     from src.infraestrutura.migracao_centavos import backup_antes_migracao, migrar
+    from src.cantina.migracao_nomes_tabelas import migrar as migrar_nomes_tabelas
+    from src.nucleo.migracoes import Migracao, aplicar_migracoes
     backup_antes_migracao(CAMINHO_BANCO)
 
     conexao = conectar()
     conexao.execute("PRAGMA foreign_keys = OFF")
+    aplicar_migracoes(conexao, (Migracao("cantina", 3, migrar_nomes_tabelas),))
     cursor = conexao.cursor()
     cursor.execute("""CREATE TABLE IF NOT EXISTS recibos (
         id INTEGER PRIMARY KEY AUTOINCREMENT, recebimento_id INTEGER NOT NULL UNIQUE,
@@ -403,11 +406,11 @@ def _preparar_schema_legado():
     """)
 
     # ============================================================
-    # ITENS
+    # ITENS DA CANTINA
     # ============================================================
 
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS itens (
+        CREATE TABLE IF NOT EXISTS itens_cantina (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
 
             nome TEXT NOT NULL UNIQUE,
@@ -424,7 +427,7 @@ def _preparar_schema_legado():
     """)
 
     # Migração compatível com bancos criados antes do cadastro completo da Cantina.
-    colunas_itens = {linha[1] for linha in cursor.execute("PRAGMA table_info(itens)")}
+    colunas_itens = {linha[1] for linha in cursor.execute("PRAGMA table_info(itens_cantina)")}
     novas_colunas = {
         "codigo_barras": "TEXT",
         "descricao": "TEXT",
@@ -435,16 +438,16 @@ def _preparar_schema_legado():
     }
     for nome_coluna, definicao in novas_colunas.items():
         if nome_coluna not in colunas_itens:
-            cursor.execute(f"ALTER TABLE itens ADD COLUMN {nome_coluna} {definicao}")
+            cursor.execute(f"ALTER TABLE itens_cantina ADD COLUMN {nome_coluna} {definicao}")
     cursor.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_itens_codigo_barras
-                      ON itens(codigo_barras) WHERE codigo_barras IS NOT NULL""")
+                      ON itens_cantina(codigo_barras) WHERE codigo_barras IS NOT NULL""")
 
     # ============================================================
     # HISTÓRICO DE VALORES DOS ITENS
     # ============================================================
 
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS itens_valores (
+        CREATE TABLE IF NOT EXISTS itens_cantina_valores (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
 
             item_id INTEGER NOT NULL,
@@ -456,7 +459,7 @@ def _preparar_schema_legado():
             ativo INTEGER NOT NULL DEFAULT 1,
 
             FOREIGN KEY (item_id)
-                REFERENCES itens (id)
+                REFERENCES itens_cantina (id)
         )
     """)
 
@@ -499,7 +502,7 @@ def _preparar_schema_legado():
     """)
 
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS vendas_cantina_itens (
+        CREATE TABLE IF NOT EXISTS vendas_cantina_itens_cantina (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             venda_id INTEGER NOT NULL,
             item_id INTEGER NOT NULL,
@@ -508,8 +511,8 @@ def _preparar_schema_legado():
             valor_unitario INTEGER NOT NULL,
             valor_total INTEGER NOT NULL,
             FOREIGN KEY (venda_id) REFERENCES vendas_cantina (id),
-            FOREIGN KEY (item_id) REFERENCES itens (id),
-            FOREIGN KEY (item_valor_id) REFERENCES itens_valores (id)
+            FOREIGN KEY (item_id) REFERENCES itens_cantina (id),
+            FOREIGN KEY (item_valor_id) REFERENCES itens_cantina_valores (id)
         )
     """)
 
@@ -543,10 +546,10 @@ def _preparar_schema_legado():
                 REFERENCES carteiras (id),
 
             FOREIGN KEY (item_id)
-                REFERENCES itens (id),
+                REFERENCES itens_cantina (id),
 
             FOREIGN KEY (item_valor_id)
-                REFERENCES itens_valores (id),
+                REFERENCES itens_cantina_valores (id),
 
             FOREIGN KEY (venda_id)
                 REFERENCES vendas_cantina (id)
@@ -579,7 +582,7 @@ def _preparar_schema_legado():
             lote TEXT,
             data_validade TEXT,
             criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (item_id) REFERENCES itens (id),
+            FOREIGN KEY (item_id) REFERENCES itens_cantina (id),
             FOREIGN KEY (venda_id) REFERENCES vendas_cantina (id)
         )
     """)

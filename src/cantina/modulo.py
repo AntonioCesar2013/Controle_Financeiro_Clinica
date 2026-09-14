@@ -1,9 +1,10 @@
 from src.nucleo.migracoes import Migracao, aplicar_migracoes
 from src.nucleo.modulos import Modulo
+from src.cantina.migracao_nomes_tabelas import migrar as migrar_nomes_tabelas
 
 
 def _validar_schema(conexao):
-    for tabela in ("itens", "carteiras", "vendas_cantina", "movimentacoes_estoque"):
+    for tabela in ("itens_cantina", "carteiras", "vendas_cantina", "movimentacoes_estoque"):
         if not conexao.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (tabela,)
         ).fetchone():
@@ -17,7 +18,8 @@ def _preparar_devolucoes(conexao):
 
 def preparar_banco(conexao):
     aplicar_migracoes(conexao, (Migracao("cantina", 1, _validar_schema),
-                               Migracao("cantina", 2, _preparar_devolucoes)))
+                               Migracao("cantina", 2, _preparar_devolucoes),
+                               Migracao("cantina", 3, migrar_nomes_tabelas)))
 
 
 MODULO = Modulo(

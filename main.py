@@ -12,7 +12,14 @@ def main():
             "python -m pip install -r requirements.txt"
         ) from erro
 
-    servidor, endereco, backup = criar_servidor()
+    try:
+        servidor, endereco, backup = criar_servidor()
+    except ModuleNotFoundError as erro:
+        raise SystemExit(
+            f"Dependência do sistema ausente: {erro.name}. "
+            "Execute iniciar.cmd para instalar os componentes necessários, ou "
+            "python -m pip install -r requirements.txt no mesmo ambiente Python."
+        ) from erro
     thread_servidor = threading.Thread(
         target=servidor.serve_forever,
         name="servidor-clinica",
@@ -22,16 +29,16 @@ def main():
     print(f"Controle Financeiro iniciado em janela WebView2: {endereco}")
     print(backup)
 
-    janela = webview.create_window(
-        "Controle Financeiro — Clínica da Cruz",
-        endereco,
-        width=1280,
-        height=800,
-        min_size=(980, 640),
-        text_select=True,
-    )
-    janela.events.closed += servidor.shutdown
     try:
+        janela = webview.create_window(
+            "Controle Financeiro — Clínica da Cruz",
+            endereco,
+            width=1280,
+            height=800,
+            min_size=(980, 640),
+            text_select=True,
+        )
+        janela.events.closed += servidor.shutdown
         webview.start(gui="edgechromium", debug=False)
     except Exception as erro:
         raise SystemExit(

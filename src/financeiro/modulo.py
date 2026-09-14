@@ -3,6 +3,8 @@ from src.nucleo.modulos import Modulo
 from src.financeiro.migracao_conferencia import aplicar as preparar_conferencia
 from src.financeiro.migracao_fluxos import aplicar as preparar_fluxos
 from src.financeiro.migracao_estornos_devolucoes import aplicar as preparar_estornos_devolucoes
+from src.financeiro.migracao_bloqueio_periodos import aplicar as preparar_bloqueio_periodos
+from src.financeiro.migracao_recorrencias_avancadas import aplicar as preparar_recorrencias_avancadas
 
 
 def _validar_schema(conexao):
@@ -58,6 +60,8 @@ def preparar_banco(conexao):
         Migracao("financeiro", 5, _adicionar_desconto_movimentacoes),
         Migracao("financeiro", 6, preparar_fluxos),
         Migracao("financeiro", 7, preparar_estornos_devolucoes),
+        Migracao("financeiro", 8, preparar_bloqueio_periodos),
+        Migracao("financeiro", 9, preparar_recorrencias_avancadas),
     ))
 
 

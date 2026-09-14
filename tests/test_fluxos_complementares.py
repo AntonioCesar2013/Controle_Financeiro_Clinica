@@ -39,17 +39,65 @@ class Complementares(unittest.TestCase):
         self.assertFalse(vendas.registrar_compra(wid, [{'item_id': pid, 'quantidade': 1}], futuro)['sucesso'])
         self.assertFalse(vendas.registrar_venda(wid, pid, 1, futuro)['sucesso'])
         self.assertEqual(self.sql('SELECT saldo FROM carteiras')[0][0], 10)
-        self.assertEqual(self.sql('SELECT estoque_atual FROM itens')[0][0], 20)
+        self.assertEqual(self.sql('SELECT estoque_atual FROM itens_cantina')[0][0], 20)
+
+    def test_credito_correcao_e_estoque_futuros_nao_movimentam(self):
+        wid, pid = self.carteira()
+        self.assertTrue(vendas.adicionar_credito(wid, 100, self.hoje)['sucesso'])
+        credito_id = self.sql("SELECT MAX(id) FROM movimentacoes_carteira WHERE tipo='CREDITO'")[0][0]
+        futuro = (date.today()+timedelta(days=1)).isoformat()
+        saldo = self.sql('SELECT saldo FROM carteiras WHERE id=?', (wid,))[0][0]
+        movimentos = self.sql('SELECT COUNT(*) FROM movimentacoes_carteira')[0][0]
+        estoque = self.sql('SELECT estoque_atual FROM itens_cantina WHERE id=?', (pid,))[0][0]
+        historico = self.sql('SELECT COUNT(*) FROM movimentacoes_estoque')[0][0]
+
+        self.assertFalse(vendas.adicionar_credito(wid, 50, futuro)['sucesso'])
+        self.assertFalse(vendas.corrigir_credito(credito_id, 150, futuro, 'Teste')['sucesso'])
+        self.assertFalse(produtos.ajustar_estoque(pid, 2, 'Teste', futuro, 'ENTRADA')['sucesso'])
+
+        self.assertEqual(self.sql('SELECT saldo FROM carteiras WHERE id=?', (wid,))[0][0], saldo)
+        self.assertEqual(self.sql('SELECT COUNT(*) FROM movimentacoes_carteira')[0][0], movimentos)
+        self.assertEqual(self.sql('SELECT estoque_atual FROM itens_cantina WHERE id=?', (pid,))[0][0], estoque)
+        self.assertEqual(self.sql('SELECT COUNT(*) FROM movimentacoes_estoque')[0][0], historico)
+
+    def test_preco_e_internacao_futuros_continuam_permitidos(self):
+        _, pid = self.carteira()
+        futuro = (date.today()+timedelta(days=30)).isoformat()
+        self.assertTrue(produtos.cadastrar_valor_item(pid, 250, futuro)['sucesso'])
+        rid = self.sql("INSERT INTO residentes(nome,cpf) VALUES('Agendado','98765432100')")
+        resultado = internacoes.cadastrar_internacao_com_cobrancas(
+            rid, 1, futuro, 1, 40000, 10000, 30000,
+        )
+        self.assertTrue(resultado['sucesso'], resultado)
+
+    def test_periodo_fechado_exige_reabertura_motivada(self):
+        wid, pid = self.carteira()
+        competencia = '2025-01'
+        fechamento = self.sql(
+            """INSERT INTO fechamentos_mensais
+               (competencia,revisao,responsavel,observacao,dados,assinatura)
+               VALUES(?,1,'Teste','Conferido','{}','assinatura')""", (competencia,)
+        )
+        with self.assertRaisesRegex(Exception, 'período financeiro está fechado'):
+            vendas.adicionar_credito(wid, 100, '2025-01-15')
+        with self.assertRaisesRegex(Exception, 'período financeiro está fechado'):
+            produtos.ajustar_estoque(pid, 1, 'Compra', '2025-01-15', 'ENTRADA')
+        self.assertEqual(self.sql("SELECT COUNT(*) FROM movimentacoes_carteira WHERE data_movimentacao LIKE '2025-01-%'")[0][0], 0)
+        self.assertEqual(self.sql("SELECT COUNT(*) FROM movimentacoes_estoque WHERE data_movimentacao LIKE '2025-01-%'")[0][0], 0)
+
+        from src.financeiro import conferencia
+        self.assertTrue(conferencia.reabrir(fechamento, 'Documento complementar recebido')['sucesso'])
+        self.assertTrue(vendas.adicionar_credito(wid, 100, '2025-01-15')['sucesso'])
 
     def test_venda_anterior_ao_acolhimento_recusada(self):
         wid, pid = self.carteira()
-        self.sql("UPDATE itens_valores SET data_inicio_valor='2020-01-01'")
+        self.sql("UPDATE itens_cantina_valores SET data_inicio_valor='2020-01-01'")
         ontem = (date.today()-timedelta(days=1)).isoformat()
         self.assertFalse(vendas.registrar_venda(wid, pid, 1, ontem)['sucesso'])
 
     def test_venda_em_internacao_cancelada_ou_encerrada_recusada(self):
         wid, pid = self.carteira()
-        self.sql("UPDATE itens_valores SET data_inicio_valor='2020-01-01'")
+        self.sql("UPDATE itens_cantina_valores SET data_inicio_valor='2020-01-01'")
         iid = self.sql('SELECT id FROM internacoes')[0][0]
         self.sql("UPDATE internacoes SET encerrada_em=?,status='ENCERRADA' WHERE id=?", (self.hoje, iid))
         self.assertFalse(vendas.registrar_compra(wid, [{'item_id': pid, 'quantidade': 1}], self.hoje)['sucesso'])
@@ -118,7 +166,7 @@ class Complementares(unittest.TestCase):
         self.assertEqual(self.sql('SELECT saldo FROM carteiras WHERE id=?', (wid,))[0][0], 10)
         self.assertEqual(self.sql("SELECT estornada FROM movimentacoes_carteira WHERE id=?", (d['id'],)), [(1,)])
 
-    def test_estorno_devolucao_marca_fechamento_anterior_para_revisao(self):
+    def test_estorno_devolucao_exige_reabertura_e_preserva_fechamento(self):
         _, iid = self.internar('2025-01-01')
         cid = self.sql('SELECT id FROM cobrancas WHERE internacao_id=? AND numero_parcela=0', (iid,))[0][0]
         pago = recebimentos.registrar_pagamento(cid, '2025-01-01', 10000)
@@ -128,6 +176,11 @@ class Complementares(unittest.TestCase):
         valores = {'entradas': mes['clinica']['entradas'], 'saidas': mes['clinica']['saidas'],
                    'creditos': mes['carteiras']['creditos'], 'compras': mes['carteiras']['compras'],
                    'saldo_carteiras': mes['carteiras']['saldo_fechamento']}
-        conferencia.fechar('2025-01', mes['assinatura'], 'Teste', 'Documentos', valores)
+        fechamento = conferencia.fechar('2025-01', mes['assinatura'], 'Teste', 'Documentos', valores)
+        with self.assertRaisesRegex(Exception, 'período financeiro está fechado'):
+            devolucoes.estornar(d['id'], 'Lançamento incorreto')
+        conferencia.reabrir(fechamento['id'], 'Lançamento de devolução incorreto')
         devolucoes.estornar(d['id'], 'Lançamento incorreto')
-        self.assertEqual(conferencia.mensal('2025-01')['historico'][0]['status'], 'REVISAR')
+        historico = conferencia.mensal('2025-01')['historico']
+        self.assertEqual(historico[0]['status'], 'REABERTO')
+        self.assertEqual(historico[0]['motivo_reabertura'], 'Lançamento de devolução incorreto')

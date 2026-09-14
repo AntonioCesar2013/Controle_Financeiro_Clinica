@@ -63,6 +63,8 @@ def adicionar_credito(carteira_id, valor, data_movimentacao=None):
         return {"sucesso": False, "erro": "O valor deve ser maior que zero."}
     if not _data_valida(data_movimentacao):
         return {"sucesso": False, "erro": "Data inválida. Use YYYY-MM-DD."}
+    if data_movimentacao > date.today().isoformat():
+        return {"sucesso": False, "erro": "O crédito não pode ser lançado com data futura."}
     conn = conectar()
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -167,11 +169,11 @@ def estornar_movimentacao(movimentacao_id, motivo=None):
                 (movimento["valor_total"], movimento["carteira_id"]),
             )
             item = conn.execute(
-                "SELECT estoque_atual,categoria FROM itens WHERE id=?", (movimento["item_id"],)
+                "SELECT estoque_atual,categoria FROM itens_cantina WHERE id=?", (movimento["item_id"],)
             ).fetchone()
             if not _eh_servico(item["categoria"]):
                 conn.execute(
-                    "UPDATE itens SET estoque_atual=estoque_atual+? WHERE id=?",
+                    "UPDATE itens_cantina SET estoque_atual=estoque_atual+? WHERE id=?",
                     (movimento["quantidade"], movimento["item_id"]),
                 )
                 conn.execute(
@@ -225,6 +227,8 @@ def corrigir_credito(movimentacao_id, novo_valor, data_movimentacao=None, motivo
         data_movimentacao = data_movimentacao or movimento["data_movimentacao"]
         if not _data_valida(data_movimentacao):
             return {"sucesso": False, "erro": "Data inválida. Use YYYY-MM-DD."}
+        if data_movimentacao > date.today().isoformat():
+            return {"sucesso": False, "erro": "A correção do crédito não pode ter data futura."}
         saldo_sem_original = movimento["saldo"] - movimento["valor_total"]
         conn.execute(
             "UPDATE carteiras SET saldo=? WHERE id=?",
@@ -279,13 +283,13 @@ def registrar_venda(carteira_id, item_id, quantidade=1, data_movimentacao=None):
             return {"sucesso": False, "erro": "Carteira inativa."}
         if not possui_internacao_vigente(conn, carteira["residente_id"], data_movimentacao):
             return {"sucesso": False, "erro": "Não há internação vigente para este residente na data da venda."}
-        item = conn.execute("SELECT id, nome, categoria, ativo, estoque_atual FROM itens WHERE id=?", (item_id,)).fetchone()
+        item = conn.execute("SELECT id, nome, categoria, ativo, estoque_atual FROM itens_cantina WHERE id=?", (item_id,)).fetchone()
         if not item:
             return {"sucesso": False, "erro": "Item não encontrado."}
         if not item["ativo"]:
             return {"sucesso": False, "erro": "O item está inativo."}
         valor = conn.execute(
-            """SELECT id, valor FROM itens_valores
+            """SELECT id, valor FROM itens_cantina_valores
                WHERE item_id=? AND ativo=1 AND data_inicio_valor<=?
                ORDER BY data_inicio_valor DESC, id DESC LIMIT 1""",
             (item_id, data_movimentacao),
@@ -295,7 +299,7 @@ def registrar_venda(carteira_id, item_id, quantidade=1, data_movimentacao=None):
         total = valor["valor"] * quantidade
         if not _eh_servico(item["categoria"]):
             estoque = conn.execute(
-                "UPDATE itens SET estoque_atual=estoque_atual-? WHERE id=? AND estoque_atual>=?",
+                "UPDATE itens_cantina SET estoque_atual=estoque_atual-? WHERE id=? AND estoque_atual>=?",
                 (quantidade, item_id, quantidade),
             )
             if estoque.rowcount == 0:
@@ -341,8 +345,8 @@ def buscar_produto_codigo(codigo_barras, data_referencia=None):
         produto = conn.execute(
             """SELECT i.id,i.nome,i.codigo_barras,i.categoria,i.unidade_medida,
                       i.estoque_atual,i.ativo,iv.id AS item_valor_id,iv.valor
-               FROM itens i LEFT JOIN itens_valores iv ON iv.id=(
-                   SELECT iv2.id FROM itens_valores iv2 WHERE iv2.item_id=i.id
+               FROM itens_cantina i LEFT JOIN itens_cantina_valores iv ON iv.id=(
+                   SELECT iv2.id FROM itens_cantina_valores iv2 WHERE iv2.item_id=i.id
                    AND iv2.ativo=1 AND iv2.data_inicio_valor<=?
                    ORDER BY iv2.data_inicio_valor DESC,iv2.id DESC LIMIT 1)
                WHERE i.codigo_barras=?""",
@@ -401,8 +405,8 @@ def registrar_compra(carteira_id, produtos, data_movimentacao=None):
             item = conn.execute(
                 """SELECT i.id,i.nome,i.categoria,i.ativo,i.estoque_atual,
                           iv.id AS item_valor_id,iv.valor
-                   FROM itens i LEFT JOIN itens_valores iv ON iv.id=(
-                       SELECT iv2.id FROM itens_valores iv2 WHERE iv2.item_id=i.id
+                   FROM itens_cantina i LEFT JOIN itens_cantina_valores iv ON iv.id=(
+                       SELECT iv2.id FROM itens_cantina_valores iv2 WHERE iv2.item_id=i.id
                        AND iv2.ativo=1 AND iv2.data_inicio_valor<=?
                        ORDER BY iv2.data_inicio_valor DESC,iv2.id DESC LIMIT 1)
                    WHERE i.id=?""",
@@ -429,7 +433,7 @@ def registrar_compra(carteira_id, produtos, data_movimentacao=None):
         for item in itens_venda:
             if not _eh_servico(item["categoria"]):
                 estoque = conn.execute(
-                    "UPDATE itens SET estoque_atual=estoque_atual-? WHERE id=? AND estoque_atual>=?",
+                    "UPDATE itens_cantina SET estoque_atual=estoque_atual-? WHERE id=? AND estoque_atual>=?",
                     (item["quantidade"], item["id"], item["quantidade"]),
                 )
                 if estoque.rowcount == 0:
@@ -444,7 +448,7 @@ def registrar_compra(carteira_id, produtos, data_movimentacao=None):
                      f"Venda no cupom nº {venda_id}", data_movimentacao, venda_id),
                 )
             conn.execute(
-                """INSERT INTO vendas_cantina_itens
+                """INSERT INTO vendas_cantina_itens_cantina
                    (venda_id,item_id,item_valor_id,quantidade,valor_unitario,valor_total)
                    VALUES(?,?,?,?,?,?)""",
                 (venda_id, item["id"], item["item_valor_id"], item["quantidade"], item["valor"], item["subtotal"]),
@@ -486,7 +490,7 @@ def estornar_compra(venda_id, motivo=None):
             return {"sucesso": False, "erro": "A venda já foi estornada."}
         itens_venda = conn.execute(
             """SELECT vi.item_id,vi.quantidade,i.estoque_atual,i.categoria
-               FROM vendas_cantina_itens vi JOIN itens i ON i.id=vi.item_id
+               FROM vendas_cantina_itens_cantina vi JOIN itens_cantina i ON i.id=vi.item_id
                WHERE vi.venda_id=?""", (venda_id,)
         ).fetchall()
         if not itens_venda:
@@ -495,7 +499,7 @@ def estornar_compra(venda_id, motivo=None):
             if _eh_servico(item["categoria"]):
                 continue
             conn.execute(
-                "UPDATE itens SET estoque_atual=estoque_atual+? WHERE id=?",
+                "UPDATE itens_cantina SET estoque_atual=estoque_atual+? WHERE id=?",
                 (item["quantidade"], item["item_id"]),
             )
             conn.execute(
@@ -545,8 +549,8 @@ def consultar_cantina():
         itens = [dict(x) for x in conn.execute(
             """SELECT i.id, i.nome, i.codigo_barras, i.categoria, i.unidade_medida, i.estoque_atual,
                       iv.id AS item_valor_id, iv.valor
-               FROM itens i JOIN itens_valores iv ON iv.id=(
-                   SELECT iv2.id FROM itens_valores iv2 WHERE iv2.item_id=i.id
+               FROM itens_cantina i JOIN itens_cantina_valores iv ON iv.id=(
+                   SELECT iv2.id FROM itens_cantina_valores iv2 WHERE iv2.item_id=i.id
                    AND iv2.ativo=1 AND iv2.data_inicio_valor<=date('now','localtime')
                    ORDER BY iv2.data_inicio_valor DESC, iv2.id DESC LIMIT 1)
                WHERE i.ativo=1 AND (i.estoque_atual>0 OR UPPER(i.categoria) IN ('SERVIÇO','SERVIÇOS','SERVICO','SERVICOS')) ORDER BY i.nome"""
@@ -557,7 +561,7 @@ def consultar_cantina():
                       COALESCE(SUM(vi.quantidade),0) AS itens
                FROM vendas_cantina v JOIN carteiras c ON c.id=v.carteira_id
                JOIN residentes r ON r.id=c.residente_id
-               LEFT JOIN vendas_cantina_itens vi ON vi.venda_id=v.id
+               LEFT JOIN vendas_cantina_itens_cantina vi ON vi.venda_id=v.id
                GROUP BY v.id ORDER BY v.data_movimentacao DESC,v.id DESC LIMIT 100"""
         )]
         return {"carteiras": carteiras, "itens": itens, "vendas": vendas}
@@ -582,7 +586,7 @@ def consultar_carteira(carteira_id):
             """SELECT m.id,m.tipo,m.data_movimentacao,m.valor_total,m.estornada,
                       m.estornada_em,m.motivo_estorno,m.motivo,m.documento,m.forma_pagamento,i.nome AS item_nome,m.quantidade
                FROM movimentacoes_carteira m
-               LEFT JOIN itens i ON i.id=m.item_id
+               LEFT JOIN itens_cantina i ON i.id=m.item_id
                WHERE m.carteira_id=?
                ORDER BY m.data_movimentacao DESC,m.id DESC""",
             (carteira_id,),
@@ -592,8 +596,8 @@ def consultar_carteira(carteira_id):
                       m.quantidade, iv.valor AS valor_unitario, m.valor_total,
                       m.estornada,m.estornada_em,m.motivo_estorno,m.venda_id
                FROM movimentacoes_carteira m
-               JOIN itens i ON i.id=m.item_id
-               JOIN itens_valores iv ON iv.id=m.item_valor_id
+               JOIN itens_cantina i ON i.id=m.item_id
+               JOIN itens_cantina_valores iv ON iv.id=m.item_valor_id
                WHERE m.carteira_id=? AND m.tipo='COMPRA_CANTINA'
                ORDER BY m.data_movimentacao DESC, m.id DESC""",
             (carteira_id,),

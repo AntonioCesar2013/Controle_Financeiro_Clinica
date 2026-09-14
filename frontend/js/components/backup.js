@@ -5,13 +5,15 @@ export function createBackupPanel(api) {
     let timer;
     let wasRunning = false;
     const labels = {success: '✓ Sucesso', failed: '✗ Falha', disabled: 'Desativado', skipped: 'Não enviado', pending: 'Aguardando'};
+    const automaticLabels = {DESATIVADO: 'Backup automático desativado.', NUNCA_CONCLUIDO: 'Backup automático ativado, mas nenhuma cópia local íntegra foi concluída.', ATRASADO: 'Backup automático atrasado em relação ao intervalo configurado.', EM_DIA: 'Backup automático em dia.'};
     function statusHtml(status) {
         const result = status.result || {};
-        return `<p>${esc(status.message || 'Nenhum backup executado.')}</p>
+        return `<p><strong>${esc(automaticLabels[status.automatic_state] || 'Estado do backup indisponível.')}</strong></p><p>${esc(status.message || 'Nenhum backup executado.')}</p>
             <p>Última tentativa: ${esc(status.last_attempt ? new Date(status.last_attempt).toLocaleString('pt-BR') : '—')}<br>
-            Último snapshot local íntegro: ${esc(status.last_success ? new Date(status.last_success).toLocaleString('pt-BR') : '—')}</p>
+            Último snapshot local íntegro: ${esc(status.last_success ? new Date(status.last_success).toLocaleString('pt-BR') : '—')}<br>
+            Próxima execução esperada: ${esc(status.next_due ? new Date(status.next_due).toLocaleString('pt-BR') : '—')}</p>
             <p>Arquivo: ${esc(result.filename || '—')} · ${result.size ? (result.size / 1048576).toFixed(2) + ' MB' : '—'} · ${esc(String(result.duration_seconds ?? '—'))} s</p>
-            <p>Local: ${labels[result.local] || '—'}<br>Cloudflare R2: ${labels[result.r2] || '—'}<br>Google Drive: ${labels[result.drive] || '—'}</p>
+            <p>Local: ${labels[result.local] || '—'}<br>Cloudflare R2: ${labels[result.r2] || '—'} · último envio: ${esc(status.last_r2_success ? new Date(status.last_r2_success).toLocaleString('pt-BR') : '—')}<br>Google Drive: ${labels[result.drive] || '—'} · último envio: ${esc(status.last_drive_success ? new Date(status.last_drive_success).toLocaleString('pt-BR') : '—')}</p>
             ${(result.errors || []).map(error => `<p class="form-note">${esc(error)}</p>`).join('')}
             <p>${esc(status.status_warning || status.scheduler_warning || '')}</p>`;
     }

@@ -40,7 +40,7 @@ def consultar(residente_id, inicio=None, fim=None):
         if carteira:
             todos_mov = [dict(r) for r in conn.execute(
                 """SELECT m.*,i.nome AS item_nome FROM movimentacoes_carteira m
-                   LEFT JOIN itens i ON i.id=m.item_id WHERE carteira_id=? ORDER BY data_movimentacao,m.id""", (carteira["id"],))]
+                   LEFT JOIN itens_cantina i ON i.id=m.item_id WHERE carteira_id=? ORDER BY data_movimentacao,m.id""", (carteira["id"],))]
             def efeito(m):
                 if m["estornada"]:
                     return 0

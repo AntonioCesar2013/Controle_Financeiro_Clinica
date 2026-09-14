@@ -130,29 +130,37 @@ def registrar_pagamento(
         }
 
     # Registra o pagamento
-    cursor.execute(
-        """
-        INSERT INTO recebimentos (
-            cobranca_id,
-            data_recebimento,
-            valor,
-            desconto,
-            multa_juros,
-            forma_recebimento,
-            observacao
+    try:
+        cursor.execute(
+            """
+            INSERT INTO recebimentos (
+                cobranca_id,
+                data_recebimento,
+                valor,
+                desconto,
+                multa_juros,
+                forma_recebimento,
+                observacao
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                cobranca_id,
+                data_pagamento,
+                valor,
+                valor_desconto,
+                multa_juros,
+                forma_pagamento,
+                observacao
+            )
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            cobranca_id,
-            data_pagamento,
-            valor,
-            valor_desconto,
-            multa_juros,
-            forma_pagamento,
-            observacao
-        )
-    )
+    except sqlite3.Error as erro:
+        conexao.rollback()
+        conexao.close()
+        return {
+            "sucesso": False,
+            "erro": f"Erro no banco de dados: {erro}",
+        }
 
     pagamento_id = cursor.lastrowid
 

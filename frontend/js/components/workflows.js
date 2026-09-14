@@ -35,7 +35,13 @@ export function createWorkflows({ api, showPanel, showAlert }) {
                 fields = hidden('despesa_id', id) + field('Valor de cada conta', 'valor', 'number') + field('Primeiro vencimento', 'data_inicio', 'date', today) + field('Último dia da programação', 'data_fim', 'date') + `<div class="field"><label>Intervalo em meses<input name="intervalo_meses" type="number" min="1" max="12" step="1" value="1" required></label></div><p>Depois de salvar, use “Gerar contas” na programação. O dia do primeiro vencimento será mantido; meses curtos usam o último dia.</p>`;
             } else if (kind === 'recurrence-generate') {
                 title = 'Gerar contas programadas'; endpoint = '/api/recorrencias/gerar'; refresh = 'despesas';
-                fields = hidden('id', id) + field('Gerar até', 'data_limite', 'date', today) + '<p>Contas já existentes na mesma data não serão duplicadas, inclusive as canceladas.</p>';
+                fields = hidden('id', id) + field('Gerar até', 'data_limite', 'date', today) + '<p>Contas compatíveis não serão duplicadas. Contas canceladas ou com outro valor serão apresentadas como conflito e permanecerão inalteradas.</p>';
+            } else if (kind === 'recurrence-adjust') {
+                title = 'Reajustar programação'; endpoint = '/api/recorrencias/reajustar'; refresh = 'despesas';
+                fields = hidden('id', id) + field('Novo valor', 'valor', 'number') + field('Vigência do reajuste', 'data_inicio_vigencia', 'date', today) + field('Motivo do reajuste', 'motivo');
+            } else if (kind === 'recurrence-dispense') {
+                title = 'Dispensar competência'; endpoint = '/api/recorrencias/dispensar'; refresh = 'despesas';
+                fields = hidden('id', id) + field('Vencimento dispensado', 'data_vencimento', 'date') + field('Motivo da dispensa', 'motivo') + '<p>A dispensa não cancela nem apaga uma conta já efetivada.</p>';
             } else return false;
             showPanel(title, `<form class="login-form maintenance-form" data-endpoint="${endpoint}" data-refresh="${refresh}" data-kind="${kind}">${fields}<p class="login-error" data-maintenance-error role="alert"></p><button class="button" type="submit">${kind === 'internment-end' ? 'Confirmar encerramento' : 'Salvar'}</button></form>`);
             return true;

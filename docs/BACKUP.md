@@ -67,7 +67,9 @@ não são excluídos. Não há cópia direta do arquivo ativo.
 Após sucesso local, R2 e Drive recebem o mesmo arquivo, cada qual com seu resultado.
 Uma falha R2 não impede o Drive, nem apaga a cópia local. Sem snapshot íntegro, nenhum
 upload ocorre. `last_success` significa **snapshot local íntegro**, não sucesso de
-todas as nuvens. Estados de cada destino deixam falhas parciais explícitas.
+todas as nuvens. `last_r2_success` e `last_drive_success` registram separadamente o
+último envio bem-sucedido para cada destino. A tela informa desativação, ausência de
+cópia concluída, atraso em relação ao intervalo e falhas parciais.
 
 O automático vem desativado, com intervalo padrão de seis horas. Ao habilitar sem
 tentativa anterior, executa no próximo ciclo de verificação (até cinco segundos).
@@ -80,8 +82,21 @@ mas o snapshot local já concluído permanece. Reinício sinaliza execução int
 
 Uploads/testes/OAuth rodam em thread e retornam HTTP 202; a interface consulta o status.
 Erros temporários têm no máximo três tentativas, com esperas de um e dois segundos.
-Erros permanentes/autenticação não são repetidos. Não há exclusão automática nem
-nova restauração. O comando legado de restauração preexistente permanece inalterado.
+Erros permanentes/autenticação não são repetidos. Não há exclusão automática.
+
+## Catálogo e recuperação local
+
+O comando `python -m src.backup_banco listar` reúne as cópias antigas
+`clinica_*.db` de `dados/backups` e as novas `controle_financeiro_*.db` da pasta
+configurada. A restauração aceita o nome exibido; se houver nomes iguais em pastas
+diferentes, informe o caminho completo. Antes de substituir o banco, o comando
+valida a integridade e as tabelas essenciais, cria uma cópia preventiva em
+`dados/backups` e prepara a substituição em arquivo temporário.
+
+A restauração é recusada enquanto uma instância do sistema mantém a trava de uso do
+banco. Feche todas as janelas e processos do sistema antes de executar o comando.
+Essa trava não transforma o cancelamento de uma interface em encerramento do banco.
+Recuperação direta de cópias remotas pela interface não faz parte deste fluxo.
 
 ## Acesso administrativo
 

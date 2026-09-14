@@ -2,7 +2,7 @@ import copy
 import json
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from .config import BackupConfig, atomic_json, validate
 from .credentials import CredentialService
@@ -40,7 +40,23 @@ class BackupService:
 
     def status(self):
         with self.state_lock:
-            return copy.deepcopy(self.state)
+            result = copy.deepcopy(self.state)
+        config = self.config.load()
+        result['backup_enabled'] = config['backup_enabled']
+        result['interval_hours'] = config['interval_hours']
+        if not config['backup_enabled']:
+            result['automatic_state'] = 'DESATIVADO'
+        elif not result.get('last_success'):
+            result['automatic_state'] = 'NUNCA_CONCLUIDO'
+        else:
+            try:
+                last = datetime.fromisoformat(result['last_success'])
+                due = last + timedelta(hours=config['interval_hours'])
+                result['next_due'] = due.isoformat()
+                result['automatic_state'] = 'ATRASADO' if datetime.now(timezone.utc) > due else 'EM_DIA'
+            except (TypeError, ValueError):
+                result['automatic_state'] = 'NUNCA_CONCLUIDO'
+        return result
 
     def _update(self, **values):
         with self.state_lock:
@@ -129,6 +145,7 @@ class BackupService:
                     try:
                         self.providers[name].upload_backup(path, config)
                         result[name] = 'success'
+                        self._update(**{f'last_{name}_success': now()})
                     except Exception:
                         result[name] = 'failed'
                         result['errors'].append(f'{name}: envio falhou; verifique internet, credenciais e destino. Reconecte o Drive se necessário.')

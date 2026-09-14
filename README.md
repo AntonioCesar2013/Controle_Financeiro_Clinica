@@ -173,8 +173,13 @@ Git, pois cada instalação deve possuir seu próprio banco.
 
 ## Backup e restauração
 
-Ao iniciar, o sistema cria no máximo um backup diário em `dados/backups` e
-mantém os 30 backups diários mais recentes. Para criar uma cópia manual:
+O backup automático vem **desativado**. Ele pode ser ativado em
+**Administração → Configurações → Backup do sistema**, após escolher uma pasta
+local. O intervalo padrão é de 6 horas e o agendamento funciona somente enquanto
+o processo do sistema permanece aberto. As cópias não são excluídas
+automaticamente; acompanhe o espaço disponível na pasta configurada.
+
+Para criar uma cópia manual pelo comando compatível:
 
 ```powershell
 python -m src.backup_banco criar --rotulo antes_fechamento
@@ -187,8 +192,12 @@ python -m src.backup_banco listar
 python -m src.backup_banco restaurar NOME_DO_ARQUIVO.db
 ```
 
-A restauração valida o arquivo e preserva automaticamente uma cópia do banco
-atual antes de substituí-lo. O sistema deve estar fechado durante a restauração.
+A listagem reconhece tanto `clinica_*.db` em `dados/backups` quanto
+`controle_financeiro_*.db` na pasta configurada no módulo atual. A restauração
+valida integridade e compatibilidade, preserva uma cópia preventiva do banco atual
+e é bloqueada efetivamente enquanto alguma instância do sistema estiver usando o
+banco. Feche todas as janelas do sistema antes de restaurar. Consulte os estados
+do backup local e dos envios para cada nuvem separadamente na tela de configurações.
 
 ## Sincronização futura com Google Drive
 

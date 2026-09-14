@@ -30,7 +30,7 @@ def cadastrar_item(nome):
 
         cursor.execute(
             """
-            INSERT INTO itens (
+            INSERT INTO itens_cantina (
                 nome
             )
             VALUES (?)
@@ -75,7 +75,7 @@ def buscar_item(item_id):
                 id,
                 nome,
                 ativo
-            FROM itens
+            FROM itens_cantina
             WHERE id = ?
             """,
             (item_id,)
@@ -114,10 +114,10 @@ def listar_itens(apenas_ativos=True):
                              WHEN i.estoque_atual=0 THEN 'SEM ESTOQUE'
                              WHEN i.estoque_atual<=i.estoque_minimo THEN 'REPOR'
                              ELSE 'OK' END AS situacao_estoque,
-                        (SELECT iv.valor FROM itens_valores iv WHERE iv.item_id=i.id
+                        (SELECT iv.valor FROM itens_cantina_valores iv WHERE iv.item_id=i.id
                          AND iv.ativo=1 AND iv.data_inicio_valor<=date('now','localtime')
                          ORDER BY iv.data_inicio_valor DESC, iv.id DESC LIMIT 1) AS valor_atual
-                 FROM itens i"""
+                 FROM itens_cantina i"""
         if apenas_ativos:
             sql += " WHERE i.ativo = 1"
         sql += " ORDER BY i.nome"
@@ -147,7 +147,7 @@ def alterar_status_item(item_id, ativo):
 
         cursor.execute(
             """
-            UPDATE itens
+            UPDATE itens_cantina
             SET ativo = ?
             WHERE id = ?
             """,
@@ -203,7 +203,7 @@ def cadastrar_valor_item(item_id, valor, data_inicio_valor):
                 id,
                 nome,
                 ativo
-            FROM itens
+            FROM itens_cantina
             WHERE id = ?
             """,
             (item_id,)
@@ -219,7 +219,7 @@ def cadastrar_valor_item(item_id, valor, data_inicio_valor):
 
         cursor.execute(
             """
-            INSERT INTO itens_valores (
+            INSERT INTO itens_cantina_valores (
                 item_id,
                 valor,
                 data_inicio_valor
@@ -270,7 +270,7 @@ def buscar_valor_item(item_id, data_referencia=None):
                     valor,
                     data_inicio_valor,
                     ativo
-                FROM itens_valores
+                FROM itens_cantina_valores
                 WHERE item_id = ?
                   AND ativo = 1
                 ORDER BY data_inicio_valor DESC, id DESC
@@ -287,7 +287,7 @@ def buscar_valor_item(item_id, data_referencia=None):
                     valor,
                     data_inicio_valor,
                     ativo
-                FROM itens_valores
+                FROM itens_cantina_valores
                 WHERE item_id = ?
                   AND ativo = 1
                   AND data_inicio_valor <= ?
@@ -335,7 +335,7 @@ def listar_valores_item(item_id, apenas_ativos=True):
                     valor,
                     data_inicio_valor,
                     ativo
-                FROM itens_valores
+                FROM itens_cantina_valores
                 WHERE item_id = ?
                   AND ativo = 1
                 ORDER BY data_inicio_valor DESC, id DESC
@@ -351,7 +351,7 @@ def listar_valores_item(item_id, apenas_ativos=True):
                     valor,
                     data_inicio_valor,
                     ativo
-                FROM itens_valores
+                FROM itens_cantina_valores
                 WHERE item_id = ?
                 ORDER BY data_inicio_valor DESC, id DESC
                 """,
@@ -382,7 +382,7 @@ def alterar_status_valor(item_valor_id, ativo):
 
         cursor.execute(
             """
-            UPDATE itens_valores
+            UPDATE itens_cantina_valores
             SET ativo = ?
             WHERE id = ?
             """,
@@ -451,7 +451,7 @@ def cadastrar_produto(nome, valor, estoque_inicial=0, estoque_minimo=0,
     try:
         conexao.execute("BEGIN")
         cursor = conexao.execute(
-            """INSERT INTO itens
+            """INSERT INTO itens_cantina
                (nome,codigo_barras,descricao,categoria,unidade_medida,estoque_atual,estoque_minimo,ativo)
                VALUES (?,?,?,?,?,?,?,?)""",
             (nome, codigo_barras, descricao, categoria, unidade_medida,
@@ -459,7 +459,7 @@ def cadastrar_produto(nome, valor, estoque_inicial=0, estoque_minimo=0,
         )
         item_id = cursor.lastrowid
         preco = conexao.execute(
-            "INSERT INTO itens_valores (item_id,valor,data_inicio_valor) VALUES (?,?,?)",
+            "INSERT INTO itens_cantina_valores (item_id,valor,data_inicio_valor) VALUES (?,?,?)",
             (item_id, valor, data_inicio_valor),
         )
         if estoque_inicial:
@@ -505,20 +505,20 @@ def editar_produto(item_id, nome, codigo_barras=None, descricao=None, categoria=
     conexao = conectar()
     try:
         conexao.execute("BEGIN IMMEDIATE")
-        anterior = conexao.execute("SELECT categoria,estoque_atual FROM itens WHERE id=?", (item_id,)).fetchone()
+        anterior = conexao.execute("SELECT categoria,estoque_atual FROM itens_cantina WHERE id=?", (item_id,)).fetchone()
         if not anterior:
             return {"sucesso": False, "erro": "Produto não encontrado."}
         if _eh_servico(anterior[0]) != _eh_servico(categoria):
             possui_historico = conexao.execute(
                 """SELECT 1 FROM movimentacoes_estoque WHERE item_id=?
                    UNION ALL SELECT 1 FROM movimentacoes_carteira WHERE item_id=?
-                   UNION ALL SELECT 1 FROM vendas_cantina_itens WHERE item_id=? LIMIT 1""",
+                   UNION ALL SELECT 1 FROM vendas_cantina_itens_cantina WHERE item_id=? LIMIT 1""",
                 (item_id, item_id, item_id),
             ).fetchone()
             if anterior[1] or possui_historico:
                 return {"sucesso": False, "erro": "Não é possível trocar produto por serviço (ou o contrário) com estoque ou histórico. Cadastre um novo item."}
         cursor = conexao.execute(
-            """UPDATE itens SET nome=?,codigo_barras=?,descricao=?,categoria=?,
+            """UPDATE itens_cantina SET nome=?,codigo_barras=?,descricao=?,categoria=?,
                unidade_medida=?,estoque_minimo=?,estoque_atual=CASE WHEN ? THEN 0 ELSE estoque_atual END,ativo=? WHERE id=?""",
             (nome, codigo_barras, descricao, categoria, unidade_medida, estoque_minimo, int(_eh_servico(categoria)), ativo, item_id),
         )
@@ -551,6 +551,8 @@ def ajustar_estoque(item_id, quantidade, motivo, data_movimentacao=None, tipo=No
             raise ValueError
     except (TypeError, ValueError):
         return {"sucesso": False, "erro": "Quantidade ou data inválida."}
+    if data_movimentacao > date.today().isoformat():
+        return {"sucesso": False, "erro": "O ajuste de estoque não pode ter data futura."}
     if quantidade == 0:
         return {"sucesso": False, "erro": "A quantidade do ajuste não pode ser zero."}
     if tipo_informado not in ("", "ENTRADA", "SAIDA"):
@@ -582,7 +584,7 @@ def ajustar_estoque(item_id, quantidade, motivo, data_movimentacao=None, tipo=No
     conexao = conectar()
     try:
         conexao.execute("BEGIN IMMEDIATE")
-        item = conexao.execute("SELECT estoque_atual,categoria FROM itens WHERE id=?", (item_id,)).fetchone()
+        item = conexao.execute("SELECT estoque_atual,categoria FROM itens_cantina WHERE id=?", (item_id,)).fetchone()
         if not item:
             return {"sucesso": False, "erro": "Produto não encontrado."}
         if _eh_servico(item[1]):
@@ -591,7 +593,7 @@ def ajustar_estoque(item_id, quantidade, motivo, data_movimentacao=None, tipo=No
         atual = anterior + quantidade_movimentada
         if atual < 0:
             return {"sucesso": False, "erro": "O ajuste deixaria o estoque negativo."}
-        conexao.execute("UPDATE itens SET estoque_atual=? WHERE id=?", (atual, item_id))
+        conexao.execute("UPDATE itens_cantina SET estoque_atual=? WHERE id=?", (atual, item_id))
         cursor = conexao.execute(
             """INSERT INTO movimentacoes_estoque
                (item_id,quantidade_anterior,quantidade_movimentada,quantidade_atual,

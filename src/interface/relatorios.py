@@ -101,8 +101,8 @@ def gerar(tipo, data_inicio=None, data_fim=None):
             """SELECT m.data_movimentacao, r.nome AS residente_nome, i.nome AS item_nome,
                       m.quantidade, iv.valor AS valor_unitario, m.valor_total
                FROM movimentacoes_carteira m JOIN carteiras c ON c.id=m.carteira_id
-               JOIN residentes r ON r.id=c.residente_id JOIN itens i ON i.id=m.item_id
-               JOIN itens_valores iv ON iv.id=m.item_valor_id
+               JOIN residentes r ON r.id=c.residente_id JOIN itens_cantina i ON i.id=m.item_id
+               JOIN itens_cantina_valores iv ON iv.id=m.item_valor_id
                WHERE m.tipo='COMPRA_CANTINA' AND m.estornada=0
                  AND m.data_movimentacao BETWEEN ? AND ?
                ORDER BY m.data_movimentacao, m.id""", (inicio, fim))
@@ -127,12 +127,12 @@ def gerar(tipo, data_inicio=None, data_fim=None):
     elif tipo == "estoque":
         linhas = _consulta(
             """SELECT i.nome, i.categoria, i.unidade_medida, i.estoque_atual, i.estoque_minimo,
-                      (SELECT iv.valor FROM itens_valores iv WHERE iv.item_id=i.id AND iv.ativo=1
+                      (SELECT iv.valor FROM itens_cantina_valores iv WHERE iv.item_id=i.id AND iv.ativo=1
                        AND iv.data_inicio_valor<=date('now','localtime')
                        ORDER BY iv.data_inicio_valor DESC, iv.id DESC LIMIT 1) AS valor_atual,
                       CASE WHEN UPPER(i.categoria) IN ('SERVIÇO','SERVIÇOS','SERVICO','SERVICOS') THEN 'NÃO SE APLICA'
                            WHEN i.estoque_atual<=i.estoque_minimo THEN 'REPOR' ELSE 'OK' END AS situacao_estoque,
-                      i.ativo FROM itens i ORDER BY i.nome""")
+                      i.ativo FROM itens_cantina i ORDER BY i.nome""")
         resumo = [("Produtos", len(linhas), "numero"),
                   ("Precisam de reposição", sum(1 for x in linhas if x["ativo"] == 1 and x["situacao_estoque"] == "REPOR"), "numero")]
         colunas = [("Produto", "nome", "texto"), ("Categoria", "categoria", "texto"),

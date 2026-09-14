@@ -32,8 +32,8 @@ class ArquiteturaModular(unittest.TestCase):
                 "SELECT modulo,versao FROM migracoes_schema ORDER BY modulo"
             ).fetchall()
         self.assertEqual(linhas, [("cadastros", 1), ("cadastros", 2),
-                                 ("cantina", 1), ("cantina", 2),
-                                 *[("financeiro", n) for n in range(1, 8)], ("infraestrutura", 1)])
+                                 ("cantina", 1), ("cantina", 2), ("cantina", 3),
+                                 *[("financeiro", n) for n in range(1, 10)], ("infraestrutura", 1)])
 
     def test_migracoes_futuras_fazem_rollback_com_transacao_externa(self):
         conexao = sqlite3.connect(":memory:")
@@ -50,6 +50,42 @@ class ArquiteturaModular(unittest.TestCase):
             "SELECT name FROM sqlite_master WHERE name='temporaria'"
         ).fetchone())
         self.assertEqual(conexao.execute("SELECT COUNT(*) FROM migracoes_schema").fetchone()[0], 0)
+
+    def test_migracao_renomeia_tabelas_da_cantina_preservando_vinculos(self):
+        from src.cantina.migracao_nomes_tabelas import migrar
+
+        conexao = sqlite3.connect(":memory:")
+        conexao.execute("PRAGMA foreign_keys=ON")
+        conexao.execute("CREATE TABLE itens(id INTEGER PRIMARY KEY, nome TEXT)")
+        conexao.execute(
+            "CREATE TABLE itens_valores(id INTEGER PRIMARY KEY, item_id INTEGER "
+            "REFERENCES itens(id), valor INTEGER)"
+        )
+        conexao.execute("CREATE TABLE vendas_cantina(id INTEGER PRIMARY KEY)")
+        conexao.execute(
+            "CREATE TABLE vendas_cantina_itens(id INTEGER PRIMARY KEY, "
+            "venda_id INTEGER REFERENCES vendas_cantina(id), "
+            "item_id INTEGER REFERENCES itens(id), "
+            "item_valor_id INTEGER REFERENCES itens_valores(id))"
+        )
+        conexao.execute("INSERT INTO itens VALUES(7,'Produto legado')")
+        conexao.execute("INSERT INTO itens_valores VALUES(8,7,1250)")
+        conexao.execute("INSERT INTO vendas_cantina VALUES(9)")
+        conexao.execute("INSERT INTO vendas_cantina_itens VALUES(10,9,7,8)")
+
+        migrar(conexao)
+
+        tabelas = {linha[0] for linha in conexao.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )}
+        self.assertTrue({"itens_cantina", "itens_cantina_valores",
+                         "vendas_cantina_itens_cantina"}.issubset(tabelas))
+        self.assertFalse({"itens", "itens_valores", "vendas_cantina_itens"} & tabelas)
+        self.assertEqual(conexao.execute(
+            "SELECT item_id,item_valor_id FROM vendas_cantina_itens_cantina"
+        ).fetchone(), (7, 8))
+        self.assertEqual(conexao.execute("PRAGMA foreign_key_check").fetchall(), [])
+        conexao.close()
 
     def test_rotas_get_publicas_continuam_registradas(self):
         from src.interface.rotas import rotas_get
