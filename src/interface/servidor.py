@@ -93,11 +93,11 @@ def _dashboard():
     pagar = contas_pagar.listar_contas()
     total_receber = sum(conta["saldo_restante"] for conta in receber if conta["status"] not in ("PAGA", "DESCONTADA"))
     total_pagar = sum(
-        contas_pagar.calcular_total_pago(conta["id"])["restante"]
+        conta["restante"]
         for conta in pagar
         if conta["status"] != "CANCELADA"
     )
-    movimentacoes = caixa.listar_movimentacoes()
+    movimentacoes = caixa.listar_movimentacoes(limite=10)
     return {
         **resumo,
         "total_receber": total_receber,
@@ -107,11 +107,7 @@ def _dashboard():
 
 
 def _listar_contas_pagar(status=None, inicio=None, fim=None):
-    resultado = []
-    for conta in contas_pagar.listar_contas(status, inicio, fim):
-        resumo = contas_pagar.calcular_total_pago(conta["id"])
-        resultado.append({**conta, "total_pago": resumo.get("total_pago", 0), "restante": resumo.get("restante", conta["valor"])})
-    return resultado
+    return contas_pagar.listar_contas(status, inicio, fim)
 
 
 class Requisicao(BaseHTTPRequestHandler):
@@ -429,10 +425,22 @@ class Requisicao(BaseHTTPRequestHandler):
         if not arquivo.is_file():
             return self.send_error(HTTPStatus.NOT_FOUND)
         conteudo = arquivo.read_bytes()
+        cacheavel = arquivo.suffix.lower() in {".css", ".js", ".svg", ".png", ".woff", ".woff2"}
+        etag = f'"{arquivo.stat().st_mtime_ns:x}-{len(conteudo):x}"' if cacheavel else None
+        if etag and self.headers.get("If-None-Match") == etag:
+            self.send_response(HTTPStatus.NOT_MODIFIED)
+            self.send_header("Cache-Control", "public, max-age=0, must-revalidate")
+            self.send_header("ETag", etag)
+            self.end_headers()
+            return
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", mimetypes.guess_type(arquivo.name)[0] or "application/octet-stream")
         self.send_header("Content-Length", str(len(conteudo)))
-        self.send_header("Cache-Control", "no-store")
+        if cacheavel:
+            self.send_header("Cache-Control", "public, max-age=0, must-revalidate")
+            self.send_header("ETag", etag)
+        else:
+            self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(conteudo)
 

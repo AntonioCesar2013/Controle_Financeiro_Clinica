@@ -1,6 +1,7 @@
+import { renderInstitutionalHeader } from "./components/institutional-header.js";
 import { createWorkflows } from './components/workflows.js';
 import { createBackupPanel } from './components/backup.js';
-import { applyTableFilters, normalizeSearch } from "./components/filters.js";
+import { applyTableFilters, normalizeSearch, scheduleTableFilters } from "./components/filters.js";
 import { createResidentDocuments, printDocument } from "./components/resident-documents.js";
 import { createApi } from "./core/api.js";
 import { createPanelRegistry, resolvePanel } from "./core/router.js";
@@ -48,6 +49,8 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     let dashboardChartRequest = 0;
     let startupDueAlertShown = false;
     const dashboardChartState = { metric: "daily", type: "bar", start: "", end: "" };
+    const payableState = { pagina: 1, busca: "", status: "", inicio: "", fim: "", ordem: "vencimento_asc" };
+    let payableSearchTimer;
 
     let backupPanel;
     const api = createApi({
@@ -128,6 +131,10 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (action === "open-administration-menu") openAdministrationMenu();
         if (action === "open-general-menu") openGeneralMenu();
         if (action === "clear-table-filters") clearTableFilters(trigger);
+        if (action === "payables-page") {
+            payableState.pagina = Number(trigger.dataset.page);
+            openMainPanel("contas_pagar");
+        }
         if (action === "select-report-row") selectReportRow(trigger);
         if (action === "close-panel") closePanel(trigger.closest(".panel"));
         if (action === "open-new-resident") openResidentForm();
@@ -194,6 +201,11 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         conference.change(event.target);
         if (event.target.matches("[data-dashboard-chart-control]")) updateDashboardChart(event.target);
         if (event.target.matches("[data-filter-status], [data-filter-start], [data-filter-end]")) applyTableFilters(event.target);
+        if (event.target.matches("[data-payables-filter]")) {
+            payableState[event.target.dataset.payablesFilter] = event.target.value;
+            payableState.pagina = 1;
+            openMainPanel("contas_pagar");
+        }
         if (event.target.matches("#wallet-resident")) refreshWalletDetail(event.target);
         if (event.target.matches("#canteen-wallet")) refreshCanteenCart();
         if (event.target.matches("#canteen-product-search")) addSearchedCanteenProduct(event.target);
@@ -201,7 +213,16 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     function handleInput(event) {
-        if (event.target.matches("[data-filter-search], [data-filter-start], [data-filter-end]")) applyTableFilters(event.target);
+        if (event.target.matches("[data-filter-search]")) scheduleTableFilters(event.target);
+        if (event.target.matches("[data-payables-search]")) {
+            clearTimeout(payableSearchTimer);
+            const value = event.target.value;
+            payableSearchTimer = setTimeout(() => {
+                payableState.busca = value;
+                payableState.pagina = 1;
+                openMainPanel("contas_pagar");
+            }, 200);
+        }
         if (event.target.matches("#wallet-resident-lookup")) renderWalletResidentResults(event.target.value);
         if (event.target.matches("#internment-period, #internment-welcome, #internment-monthly")) updateContractTotal();
         if (event.target.matches("input[data-mask]")) applyInputMask(event.target);
@@ -1347,7 +1368,9 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     async function renderPayables() {
-        const { dados } = await api("/api/contas-pagar");
+        const query = new URLSearchParams({...payableState, tamanho: "50"});
+        const { dados: pagina } = await api(`/api/contas-pagar?${query}`);
+        const dados = pagina.linhas || [];
         const table = renderActionTable(dados, [["Descrição", "despesa_descricao"], ["Setor", "setor_nome"], ["Natureza", "natureza"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Pago", "total_pago_com_encargos", formatMoney], ["Restante", "restante", formatMoney], ["Status", "status"]], (row) => {
             const open = Number(row.restante) > 0 && !["PAGA", "CANCELADA"].includes(row.status);
             return `${open ? `<button class="button" type="button" data-action="open-financial-form" data-kind="pagamento" data-id="${row.id}">Pagar</button><button class="button button--danger" type="button" data-action="cancel-payable" data-id="${row.id}">Cancelar</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="saida" data-id="${row.id}">Histórico</button>`;
@@ -1358,9 +1381,13 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
                 capabilities: Number(row.restante) > 0 && !["PAGA", "CANCELADA"].includes(row.status)
                     ? ["pay", "cancel", "history"] : ["history"],
             }),
+            filters: false,
         });
         const actions = `<div class="selection-actions" aria-label="Ações da conta selecionada"><span class="selection-actions__label">Conta selecionada</span><button class="button" type="button" data-action="open-financial-form" data-kind="pagamento" data-selection-action="pay" disabled>Pagar</button><button class="button button--danger" type="button" data-action="cancel-payable" data-selection-action="cancel" disabled>Cancelar</button><button class="button button--secondary" type="button" data-action="financial-history" data-kind="saida" data-selection-action="history" disabled>Histórico</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button" type="button" data-action="open-financial-form" data-kind="conta">Nova conta</button></div>`;
-        return `<section class="selection-scope"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
+        const paginas = Math.max(1, Math.ceil(pagina.total_filtrado / pagina.tamanho));
+        const filtros = `<div class="table-filters"><label>Buscar<input type="search" data-payables-search value="${escapeHtml(payableState.busca)}" placeholder="Descrição, setor ou natureza"></label><label>Situação<select data-payables-filter="status"><option value="">Todas</option>${["ABERTA","PARCIAL","PAGA","CANCELADA"].map(v => `<option value="${v}"${payableState.status === v ? " selected" : ""}>${v}</option>`).join("")}</select></label><label>Vencimento de<input type="date" data-payables-filter="inicio" value="${escapeHtml(payableState.inicio)}"></label><label>Até<input type="date" data-payables-filter="fim" value="${escapeHtml(payableState.fim)}"></label><label>Ordenar<select data-payables-filter="ordem"><option value="vencimento_asc">Vencimento crescente</option><option value="vencimento_desc"${payableState.ordem === "vencimento_desc" ? " selected" : ""}>Vencimento decrescente</option><option value="descricao_asc"${payableState.ordem === "descricao_asc" ? " selected" : ""}>Descrição A–Z</option></select></label></div>`;
+        const navegacao = `<div class="filterable__meta"><p>${pagina.total_filtrado} de ${pagina.total_registros} conta(s) · Restante filtrado: ${formatMoney(pagina.totais_filtrados.restante)}</p><div class="report-actions"><button class="button button--secondary button--compact" data-action="payables-page" data-page="${pagina.pagina - 1}"${pagina.pagina <= 1 ? " disabled" : ""}>Anterior</button><span>Página ${pagina.pagina} de ${paginas}</span><button class="button button--secondary button--compact" data-action="payables-page" data-page="${pagina.pagina + 1}"${pagina.pagina >= paginas ? " disabled" : ""}>Próxima</button></div></div>`;
+        return `<section class="selection-scope"><div class="toolbar selection-toolbar">${actions}</div>${filtros}${navegacao}${table}</section>`;
     }
 
     async function renderExpenses() {
@@ -1399,7 +1426,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const head = dados.colunas.map((column) => `<th data-column-key="${escapeHtml(column.campo)}"${column.formato === "centavos" || column.formato === "reais" ? ' data-column-type="money"' : ""}>${escapeHtml(column.rotulo)}</th>`).join("");
         const body = dados.linhas.length ? dados.linhas.map((row) => `<tr>${dados.colunas.map((column) => `<td data-column-key="${escapeHtml(column.campo)}"${column.formato === "centavos" || column.formato === "reais" ? ' data-column-type="money"' : ""}>${escapeHtml(formatReportValue(row[column.campo], column.formato))}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${dados.colunas.length}">Nenhum registro encontrado para este relatório.</td></tr>`;
         const period = dados.usa_periodo ? `<p>Período: ${formatDate(dados.data_inicio)} a ${formatDate(dados.data_fim)}</p>` : "";
-        return `<article class="print-report"><header class="print-report__header"><div class="print-report__mark">CF</div><div><strong>CLÍNICA DA CRUZ DE REABILITAÇÃO</strong><span>Controle institucional</span></div></header><section class="print-report__title"><p>RELATÓRIO INSTITUCIONAL</p><h3>${escapeHtml(dados.titulo)}</h3>${period}</section><div class="print-report__summary">${summary}</div><div class="print-report__table"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><footer class="print-report__footer"><span>Emitido em ${formatDateTime(dados.emitido_em)}</span><span>Clínica da Cruz de Reabilitação</span></footer></article>`;
+        return `<article class="print-report">${renderInstitutionalHeader()}<section class="print-report__title"><p>RELATÓRIO INSTITUCIONAL</p><h3>${escapeHtml(dados.titulo)}</h3>${period}</section><div class="print-report__summary">${summary}</div><div class="print-report__table"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><footer class="print-report__footer"><span>Emitido em ${formatDateTime(dados.emitido_em)}</span><span>Clínica da Cruz de Reabilitação</span></footer></article>`;
     }
 
     function formatReportValue(value, format) {

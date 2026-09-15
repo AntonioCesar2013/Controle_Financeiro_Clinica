@@ -42,13 +42,19 @@ def _periodo_validado(data_inicio=None, data_fim=None):
     )
 
 
-def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None):
+def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None, limite=None):
     """Lista entradas e saídas efetivamente realizadas no período informado.
 
     Valores são inteiros em centavos. Para entradas, ``origem_id`` é o ID da
     cobrança; para saídas, é o ID da conta a pagar.
     """
     data_inicio, data_fim = _periodo_validado(data_inicio, data_fim)
+    if limite is not None:
+        try:
+            limite = max(1, min(int(limite), 500))
+        except (TypeError, ValueError) as erro:
+            raise ValueError("Limite de movimentos inválido.") from erro
+    sufixo_limite = " ORDER BY data DESC, id DESC LIMIT ?" if limite else ""
     filtros_entrada = ["NOT EXISTS (SELECT 1 FROM conciliacoes_vinculos v WHERE v.recebimento_id=r.id)"]
     filtros_bancarias = ["NOT EXISTS (SELECT 1 FROM conciliacoes_bancarias cb WHERE cb.entrada_id=eb.id AND cb.desfeita_em IS NULL AND cb.destino='CARTEIRA')"]
     filtros_saida = []
@@ -95,9 +101,9 @@ def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None):
             INNER JOIN cobrancas c ON c.id = r.cobranca_id
             INNER JOIN internacoes i ON i.id = c.internacao_id
             INNER JOIN residentes res ON res.id = i.residente_id
-            {where_entrada}
+            {where_entrada}{sufixo_limite}
             """,
-            parametros_entrada,
+            [*parametros_entrada, *([limite] if limite else [])],
         ).fetchall()
         entradas_bancarias = conexao.execute(
             f"""
@@ -106,9 +112,9 @@ def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None):
                    eb.observacao, COALESCE(cb.destino,'PENDENTE') AS conciliacao
             FROM entradas_bancarias eb
             LEFT JOIN conciliacoes_bancarias cb ON cb.entrada_id=eb.id AND cb.desfeita_em IS NULL
-            {where_bancarias}
+            {where_bancarias}{sufixo_limite}
             """,
-            parametros_bancarias,
+            [*parametros_bancarias, *([limite] if limite else [])],
         ).fetchall()
         saidas = conexao.execute(
             f"""
@@ -126,16 +132,17 @@ def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None):
             INNER JOIN contas_pagar cp ON cp.id = ps.conta_pagar_id
             INNER JOIN despesas d ON d.id = cp.despesa_id
             INNER JOIN setores s ON s.id = d.setor_id
-            {where_saida}
+            {where_saida}{sufixo_limite}
             """,
-            parametros_saida,
+            [*parametros_saida, *([limite] if limite else [])],
         ).fetchall()
-        devolucoes = conexao.execute('''SELECT d.*,r.cobranca_id,res.nome AS residente_nome
+        devolucoes = conexao.execute(f'''SELECT d.*,r.cobranca_id,res.nome AS residente_nome
             FROM devolucoes_recebimentos d JOIN recebimentos r ON r.id=d.recebimento_id
             JOIN cobrancas c ON c.id=r.cobranca_id JOIN internacoes i ON i.id=c.internacao_id
             JOIN residentes res ON res.id=i.residente_id
-            WHERE d.estornada=0 AND (? IS NULL OR d.data_devolucao>=?) AND (? IS NULL OR d.data_devolucao<=?)''',
-            (data_inicio, data_inicio, data_fim, data_fim)).fetchall()
+            WHERE d.estornada=0 AND (? IS NULL OR d.data_devolucao>=?) AND (? IS NULL OR d.data_devolucao<=?)
+            {sufixo_limite}''',
+            (data_inicio, data_inicio, data_fim, data_fim, *([limite] if limite else []))).fetchall()
     finally:
         if propria:
             conexao.close()
@@ -189,13 +196,57 @@ def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None):
             'descricao': f"Devolução a {devolucao['residente_nome']}",
             'forma_pagamento': devolucao['forma_pagamento'], 'origem_id': devolucao['cobranca_id'],
             'observacao': devolucao['motivo'], 'documento': devolucao['documento']})
-    return sorted(movimentacoes, key=lambda movimento: (movimento["data"], movimento["id"]))
+    ordenadas = sorted(movimentacoes, key=lambda movimento: (movimento["data"], movimento["id"]))
+    return ordenadas[-limite:] if limite else ordenadas
 
 
 def _resumo(data_inicio=None, data_fim=None, incluir_movimentacoes=False):
-    movimentacoes = listar_movimentacoes(data_inicio, data_fim)
-    total_entradas = sum(m["valor"] for m in movimentacoes if m["tipo"] == "ENTRADA")
-    total_saidas = sum(m["valor"] for m in movimentacoes if m["tipo"] == "SAIDA")
+    data_inicio, data_fim = _periodo_validado(data_inicio, data_fim)
+    conexao = conectar()
+    try:
+        total_entradas, total_saidas = conexao.execute(
+            """
+            SELECT
+                COALESCE(SUM(CASE WHEN tipo='ENTRADA' THEN valor ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN tipo='SAIDA' THEN valor ELSE 0 END), 0)
+            FROM (
+                SELECT 'ENTRADA' AS tipo, r.valor + COALESCE(r.multa_juros, 0) AS valor
+                FROM recebimentos r
+                WHERE (? IS NULL OR r.data_recebimento >= ?)
+                  AND (? IS NULL OR r.data_recebimento <= ?)
+                  AND NOT EXISTS (SELECT 1 FROM conciliacoes_vinculos v WHERE v.recebimento_id=r.id)
+                UNION ALL
+                SELECT 'ENTRADA', eb.valor FROM entradas_bancarias eb
+                WHERE (? IS NULL OR eb.data_entrada >= ?)
+                  AND (? IS NULL OR eb.data_entrada <= ?)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM conciliacoes_bancarias cb
+                      WHERE cb.entrada_id=eb.id AND cb.desfeita_em IS NULL AND cb.destino='CARTEIRA'
+                  )
+                UNION ALL
+                SELECT 'SAIDA', ps.valor + COALESCE(ps.multa_juros, 0) FROM pagamentos_saida ps
+                WHERE (? IS NULL OR ps.data_pagamento >= ?)
+                  AND (? IS NULL OR ps.data_pagamento <= ?)
+                UNION ALL
+                SELECT 'SAIDA', d.valor + d.multa_juros FROM devolucoes_recebimentos d
+                WHERE d.estornada=0
+                  AND (? IS NULL OR d.data_devolucao >= ?)
+                  AND (? IS NULL OR d.data_devolucao <= ?)
+            )
+            """,
+            (
+                data_inicio, data_inicio, data_fim, data_fim,
+                data_inicio, data_inicio, data_fim, data_fim,
+                data_inicio, data_inicio, data_fim, data_fim,
+                data_inicio, data_inicio, data_fim, data_fim,
+            ),
+        ).fetchone()
+        movimentacoes = (
+            listar_movimentacoes(data_inicio, data_fim, conexao=conexao)
+            if incluir_movimentacoes else None
+        )
+    finally:
+        conexao.close()
     resumo = {
         "data_inicio": data_inicio,
         "data_fim": data_fim,
@@ -212,6 +263,11 @@ def resumo_caixa(data_inicio=None, data_fim=None):
     """Retorna os totais de entradas, saídas e resultado do período."""
     data_inicio, data_fim = _periodo_validado(data_inicio, data_fim)
     return _resumo(data_inicio, data_fim)
+
+
+def resumo_com_movimentacoes(data_inicio=None, data_fim=None):
+    """Obtém totais e detalhes na mesma leitura do banco."""
+    return _resumo(data_inicio, data_fim, incluir_movimentacoes=True)
 
 
 def resumo_diario(data):

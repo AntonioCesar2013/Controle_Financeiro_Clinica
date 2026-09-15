@@ -33,7 +33,7 @@ class ArquiteturaModular(unittest.TestCase):
             ).fetchall()
         self.assertEqual(linhas, [("cadastros", 1), ("cadastros", 2),
                                  ("cantina", 1), ("cantina", 2), ("cantina", 3),
-                                 *[("financeiro", n) for n in range(1, 10)], ("infraestrutura", 1)])
+                                 *[("financeiro", n) for n in range(1, 11)], ("infraestrutura", 1)])
 
     def test_migracoes_futuras_fazem_rollback_com_transacao_externa(self):
         conexao = sqlite3.connect(":memory:")

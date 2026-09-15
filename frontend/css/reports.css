@@ -1,11 +1,6 @@
 /* Visualização dos relatórios. */
 
 .print-report { max-width: 1120px; margin: 0 auto; color: #1f2937; background: #fff; }
-.print-report__header { display: flex; gap: 14px; align-items: center; padding-bottom: 14px; border-bottom: 2px solid var(--color-primary); }
-.print-report__header > div:last-child { display: grid; gap: 3px; }
-.print-report__header strong { font-size: 1.05rem; }
-.print-report__header span { color: var(--color-text-muted); font-size: .8rem; }
-.print-report__mark { display: grid; width: 46px; height: 46px; place-items: center; border-radius: 12px; background: var(--color-primary); color: #fff; font-weight: 850; }
 .print-report__title { padding: 18px 0 12px; text-align: center; }
 .print-report__title p { margin: 0 0 5px; color: var(--color-primary); font-size: .72rem; font-weight: 800; letter-spacing: .08em; }
 .print-report__title h3 { margin: 0; font-size: 1.35rem; }
@@ -18,3 +13,30 @@
 .print-report__table table { font-size: .78rem; }
 .print-report__footer { display: flex; justify-content: space-between; gap: 12px; margin-top: 16px; padding-top: 9px; border-top: 1px solid var(--color-border); color: var(--color-text-muted); font-size: .7rem; }
 
+
+/* Cabeçalho com logo vetorial e texto selecionável. */
+.institutional-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+    padding: 8px 16px 12px;
+    margin-bottom: 12px;
+    color: #000;
+    background: #fff;
+    font-family: Arial, sans-serif;
+    break-inside: avoid;
+}
+.institutional-header__logo { width: 110px; height: 110px; flex: 0 0 auto; }
+.resident-document .institutional-header { border-bottom: 0; padding-bottom: 12px; margin-bottom: 12px; }
+.institutional-header__details { display: flex; flex-direction: column; padding-top: 7px; text-align: right; font-size: 12px; line-height: 1.2; }
+.institutional-header__name { color: #ff2020; font-size: 13px; font-weight: 400; }
+@media screen and (max-width: 600px) {
+    .institutional-header { gap: 12px; padding: 4px 0 12px; }
+    .institutional-header__logo { width: 76px; height: 76px; }
+    .institutional-header__details { font-size: 10px; }
+    .institutional-header__name { font-size: 11px; }
+}
+@media print {
+    .institutional-header { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+}

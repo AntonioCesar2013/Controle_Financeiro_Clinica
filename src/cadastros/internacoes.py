@@ -14,10 +14,11 @@ def sincronizar_status_residentes(data_referencia=None):
     conexao = conectar()
     try:
         internacoes = conexao.execute(
-            "SELECT id,residente_id,data_acolhimento,periodo_tratamento,encerrada_em,modalidade FROM internacoes WHERE status!='CANCELADA'"
+            "SELECT id,residente_id,data_acolhimento,periodo_tratamento,encerrada_em,modalidade,status FROM internacoes WHERE status!='CANCELADA'"
         ).fetchall()
         ativas = set()
-        for internacao_id, residente_id, inicio, periodo, encerrada_em, modalidade in internacoes:
+        alteradas = 0
+        for internacao_id, residente_id, inicio, periodo, encerrada_em, modalidade, status_atual in internacoes:
             inicio_data = date.fromisoformat(inicio)
             if modalidade == "VOLUNTARIO":
                 dentro_periodo = inicio_data <= referencia
@@ -30,22 +31,33 @@ def sincronizar_status_residentes(data_referencia=None):
                 status = "AGENDADA"
             else:
                 status = "ATIVA" if dentro_periodo else "ENCERRADA"
-            conexao.execute("UPDATE internacoes SET status=? WHERE id=?", (status, internacao_id))
+            if status != status_atual:
+                conexao.execute("UPDATE internacoes SET status=? WHERE id=?", (status, internacao_id))
+                alteradas += 1
             if status == "ATIVA":
                 ativas.add(residente_id)
-        conexao.execute("UPDATE residentes SET ativo=0")
-        if ativas:
-            marcadores = ",".join("?" for _ in ativas)
-            conexao.execute(f"UPDATE residentes SET ativo=1 WHERE id IN ({marcadores})", tuple(ativas))
+        conexao.execute("""UPDATE residentes SET ativo=0
+            WHERE ativo<>0 AND NOT EXISTS (
+                SELECT 1 FROM internacoes i WHERE i.residente_id=residentes.id AND i.status='ATIVA'
+            )""")
+        conexao.execute("""UPDATE residentes SET ativo=1
+            WHERE ativo<>1 AND EXISTS (
+                SELECT 1 FROM internacoes i WHERE i.residente_id=residentes.id AND i.status='ATIVA'
+            )""")
         # Inicializa apenas contatos ausentes e inequívocos. Uma escolha atual
         # existente (ou ambígua) nunca é substituída por agendamento/reativação.
-        for residente_id in ativas:
-            atuais = conexao.execute("SELECT responsavel_id FROM internacoes WHERE residente_id=? AND status='ATIVA'", (residente_id,)).fetchall()
-            if len(atuais) == 1 and not conexao.execute('SELECT 1 FROM residente_responsavel WHERE residente_id=? AND principal=1', (residente_id,)).fetchone():
-                conexao.execute('''INSERT INTO residente_responsavel(residente_id,responsavel_id,relacao,principal)
-                    VALUES(?,?,'Contato inicial',1) ON CONFLICT(residente_id,responsavel_id) DO UPDATE SET principal=1''', (residente_id, atuais[0][0]))
+        conexao.execute('''INSERT INTO residente_responsavel(residente_id,responsavel_id,relacao,principal)
+            SELECT i.residente_id, MIN(i.responsavel_id), 'Contato inicial', 1
+            FROM internacoes i
+            WHERE i.status='ATIVA'
+              AND NOT EXISTS (SELECT 1 FROM residente_responsavel rr
+                              WHERE rr.residente_id=i.residente_id AND rr.principal=1)
+            GROUP BY i.residente_id
+            HAVING COUNT(*)=1
+            ON CONFLICT(residente_id,responsavel_id) DO UPDATE SET principal=1''')
         conexao.commit()
-        return {"ativos": len(ativas), "data_referencia": referencia.isoformat()}
+        return {"ativos": len(ativas), "internacoes_alteradas": alteradas,
+                "data_referencia": referencia.isoformat()}
     finally:
         conexao.close()
 

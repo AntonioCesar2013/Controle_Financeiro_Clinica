@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-labelledby="title">
+  <title id="title">Clínica da Cruz de Reabilitação</title>
+  <defs>
+    <path id="name" d="M 12,69 A 49,49 0 1,1 110,69"/>
+    <path id="phone" d="M 24,98 Q 60,126 96,98"/>
+  </defs>
+  <g fill="#262626" font-family="Arial, sans-serif" font-weight="700">
+    <text font-size="9.2"><textPath href="#name" startOffset="50%" text-anchor="middle">CLÍNICA DA CRUZ DE REABILITAÇÃO</textPath></text>
+    <text font-size="8"><textPath href="#phone" startOffset="50%" text-anchor="middle">(45)99949-9220</textPath></text>
+  </g>
+  <path fill="#303030" d="M55 30h9v17h20v8H64v45h-9V55H34v-8h21z"/>
+  <g fill="#ff2635" stroke="#c91f2b" stroke-width=".6">
+    <path d="M54 17c12 2 23 7 26 12 3 7-4 16-14 22 6-9 12-16 7-21-4-4-13-6-19-13z"/>
+    <path d="M69 24c-3 12-6 22-14 33-13 17-20 29-15 41 3 7 12 9 23 7-11-5-15-13-13-23 2-13 10-25 15-36 4-9 6-16 4-22z"/>
+    <path d="M58 58c-15 23-7 36 13 47-11-12-20-23-13-47z"/>
+  </g>
+  <path d="M63 47c-7 16-23 32-18 47 2 5 6 8 12 10" fill="none" stroke="#fff" stroke-width="1"/>
+</svg>

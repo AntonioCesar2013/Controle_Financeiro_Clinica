@@ -7,6 +7,23 @@ const response = (status, payload) => ({
 });
 
 {
+    let release;
+    const waiting = new Promise(resolve => { release = resolve; });
+    let gets = 0;
+    globalThis.fetch = async () => {
+        gets += 1;
+        await waiting;
+        return response(200, {dados: [1, 2, 3]});
+    };
+    const api = createApi();
+    const first = api('/api/contas-pagar');
+    const second = api('/api/contas-pagar');
+    release();
+    assert.deepEqual(await Promise.all([first, second]), [{dados: [1, 2, 3]}, {dados: [1, 2, 3]}]);
+    assert.equal(gets, 1, 'GETs simultâneos idênticos devem compartilhar a mesma resposta');
+}
+
+{
     const calls = [];
     globalThis.fetch = async (url, options) => {
         calls.push({url, options});

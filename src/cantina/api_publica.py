@@ -17,21 +17,31 @@ def dados_conferencia(conexao, inicio=None, fim=None):
     estoque = [dict(r) for r in conexao.execute('''
         SELECT id,nome,unidade_medida,estoque_atual,categoria FROM itens_cantina ORDER BY id''')
         if not _eh_servico(r['categoria'])]
-    todos = [dict(r) for r in conexao.execute('''
+    movimentos = [dict(r) for r in conexao.execute('''
         SELECT id,carteira_id,tipo,valor_total,data_movimentacao,estornada
-        FROM movimentacoes_carteira ORDER BY data_movimentacao,id''')]
-    def efeito(m):
-        if m['estornada']:
-            return 0
-        return m['valor_total'] if m['tipo'] == 'CREDITO' else -abs(m['valor_total'])
-    movimentos = [m for m in todos if (not inicio or m['data_movimentacao'] >= inicio)
-                  and (not fim or m['data_movimentacao'] <= fim)]
-    abertura = fechamento = 0
-    for c in carteiras:
-        historico = [m for m in todos if m['carteira_id'] == c['id']]
-        residual = c['saldo'] - sum(efeito(m) for m in historico)
-        abertura += residual + sum(efeito(m) for m in historico if inicio and m['data_movimentacao'] < inicio)
-        fechamento += residual + sum(efeito(m) for m in historico if not fim or m['data_movimentacao'] <= fim)
+        FROM movimentacoes_carteira
+        WHERE (? IS NULL OR data_movimentacao>=?) AND (? IS NULL OR data_movimentacao<=?)
+        ORDER BY data_movimentacao,id''', (inicio, inicio, fim, fim))]
+    agregados = conexao.execute('''
+        WITH efeitos AS (
+            SELECT carteira_id, data_movimentacao,
+                   CASE WHEN estornada=1 THEN 0
+                        WHEN tipo='CREDITO' THEN valor_total
+                        ELSE -ABS(valor_total) END AS efeito
+            FROM movimentacoes_carteira
+        ), por_carteira AS (
+            SELECT c.id, c.saldo,
+                   COALESCE(SUM(e.efeito), 0) AS historico,
+                   COALESCE(SUM(CASE WHEN ? IS NOT NULL AND e.data_movimentacao<? THEN e.efeito ELSE 0 END), 0) AS antes,
+                   COALESCE(SUM(CASE WHEN ? IS NULL OR e.data_movimentacao<=? THEN e.efeito ELSE 0 END), 0) AS ate_fim
+            FROM carteiras c LEFT JOIN efeitos e ON e.carteira_id=c.id
+            GROUP BY c.id
+        )
+        SELECT COALESCE(SUM(saldo-historico+antes), 0),
+               COALESCE(SUM(saldo-historico+ate_fim), 0)
+        FROM por_carteira
+    ''', (inicio, inicio, fim, fim)).fetchone()
+    abertura, fechamento = agregados
     return {'carteiras': carteiras, 'estoque': estoque, 'movimentos': movimentos,
             'saldo_abertura': abertura, 'saldo_fechamento': fechamento,
             'creditos': sum(m['valor_total'] for m in movimentos if not m['estornada'] and m['tipo']=='CREDITO'),

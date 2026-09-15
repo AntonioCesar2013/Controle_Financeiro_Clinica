@@ -38,6 +38,7 @@ async function readResponse(response) {
 export function createApi({ onUnauthorized } = {}) {
     const pending = new Map();
     const running = new Map();
+    const runningGets = new Map();
 
     async function fetchJson(url, options = {}, operationKey) {
         const headers = options.body ? { "Content-Type": "application/json" } : {};
@@ -124,16 +125,23 @@ export function createApi({ onUnauthorized } = {}) {
     async function api(url, options = {}) {
         const method = (options.method || "GET").toUpperCase();
         if (!isBusinessPost(url, method)) {
-            const { response, payload } = await fetchJson(url, options);
-            if (response.status === 401 && !options.allowUnauthorized) {
-                onUnauthorized?.("Sua sessão expirou. Entre novamente.");
-                throw new Error("Sessão expirada.");
-            }
-            if (response.status === 404 && payload.erro === "Rota não encontrada.") {
-                throw new Error("O servidor está executando uma versão anterior. Encerre o Python e inicie o sistema novamente.");
-            }
-            if (!response.ok) throw new Error(payload.erro || "Não foi possível concluir a operação.");
-            return payload;
+            const chaveGet = method === "GET" && !options.signal ? String(url) : null;
+            if (chaveGet && runningGets.has(chaveGet)) return runningGets.get(chaveGet);
+            const leitura = (async () => {
+                const { response, payload } = await fetchJson(url, options);
+                if (response.status === 401 && !options.allowUnauthorized) {
+                    onUnauthorized?.("Sua sessão expirou. Entre novamente.");
+                    throw new Error("Sessão expirada.");
+                }
+                if (response.status === 404 && payload.erro === "Rota não encontrada.") {
+                    throw new Error("O servidor está executando uma versão anterior. Encerre o Python e inicie o sistema novamente.");
+                }
+                if (!response.ok) throw new Error(payload.erro || "Não foi possível concluir a operação.");
+                return payload;
+            })();
+            if (!chaveGet) return leitura;
+            runningGets.set(chaveGet, leitura);
+            return leitura.finally(() => runningGets.delete(chaveGet));
         }
 
         const fingerprint = JSON.stringify(stable([new URL(url, "http://localhost").pathname, options.body ?? null]));

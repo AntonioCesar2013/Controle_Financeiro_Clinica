@@ -1,3 +1,6 @@
+import sqlite3
+import unicodedata
+
 from src.infraestrutura.banco import conectar
 from src.financeiro.despesas import validar_para_lancamento
 
@@ -318,6 +321,73 @@ def listar_contas(
             for linha in resultados
         ]
 
+    finally:
+        conexao.close()
+
+
+def listar_contas_paginadas(status=None, data_inicio=None, data_fim=None, busca=None,
+                            pagina=1, tamanho=50, ordem="vencimento_asc"):
+    """Lista contas com filtros aplicados no servidor e totais independentes da página."""
+    try:
+        pagina = max(1, int(pagina))
+        tamanho = max(1, min(int(tamanho), 200))
+    except (TypeError, ValueError) as erro:
+        raise ValueError("Página ou tamanho de página inválido.") from erro
+    ordens = {
+        "vencimento_asc": "data_vencimento ASC, id ASC",
+        "vencimento_desc": "data_vencimento DESC, id DESC",
+        "descricao_asc": "despesa_descricao COLLATE NOCASE ASC, id ASC",
+        "descricao_desc": "despesa_descricao COLLATE NOCASE DESC, id DESC",
+    }
+    if ordem not in ordens:
+        raise ValueError("Ordenação de contas inválida.")
+
+    def normalizar(valor):
+        return "".join(c for c in unicodedata.normalize("NFD", str(valor or ""))
+                       if unicodedata.category(c) != "Mn").casefold()
+
+    conexao = conectar()
+    conexao.row_factory = sqlite3.Row
+    conexao.create_function("normalizar", 1, normalizar, deterministic=True)
+    base = """WITH pagamentos AS (
+            SELECT conta_pagar_id, SUM(valor) total_pago, SUM(multa_juros) total_multa_juros
+            FROM pagamentos_saida GROUP BY conta_pagar_id
+        ), contas AS (
+            SELECT c.id,c.despesa_id,d.descricao despesa_descricao,s.nome setor_nome,
+                   d.natureza,d.recorrente,c.data_vencimento,c.valor,c.desconto,c.status,
+                   COALESCE(p.total_pago,0) total_pago,COALESCE(p.total_multa_juros,0) total_multa_juros,
+                   c.valor-c.desconto-COALESCE(p.total_pago,0) restante
+            FROM contas_pagar c JOIN despesas d ON d.id=c.despesa_id
+            JOIN setores s ON s.id=d.setor_id LEFT JOIN pagamentos p ON p.conta_pagar_id=c.id
+        )"""
+    filtros, parametros = [], []
+    if status:
+        filtros.append("status=?")
+        parametros.append(status)
+    if data_inicio:
+        filtros.append("data_vencimento>=?")
+        parametros.append(data_inicio)
+    if data_fim:
+        filtros.append("data_vencimento<=?")
+        parametros.append(data_fim)
+    if busca and normalizar(busca):
+        filtros.append("normalizar(despesa_descricao||' '||setor_nome||' '||natureza) LIKE ?")
+        parametros.append(f"%{normalizar(busca)}%")
+    where = " WHERE " + " AND ".join(filtros) if filtros else ""
+    try:
+        geral = conexao.execute(base + " SELECT COUNT(*),COALESCE(SUM(valor),0),COALESCE(SUM(restante),0) FROM contas").fetchone()
+        filtrado = conexao.execute(base + f" SELECT COUNT(*),COALESCE(SUM(valor),0),COALESCE(SUM(restante),0) FROM contas{where}", parametros).fetchone()
+        linhas = conexao.execute(base + f" SELECT * FROM contas{where} ORDER BY {ordens[ordem]} LIMIT ? OFFSET ?",
+                                 (*parametros, tamanho, (pagina - 1) * tamanho)).fetchall()
+        return {
+            "linhas": [{**dict(linha), "valor_devido": linha["valor"] - linha["desconto"],
+                        "total_pago_com_encargos": linha["total_pago"] + linha["total_multa_juros"]}
+                       for linha in linhas],
+            "pagina": pagina, "tamanho": tamanho,
+            "total_registros": geral[0], "total_filtrado": filtrado[0],
+            "totais_gerais": {"valor": geral[1], "restante": geral[2]},
+            "totais_filtrados": {"valor": filtrado[1], "restante": filtrado[2]},
+        }
     finally:
         conexao.close()
 

@@ -43,17 +43,18 @@ def rotas_get(query):
         "/api/mensalidades": lambda: contas_receber.listar_mensalidades(
             data_referencia=date.today().isoformat()
         ),
-        "/api/contas-pagar": lambda: contas_pagar.listar_contas(
+        "/api/contas-pagar": lambda: contas_pagar.listar_contas_paginadas(
+            status=_parametro(query, "status"), data_inicio=inicio, data_fim=fim,
+            busca=_parametro(query, "busca"), pagina=_parametro(query, "pagina", 1),
+            tamanho=_parametro(query, "tamanho", 50), ordem=_parametro(query, "ordem", "vencimento_asc"),
+        ) if _parametro(query, "pagina") else contas_pagar.listar_contas(
             status=_parametro(query, "status"), data_inicio=inicio, data_fim=fim
         ),
         "/api/contas-pagar/detalhe": lambda: {
             **contas_pagar.buscar_conta(_parametro(query, "id")),
             **contas_pagar.calcular_total_pago(_parametro(query, "id")),
         },
-        "/api/caixa": lambda: {
-            **caixa.resumo_caixa(inicio, fim),
-            "movimentacoes": caixa.listar_movimentacoes(inicio, fim),
-        },
+        "/api/caixa": lambda: caixa.resumo_com_movimentacoes(inicio, fim),
         "/api/despesas": lambda: despesas.listar_despesas(apenas_ativas=False),
         "/api/financeiro/cadastros": lambda: {
             "setores": despesas.listar_setores(False),
