@@ -154,19 +154,16 @@ def cadastrar_internacao(
 
     inicio_novo = date.fromisoformat(data_acolhimento)
     fim_novo = date.max if modalidade == "VOLUNTARIO" else data_final_contrato(data_acolhimento, periodo_tratamento)
+    from src.cadastros.vigencia import ultimo_dia_vigente
     for existente in cursor.execute(
         """SELECT id,data_acolhimento,periodo_tratamento,encerrada_em,modalidade
            FROM internacoes WHERE residente_id=? AND status!='CANCELADA'""", (residente_id,)
     ).fetchall():
         inicio_existente = date.fromisoformat(existente["data_acolhimento"])
-        if existente["encerrada_em"]:
-            fim_existente = date.fromisoformat(existente["encerrada_em"])
-        elif existente["modalidade"] == "VOLUNTARIO":
-            fim_existente = date.max
-        else:
-            fim_existente = data_final_contrato(
-                existente["data_acolhimento"], existente["periodo_tratamento"]
-            )
+        fim_existente = ultimo_dia_vigente(
+            existente["data_acolhimento"], existente["periodo_tratamento"],
+            existente["encerrada_em"], existente["modalidade"]
+        )
         if inicio_novo <= fim_existente and inicio_existente <= fim_novo:
             if conexao_propria:
                 conexao.close()
@@ -413,8 +410,9 @@ def prorrogar_internacao(internacao_id, periodo_atual, novo_periodo, motivo):
             raise ValueError('O período mudou. Atualize a tela antes de prorrogar.')
         fim = data_final_contrato(i['data_acolhimento'], novo_periodo)
         for outra in conn.execute("SELECT * FROM internacoes WHERE residente_id=? AND id<>? AND status!='CANCELADA'", (i['residente_id'], i['id'])):
-            fim_outra = (date.fromisoformat(outra['encerrada_em']) if outra['encerrada_em'] else
-                         date.max if outra['modalidade'] == 'VOLUNTARIO' else data_final_contrato(outra['data_acolhimento'], outra['periodo_tratamento']))
+            from src.cadastros.vigencia import ultimo_dia_vigente
+            fim_outra = ultimo_dia_vigente(outra['data_acolhimento'], outra['periodo_tratamento'],
+                                           outra['encerrada_em'], outra['modalidade'])
             if date.fromisoformat(i['data_acolhimento']) <= fim_outra and date.fromisoformat(outra['data_acolhimento']) <= fim:
                 raise ValueError('A prorrogação coincide com outra internação do residente.')
         quantidade, valor = acrescentar_cobrancas_prorrogacao(conn, i, novo_periodo)

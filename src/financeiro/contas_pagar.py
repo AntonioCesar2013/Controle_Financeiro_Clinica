@@ -1,8 +1,10 @@
 import sqlite3
 import unicodedata
+from datetime import date
 
 from src.infraestrutura.banco import conectar
 from src.financeiro.despesas import validar_para_lancamento
+from src.financeiro.moeda import validar_centavos
 
 
 # ============================================================
@@ -51,6 +53,16 @@ def cadastrar_conta(despesa_id, data_vencimento, valor):
             "erro": "A data de vencimento é obrigatória."
         }
 
+    try:
+        if not isinstance(data_vencimento, str) or date.fromisoformat(data_vencimento).isoformat() != data_vencimento:
+            raise ValueError
+    except (TypeError, ValueError):
+        return {"sucesso": False, "erro": "Informe uma data de vencimento válida no formato YYYY-MM-DD."}
+
+    try:
+        valor = validar_centavos(valor)
+    except ValueError as erro:
+        return {"sucesso": False, "erro": str(erro)}
     if valor <= 0:
         return {
             "sucesso": False,
@@ -375,8 +387,9 @@ def listar_contas_paginadas(status=None, data_inicio=None, data_fim=None, busca=
         parametros.append(f"%{normalizar(busca)}%")
     where = " WHERE " + " AND ".join(filtros) if filtros else ""
     try:
-        geral = conexao.execute(base + " SELECT COUNT(*),COALESCE(SUM(valor),0),COALESCE(SUM(restante),0) FROM contas").fetchone()
-        filtrado = conexao.execute(base + f" SELECT COUNT(*),COALESCE(SUM(valor),0),COALESCE(SUM(restante),0) FROM contas{where}", parametros).fetchone()
+        totais = "SELECT COUNT(*),COALESCE(SUM(valor),0),COALESCE(SUM(CASE WHEN status='CANCELADA' THEN 0 ELSE restante END),0) FROM contas"
+        geral = conexao.execute(base + " " + totais).fetchone()
+        filtrado = conexao.execute(base + " " + totais + where, parametros).fetchone()
         linhas = conexao.execute(base + f" SELECT * FROM contas{where} ORDER BY {ordens[ordem]} LIMIT ? OFFSET ?",
                                  (*parametros, tamanho, (pagina - 1) * tamanho)).fetchall()
         return {
@@ -483,6 +496,7 @@ def atualizar_status_conta(conta_id):
         cursor.execute("""
             SELECT
                 valor,
+                desconto,
                 status
             FROM contas_pagar
             WHERE id = ?
@@ -497,7 +511,9 @@ def atualizar_status_conta(conta_id):
             }
 
         valor_conta = conta[0]
-        status_atual = conta[1]
+        desconto = conta[1]
+        status_atual = conta[2]
+        valor_devido = valor_conta - desconto
 
         # --------------------------------------------------------
         # Não altera conta cancelada
@@ -528,10 +544,10 @@ def atualizar_status_conta(conta_id):
         if total_pago == 0:
             novo_status = STATUS_ABERTA
 
-        elif total_pago < valor_conta:
+        elif total_pago < valor_devido:
             novo_status = STATUS_PARCIAL
 
-        elif total_pago == valor_conta:
+        elif total_pago == valor_devido:
             novo_status = STATUS_PAGA
 
         else:
@@ -563,7 +579,8 @@ def atualizar_status_conta(conta_id):
             "conta_id": conta_id,
             "valor_conta": valor_conta,
             "total_pago": total_pago,
-            "restante": valor_conta - total_pago,
+            "valor_devido": valor_devido,
+            "restante": valor_devido - total_pago,
             "status": novo_status
         }
 

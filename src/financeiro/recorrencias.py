@@ -85,13 +85,19 @@ def _prever(conn, recorrencia, limite):
         dispensada = conn.execute('''SELECT motivo FROM recorrencias_competencias_dispensadas
             WHERE recorrencia_id=? AND data_vencimento=?''',
             (recorrencia['id'], data_vencimento)).fetchone()
-        conta = conn.execute('''SELECT id,valor,status,recorrencia_id FROM contas_pagar
-            WHERE despesa_id=? AND data_vencimento=? ORDER BY id LIMIT 1''',
-            (recorrencia['despesa_id'], data_vencimento)).fetchone()
-        if dispensada:
+        contas = conn.execute('''SELECT id,valor,status,recorrencia_id FROM contas_pagar
+            WHERE despesa_id=? AND data_vencimento=? ORDER BY id''',
+            (recorrencia['despesa_id'], data_vencimento)).fetchall()
+        efetivas = [conta for conta in contas if conta['status'] != 'CANCELADA']
+        conta = efetivas[0] if efetivas else (contas[0] if contas else None)
+        if dispensada and not efetivas:
             situacao = 'DISPENSADA'
+        elif dispensada and efetivas:
+            situacao = 'CONFLITO_DISPENSA'
         elif not conta:
             situacao = 'A_GERAR'
+        elif len(efetivas) > 1:
+            situacao = 'CONFLITO_MULTIPLAS_CONTAS'
         elif conta['status'] == 'CANCELADA':
             situacao = 'CONTA_CANCELADA'
         elif conta['valor'] != valor:
@@ -149,8 +155,13 @@ def dispensar_competencia(recorrencia_id, data_vencimento, motivo):
         raise ValueError('Informe o motivo da dispensa desta competência.')
     with closing(conectar()) as conn, conn:
         conn.execute('BEGIN IMMEDIATE')
-        if conn.execute('SELECT 1 FROM contas_pagar WHERE recorrencia_id=? AND data_vencimento=? AND status!=\'CANCELADA\'',
-                        (recorrencia_id, data_vencimento)).fetchone():
+        recorrencia = conn.execute('SELECT despesa_id FROM recorrencias_despesas WHERE id=?',
+                                  (recorrencia_id,)).fetchone()
+        if not recorrencia:
+            raise ValueError('Programação não encontrada.')
+        if conn.execute('''SELECT 1 FROM contas_pagar WHERE despesa_id=? AND data_vencimento=?
+                           AND status!='CANCELADA' LIMIT 1''',
+                        (recorrencia[0], data_vencimento)).fetchone():
             raise ValueError('A competência já possui conta efetiva; cancele ou trate a conta antes da dispensa.')
         conn.execute('''INSERT INTO recorrencias_competencias_dispensadas
             (recorrencia_id,data_vencimento,motivo) VALUES(?,?,?)''',

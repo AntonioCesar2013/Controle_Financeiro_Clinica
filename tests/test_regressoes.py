@@ -104,7 +104,8 @@ class Regressoes(unittest.TestCase):
         self.assertIsNone(self.sql("SELECT encerrada_em FROM internacoes")[0][0])
         self.assertTrue(internacoes.encerrar_internacao(iid, "2026-08-10", autorizar_ajuste_desconto=True)["sucesso"])
         self.assertEqual(self.sql("SELECT valor,desconto,status FROM cobrancas WHERE id=?", (cid,))[0], (100000, 100000, "DESCONTADA"))
-        self.assertEqual(self.sql("SELECT desconto_anterior,desconto_novo FROM ajustes_cobrancas WHERE cobranca_id=?", (cid,))[0], (200000, 100000))
+        self.assertEqual(self.sql("SELECT desconto_anterior,desconto_novo FROM ajustes_cobrancas WHERE cobranca_id=? ORDER BY id", (cid,)),
+                         [(0, 200000), (200000, 100000)])
 
     def test_convenio_parcial_recalculado_e_excesso_bloqueado(self):
         iid, cid = self.convenio()

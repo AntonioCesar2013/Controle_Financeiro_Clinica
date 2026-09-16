@@ -1,15 +1,19 @@
 import sqlite3
 
 from src.infraestrutura.banco import conectar
+from src.cadastros.booleanos import normalizar_booleano
 
 
 def cadastrar_convenio(nome, valor_diaria, ativo=1):
     nome = str(nome or "").strip()
     try:
         valor_diaria = int(valor_diaria)
-        ativo = 1 if int(ativo) else 0
     except (TypeError, ValueError):
         return {"sucesso": False, "erro": "Informe um valor de diária válido."}
+    try:
+        ativo = normalizar_booleano(ativo, "ativo")
+    except ValueError as erro:
+        return {"sucesso": False, "erro": str(erro)}
     if not nome:
         return {"sucesso": False, "erro": "O nome do convênio é obrigatório."}
     if valor_diaria < 0:

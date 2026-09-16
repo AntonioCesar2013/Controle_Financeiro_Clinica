@@ -2,6 +2,7 @@
 from src.nucleo.validacao import inteiro
 from datetime import date
 from src.financeiro.moeda import reais_para_centavos
+from src.cadastros.booleanos import normalizar_booleano
 
 
 OBRIGATORIOS = {
@@ -15,8 +16,10 @@ OBRIGATORIOS = {
     '/api/recorrencias/dispensar': ('id','data_vencimento','motivo'),
     '/api/internacoes/prorrogar': ('id','periodo_atual','novo_periodo','motivo'),
     '/api/residentes': ('nome','cpf'), '/api/residentes/editar': ('id','nome','cpf'),
+    '/api/residentes/itens': ('residente_id','nome','quantidade'),
+    '/api/residentes/itens/editar': ('id','nome','quantidade'),
     '/api/responsaveis': ('nome','cpf'), '/api/responsaveis/editar': ('id','nome','cpf'),
-    '/api/internacoes': ('residente_id','responsavel_id','data_acolhimento','periodo_tratamento'),
+    '/api/internacoes': ('residente_id','responsavel_id','data_acolhimento'),
     '/api/internacoes/cancelar': ('id','motivo'), '/api/internacoes/encerrar': ('id','data_encerramento','motivo','assinatura'),
     '/api/internacoes/responsavel': ('id','responsavel_id'),
     '/api/convenios': ('nome','valor_diaria'), '/api/colaboradores': ('nome','cpf','senha'),
@@ -61,6 +64,14 @@ def validar(rota, dados):
     for campo in OBRIGATORIOS[rota]:
         if campo not in dados or dados[campo] is None or (isinstance(dados[campo],str) and not dados[campo].strip()):
             raise ValueError(f'Preencha o campo obrigatório: {campo}.')
+    if rota == '/api/internacoes':
+        if str(dados.get('modalidade') or 'PARTICULAR').upper() == 'VOLUNTARIO':
+            dados['periodo_tratamento'] = 0
+            dados['convenio_id'] = None
+            for campo in ('valor_contrato', 'valor_acolhimento', 'valor_mensalidade'):
+                dados[campo] = 0
+        elif dados.get('periodo_tratamento') in (None, ''):
+            raise ValueError('Preencha o campo obrigatório: periodo_tratamento.')
     for campo, valor in dados.items():
         if len(campo) > 100:
             raise ValueError('Nome de campo inválido.')
@@ -87,6 +98,9 @@ def validar(rota, dados):
             continue
         if isinstance(valor, (dict,list)):
             raise ValueError(f'O campo {campo} não aceita listas ou objetos.')
+        if campo in BOOLEANOS:
+            dados[campo] = normalizar_booleano(valor, campo)
+            continue
         if valor is None or valor == '':
             continue
         if campo.endswith('_id') or campo == 'id':
@@ -95,9 +109,6 @@ def validar(rota, dados):
             inteiro(valor,campo, None if campo=='quantidade' and rota=='/api/itens/estoque' else 0)
         elif campo in MONETARIOS:
             reais_para_centavos(valor)
-        elif campo in BOOLEANOS:
-            if str(valor).lower() not in ('0','1','true','false'):
-                raise ValueError(f'O campo {campo} deve indicar sim ou não.')
         elif campo.startswith('data_'):
             try:
                 if not isinstance(valor,str) or date.fromisoformat(valor).isoformat()!=valor:

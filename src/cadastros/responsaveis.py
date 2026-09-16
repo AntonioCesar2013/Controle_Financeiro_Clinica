@@ -1,4 +1,5 @@
 from src.infraestrutura.banco import conectar
+from src.cadastros.booleanos import normalizar_booleano
 
 
 def cadastrar_responsavel(nome, cpf, telefone, email):
@@ -98,16 +99,17 @@ def buscar_responsavel_por_cpf(cpf):
 
 def editar_responsavel(id_responsavel, nome, cpf, telefone, email, ativo=1):
     nome = str(nome or "").strip()
-    cpf = "".join(x for x in str(cpf or "") if x.isdigit())
+    cpf_original = str(cpf or "").strip()
+    cpf = cpf_original if cpf_original.startswith("PENDENTE-") else "".join(x for x in cpf_original if x.isdigit())
     telefone = str(telefone or "").strip() or None
     email = str(email or "").strip() or None
     try:
-        ativo = int(ativo)
-    except (TypeError, ValueError):
-        ativo = -1
+        ativo = normalizar_booleano(ativo, "ativo")
+    except ValueError as erro:
+        return {"sucesso": False, "erro": str(erro)}
     if not nome:
         return {"sucesso": False, "erro": "O nome do responsável é obrigatório."}
-    if len(cpf) not in (11, 14):
+    if not cpf.startswith("PENDENTE-") and len(cpf) not in (11, 14):
         return {"sucesso": False, "erro": "O CPF ou CNPJ do responsável deve conter 11 ou 14 números."}
     if email and "@" not in email:
         return {"sucesso": False, "erro": "O e-mail informado é inválido."}
@@ -115,6 +117,9 @@ def editar_responsavel(id_responsavel, nome, cpf, telefone, email, ativo=1):
         return {"sucesso": False, "erro": "Situação inválida."}
     conexao = conectar()
     try:
+        atual = conexao.execute("SELECT cpf FROM responsaveis WHERE id=?", (id_responsavel,)).fetchone()
+        if cpf.startswith("PENDENTE-") and (not atual or atual[0] != cpf):
+            return {"sucesso": False, "erro": "Identificador pendente só pode ser mantido no cadastro original."}
         cursor = conexao.execute(
             "UPDATE responsaveis SET nome=?,cpf=?,telefone=?,email=?,ativo=? WHERE id=?",
             (nome, cpf, telefone, email, ativo, id_responsavel),

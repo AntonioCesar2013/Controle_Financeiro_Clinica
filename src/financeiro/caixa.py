@@ -54,7 +54,8 @@ def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None, limite=N
             limite = max(1, min(int(limite), 500))
         except (TypeError, ValueError) as erro:
             raise ValueError("Limite de movimentos inválido.") from erro
-    sufixo_limite = " ORDER BY data DESC, id DESC LIMIT ?" if limite else ""
+    def ordem_limite(data, identificador):
+        return f" ORDER BY {data} DESC, {identificador} DESC LIMIT ?" if limite else ""
     filtros_entrada = ["NOT EXISTS (SELECT 1 FROM conciliacoes_vinculos v WHERE v.recebimento_id=r.id)"]
     filtros_bancarias = ["NOT EXISTS (SELECT 1 FROM conciliacoes_bancarias cb WHERE cb.entrada_id=eb.id AND cb.desfeita_em IS NULL AND cb.destino='CARTEIRA')"]
     filtros_saida = []
@@ -101,7 +102,7 @@ def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None, limite=N
             INNER JOIN cobrancas c ON c.id = r.cobranca_id
             INNER JOIN internacoes i ON i.id = c.internacao_id
             INNER JOIN residentes res ON res.id = i.residente_id
-            {where_entrada}{sufixo_limite}
+            {where_entrada}{ordem_limite('r.data_recebimento', 'r.id')}
             """,
             [*parametros_entrada, *([limite] if limite else [])],
         ).fetchall()
@@ -112,7 +113,7 @@ def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None, limite=N
                    eb.observacao, COALESCE(cb.destino,'PENDENTE') AS conciliacao
             FROM entradas_bancarias eb
             LEFT JOIN conciliacoes_bancarias cb ON cb.entrada_id=eb.id AND cb.desfeita_em IS NULL
-            {where_bancarias}{sufixo_limite}
+            {where_bancarias}{ordem_limite('eb.data_entrada', 'eb.id')}
             """,
             [*parametros_bancarias, *([limite] if limite else [])],
         ).fetchall()
@@ -132,7 +133,7 @@ def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None, limite=N
             INNER JOIN contas_pagar cp ON cp.id = ps.conta_pagar_id
             INNER JOIN despesas d ON d.id = cp.despesa_id
             INNER JOIN setores s ON s.id = d.setor_id
-            {where_saida}{sufixo_limite}
+            {where_saida}{ordem_limite('ps.data_pagamento', 'ps.id')}
             """,
             [*parametros_saida, *([limite] if limite else [])],
         ).fetchall()
@@ -141,7 +142,7 @@ def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None, limite=N
             JOIN cobrancas c ON c.id=r.cobranca_id JOIN internacoes i ON i.id=c.internacao_id
             JOIN residentes res ON res.id=i.residente_id
             WHERE d.estornada=0 AND (? IS NULL OR d.data_devolucao>=?) AND (? IS NULL OR d.data_devolucao<=?)
-            {sufixo_limite}''',
+            {ordem_limite('d.data_devolucao', 'd.id')}''',
             (data_inicio, data_inicio, data_fim, data_fim, *([limite] if limite else []))).fetchall()
     finally:
         if propria:

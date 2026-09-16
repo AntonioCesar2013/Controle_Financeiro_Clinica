@@ -16,3 +16,7 @@ python "C:\Projetos\Controle_Financeiro_Clinica\src\banco.py"
 
 # Limpeza e populacao do banco com dados ficticios
 python "C:\Projetos\Controle_Financeiro_Clinica\src\popular_banco.py"
+
+
+# Executar Sistema
+python "C:\Projetos\Controle_Financeiro_Clinica\main.py"

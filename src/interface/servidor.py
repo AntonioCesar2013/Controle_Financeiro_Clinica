@@ -24,6 +24,7 @@ from src.financeiro import contas_pagar
 from src.financeiro import contas_receber
 from src.cadastros import convenios
 from src.cadastros import contatos
+from src.cadastros import itens_residentes
 from src.financeiro import despesas
 from src.cantina import produtos as itens
 from src.interface import relatorios
@@ -253,6 +254,14 @@ class Requisicao(BaseHTTPRequestHandler):
         if rota == "/api/residentes":
             resultado = cadastrar_residente(dados.get("nome"), dados.get("cpf"), dados.get("cidade_origem"))
             return self._json(resultado, HTTPStatus.CREATED if resultado.get("sucesso") else HTTPStatus.BAD_REQUEST)
+        if rota == "/api/residentes/itens":
+            return self._resultado_operacao(itens_residentes.cadastrar(
+                dados.get("residente_id"), dados.get("nome"), dados.get("quantidade", 1),
+                dados.get("descricao"), dados.get("data_entrada"), dados.get("data_retirada")))
+        if rota == "/api/residentes/itens/editar":
+            return self._resultado_operacao(itens_residentes.editar(
+                dados.get("id"), dados.get("nome"), dados.get("quantidade", 1),
+                dados.get("descricao"), dados.get("data_entrada"), dados.get("data_retirada")), criado=False)
         if rota == "/api/recibos":
             try:
                 return self._json({"sucesso": True, "dados": recibos.gerar(dados.get("recebimento_id"))})

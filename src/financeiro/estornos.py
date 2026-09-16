@@ -23,11 +23,14 @@ def preservar(conexao, tabela, lancamento_id, motivo):
 def historico(tabela, origem_id, ativos):
     conexao = conectar()
     try:
-        estornados = [{**json.loads(dados), "estornada": True,
-                      "estornada_em": quando, "motivo_estorno": motivo}
-                     for dados, quando, motivo in conexao.execute(
+        estornados = []
+        for dados, quando, motivo in conexao.execute(
                          "SELECT dados,estornada_em,motivo FROM estornos_financeiros WHERE tabela=? AND origem_id=?",
-                         (tabela, origem_id))]
+                         (tabela, origem_id)):
+            item = json.loads(dados)
+            item["total_lancamento"] = item["valor"] + (item.get("multa_juros") or 0)
+            item.update(estornada=True, estornada_em=quando, motivo_estorno=motivo)
+            estornados.append(item)
         return [{**item, "estornada": False} for item in ativos] + estornados
     finally:
         conexao.close()

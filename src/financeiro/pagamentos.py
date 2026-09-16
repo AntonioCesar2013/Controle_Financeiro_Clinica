@@ -466,22 +466,20 @@ def resumo_conta(conta_pagar_id):
             }
 
         valor_conta = conta["valor"]
+        valor_devido = valor_conta - conta["desconto"]
 
         total_pago = _total_pago(
             conn,
             conta_pagar_id
         )
 
-        restante = max(
-            valor_conta - total_pago,
-            0
-        )
+        restante = valor_devido - total_pago
 
         return {
             "sucesso": True,
             "conta_pagar_id": conta_pagar_id,
-        "valor_conta": valor_conta,
-        "valor_devido": valor_devido,
+            "valor_conta": valor_conta,
+            "valor_devido": valor_devido,
             "total_pago": total_pago,
             "restante": restante,
             "status": conta["status"]

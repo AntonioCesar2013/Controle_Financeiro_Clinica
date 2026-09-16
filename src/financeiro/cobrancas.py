@@ -7,6 +7,7 @@ from src.financeiro.contas_receber import (
     listar_cobrancas_consolidadas,
 )
 from src.financeiro.parcelas import calcular_data_vencimento
+from src.financeiro.moeda import validar_centavos
 
 
 def _competencias_diarias(inicio, fim, valor_diaria):
@@ -233,99 +234,81 @@ def buscar_cobranca(cobranca_id, data_referencia=None):
 
 
 def aplicar_desconto(cobranca_id, valor_desconto):
-    conexao = conectar()
-    cursor = conexao.cursor()
-    cursor.execute("BEGIN IMMEDIATE")
-
-    cobranca = cursor.execute("""
-        SELECT
-            valor,
-            desconto,
-            status
-        FROM cobrancas
-        WHERE id = ?
-    """, (cobranca_id,)).fetchone()
-
-    if not cobranca:
-        conexao.close()
-        return {
-            "sucesso": False,
-            "erro": "Cobrança não encontrada."
-        }
-
-    valor = cobranca[0]
-    desconto_atual = cobranca[1]
-    status = cobranca[2]
-
-    if status == "PAGA":
-        conexao.close()
-        return {
-            "sucesso": False,
-            "erro": "Não é possível aplicar desconto em uma cobrança já paga."
-        }
-
-    if status == "DESCONTADA":
-        conexao.close()
-        return {
-            "sucesso": False,
-            "erro": "A cobrança já está totalmente descontada."
-        }
-
+    try:
+        valor_desconto = validar_centavos(valor_desconto)
+    except ValueError as erro:
+        return {"sucesso": False, "erro": str(erro)}
     if valor_desconto <= 0:
-        conexao.close()
+        return {"sucesso": False, "erro": "O valor do desconto deve ser maior que zero."}
+
+    conexao = conectar()
+    try:
+        cursor = conexao.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+
+        cobranca = cursor.execute(
+            "SELECT valor,desconto,status FROM cobrancas WHERE id=?", (cobranca_id,)
+        ).fetchone()
+
+        if not cobranca:
+            return {"sucesso": False, "erro": "Cobrança não encontrada."}
+
+        valor = cobranca[0]
+        desconto_atual = cobranca[1]
+        status = cobranca[2]
+
+        if status == "PAGA":
+            return {"sucesso": False, "erro": "Não é possível aplicar desconto em uma cobrança já paga."}
+
+        if status == "DESCONTADA":
+            return {"sucesso": False, "erro": "A cobrança já está totalmente descontada."}
+
+        total_recebido = cursor.execute(
+            "SELECT COALESCE(SUM(valor), 0) FROM recebimentos_liquidos WHERE cobranca_id = ?",
+            (cobranca_id,),
+        ).fetchone()[0]
+        desconto_disponivel = valor - desconto_atual - total_recebido
+
+        if valor_desconto > desconto_disponivel:
+            return {
+                "sucesso": False,
+                "erro": (
+                    f"O desconto não pode ser maior que o valor restante "
+                    f"da cobrança. Disponível para desconto: R$ {desconto_disponivel / 100:.2f}"
+                ),
+            }
+
+        novo_desconto = desconto_atual + valor_desconto
+        valor_devido = valor - novo_desconto
+
+        if valor_devido == 0 and total_recebido == 0:
+            novo_status = "DESCONTADA"
+        elif total_recebido == valor_devido:
+            novo_status = "PAGA"
+        elif total_recebido > 0:
+            novo_status = "PARCIAL"
+        else:
+            novo_status = "ABERTA"
+
+        cursor.execute(
+            "UPDATE cobrancas SET desconto=?,status=? WHERE id=?",
+            (novo_desconto, novo_status, cobranca_id),
+        )
+        cursor.execute("""INSERT INTO ajustes_cobrancas
+            (cobranca_id,valor_anterior,valor_novo,desconto_anterior,desconto_novo,motivo)
+            VALUES(?,?,?,?,?,?)""",
+            (cobranca_id, valor, valor, desconto_atual, novo_desconto,
+             "Desconto independente aplicado à cobrança"))
+
+        conexao.commit()
+
         return {
-            "sucesso": False,
-            "erro": "O valor do desconto deve ser maior que zero."
+            "sucesso": True, "cobranca_id": cobranca_id, "valor": valor,
+            "desconto": novo_desconto, "valor_devido": valor_devido,
+            "status": novo_status,
         }
-
-    total_recebido = cursor.execute(
-        "SELECT COALESCE(SUM(valor), 0) FROM recebimentos_liquidos WHERE cobranca_id = ?",
-        (cobranca_id,),
-    ).fetchone()[0]
-    desconto_disponivel = valor - desconto_atual - total_recebido
-
-    if valor_desconto > desconto_disponivel:
+    except Exception:
+        conexao.rollback()
+        raise
+    finally:
         conexao.close()
-        return {
-            "sucesso": False,
-            "erro": (
-                f"O desconto não pode ser maior que o valor restante "
-                f"da cobrança. Disponível para desconto: R$ {desconto_disponivel / 100:.2f}"
-            )
-        }
-
-    novo_desconto = desconto_atual + valor_desconto
-    valor_devido = valor - novo_desconto
-
-    if valor_devido == 0 and total_recebido == 0:
-        novo_status = "DESCONTADA"
-    elif total_recebido == valor_devido:
-        novo_status = "PAGA"
-    elif total_recebido > 0:
-        novo_status = "PARCIAL"
-    else:
-        novo_status = "ABERTA"
-
-    cursor.execute("""
-        UPDATE cobrancas
-        SET
-            desconto = ?,
-            status = ?
-        WHERE id = ?
-    """, (
-        novo_desconto,
-        novo_status,
-        cobranca_id
-    ))
-
-    conexao.commit()
-    conexao.close()
-
-    return {
-        "sucesso": True,
-        "cobranca_id": cobranca_id,
-        "valor": valor,
-        "desconto": novo_desconto,
-        "valor_devido": valor_devido,
-        "status": novo_status
-    }

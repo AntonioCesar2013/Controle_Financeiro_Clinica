@@ -91,14 +91,18 @@ def buscar_residente_por_cpf(cpf):
 
 def editar_residente(id_residente, nome, cpf, cidade_origem, ativo=None):
     nome = str(nome or "").strip()
-    cpf = "".join(x for x in str(cpf or "") if x.isdigit())
+    cpf_original = str(cpf or "").strip()
+    cpf = cpf_original if cpf_original.startswith("PENDENTE-") else "".join(x for x in cpf_original if x.isdigit())
     cidade_origem = str(cidade_origem or "").strip() or None
     if not nome:
         return {"sucesso": False, "erro": "O nome do residente é obrigatório."}
-    if len(cpf) != 11:
+    if not cpf.startswith("PENDENTE-") and len(cpf) != 11:
         return {"sucesso": False, "erro": "O CPF do residente deve conter 11 números."}
     conexao = conectar()
     try:
+        atual = conexao.execute("SELECT cpf FROM residentes WHERE id=?", (id_residente,)).fetchone()
+        if cpf.startswith("PENDENTE-") and (not atual or atual[0] != cpf):
+            return {"sucesso": False, "erro": "Identificador pendente só pode ser mantido no cadastro original."}
         cursor = conexao.execute(
             "UPDATE residentes SET nome=?,cpf=?,cidade_origem=? WHERE id=?",
             (nome, cpf, cidade_origem, id_residente),

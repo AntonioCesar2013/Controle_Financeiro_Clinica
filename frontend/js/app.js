@@ -1,5 +1,7 @@
 import { renderInstitutionalHeader } from "./components/institutional-header.js";
 import { createWorkflows } from './components/workflows.js';
+import { responsaveisElegiveis, opcoesResponsavelContratual, prepararInternacao, criarPessoa } from './components/cadastros.js';
+import { parametrosContasPagar, despesasElegiveis } from './components/contas-pagar.js';
 import { createBackupPanel } from './components/backup.js';
 import { applyTableFilters, normalizeSearch, scheduleTableFilters } from "./components/filters.js";
 import { createResidentDocuments, printDocument } from "./components/resident-documents.js";
@@ -138,6 +140,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (action === "select-report-row") selectReportRow(trigger);
         if (action === "close-panel") closePanel(trigger.closest(".panel"));
         if (action === "open-new-resident") openResidentForm();
+        if (action === "edit-existing-person") openMaintenanceForm(trigger.dataset.kind, trigger.dataset.id);
         if (action === "open-new-collaborator") openCollaboratorForm();
         if (action === "open-new-product") openProductForm();
         if (action === "open-new-guardian") openGuardianForm();
@@ -148,6 +151,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (action === "apply-report") refreshReport(trigger.closest(".panel"));
         if (action === "print-report") { document.querySelector("#document-print-target")?.remove(); window.print(); }
         if (action === "open-statement") residentDocuments.openStatement(trigger.dataset.id);
+        if (action === "resident-items") openResidentItems(trigger.dataset.id);
         if (action === "generate-receipt") residentDocuments.openReceipt(trigger.dataset.id);
         if (action === "print-document") printDocument(trigger.closest(".panel"));
         if (action === "filter-statement") {
@@ -167,7 +171,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (action === "wallet-reversal") runMaintenanceCommand("/api/carteiras/movimentacoes/estornar", { movimentacao_id: trigger.dataset.id, motivo: "Estorno realizado pela tela" }, "Estornar esta movimentação? O saldo e o estoque serão recalculados.", "carteiras");
         if (action === "preview-settlement") workflows.preview(trigger.closest("form"));
         if (action === "end-recurrence") runMaintenanceCommand("/api/recorrencias/encerrar", { id: trigger.dataset.id }, "Encerrar a programação? Contas já geradas permanecem registradas.", "despesas");
-        if (action === "open-maintenance-form") openMaintenanceForm(trigger.dataset.kind, trigger.dataset.id);
+        if (action === "open-maintenance-form") openMaintenanceForm(trigger.dataset.kind, trigger.dataset.id, trigger.dataset.residentId);
         if (action === "product-history") openProductHistory(trigger.dataset.id);
         if (action === "canteen-cart-change") changeCanteenQuantity(trigger.dataset.id, Number(trigger.dataset.delta));
         if (action === "canteen-cart-remove") removeCanteenProduct(trigger.dataset.id);
@@ -620,9 +624,9 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         try {
             const [residentsResponse, guardiansResponse, agreementsResponse] = await Promise.all([api("/api/residentes"), api("/api/responsaveis"), api("/api/convenios")]);
             const residents = residentsResponse.dados || [];
-            const guardians = guardiansResponse.dados || [];
+            const guardians = responsaveisElegiveis(guardiansResponse.dados || []);
             if (!residents.length || !guardians.length) {
-                showAlert("Cadastro necessário", "Cadastre pelo menos um residente e um responsável antes de criar a internação.");
+                showAlert("Cadastro necessário", "Cadastre um residente e um responsável ativo, ou reative um responsável, antes de criar a internação.");
                 return;
             }
             const residentOptions = residents.map((item) => `<option value="${item.id}">${escapeHtml(item.nome)}</option>`).join("");
@@ -648,6 +652,10 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         form.elements.convenio_id.required = agreement;
         form.elements.servicos_voluntario.required = volunteer;
         form.elements.periodo_tratamento.required = !volunteer;
+        form.elements.periodo_tratamento.disabled = volunteer;
+        form.elements.convenio_id.disabled = !agreement;
+        form.elements.servicos_voluntario.disabled = !volunteer;
+        ["valor_contrato", "valor_acolhimento", "valor_mensalidade"].forEach(name => form.elements[name].disabled = !particular);
         form.querySelector("[data-internment-note]").textContent = volunteer ? "A permanência não tem prazo e continuará ativa até o encerramento manual." : mode === "SOCIAL" ? "O contrato terá período definido, sem gerar cobranças." : agreement ? "As cobranças serão separadas por mês conforme as diárias do período." : "O residente ficará ativo somente enquanto esta internação estiver dentro do período contratado.";
     }
 
@@ -663,14 +671,18 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             const registrations = needsRegistrations ? (await api("/api/financeiro/cadastros")).dados : null;
             const isReceipt = ["recebimento", "recebimento_mensalidade"].includes(kind);
             const isSettlement = isReceipt || kind === "pagamento";
-            const settlement = isSettlement ? (await api(`/${isReceipt ? "api/contas-receber" : "api/contas-pagar"}/detalhe?id=${encodeURIComponent(id)}`)).dados : null;
-            if (isSettlement && (!settlement || settlement.sucesso === false)) throw new Error(settlement?.erro || "Conta não encontrada.");
+            const isDiscount = ["desconto", "desconto_mensalidade"].includes(kind);
+            const settlement = isSettlement || isDiscount ? (await api(`/${isReceipt || isDiscount ? "api/contas-receber" : "api/contas-pagar"}/detalhe?id=${encodeURIComponent(id)}`)).dados : null;
+            if ((isSettlement || isDiscount) && (!settlement || settlement.sucesso === false)) throw new Error(settlement?.erro || "Conta não encontrada.");
+            if (isDiscount && (Number(settlement.saldo_restante) <= 0 || ["PAGA", "DESCONTADA"].includes(settlement.status))) throw new Error("Esta cobrança não possui saldo disponível para desconto.");
+            const discountFields = isDiscount ? `<input type="hidden" name="cobranca_id" value="${escapeHtml(id)}"><p>Saldo disponível: ${escapeHtml(formatMoney(settlement.saldo_restante))}</p>${moneyField("Valor do desconto").replace('step="0.01"', `step="0.01" max="${(Number(settlement.saldo_restante) / 100).toFixed(2)}"`)}` : "";
             const definitions = {
                 setor: ["Novo setor", "/api/setores", "despesas", '<div class="field"><label for="financial-name">Nome</label><input id="financial-name" name="nome" required></div>'],
                 pagamento: kind === "pagamento" ? ["Registrar pagamento", "/api/pagamentos-saida", "contas_pagar", settlementFields(id, today, settlement, false)] : null,
                 recebimento: kind === "recebimento" ? ["Registrar recebimento", "/api/recebimentos", "contas_receber", settlementFields(id, today, settlement, true)] : null,
                 recebimento_mensalidade: kind === "recebimento_mensalidade" ? ["Registrar recebimento", "/api/recebimentos", "mensalidades", settlementFields(id, today, settlement, true)] : null,
-                desconto: ["Aplicar desconto", "/api/cobrancas/desconto", "contas_receber", `<input type="hidden" name="cobranca_id" value="${escapeHtml(id)}">${moneyField("Valor do desconto")}`],
+                desconto: isDiscount ? ["Aplicar desconto", "/api/cobrancas/desconto", "contas_receber", discountFields] : null,
+                desconto_mensalidade: isDiscount ? ["Aplicar desconto", "/api/cobrancas/desconto", "mensalidades", discountFields] : null,
             };
 
             if (kind === "despesa") {
@@ -682,9 +694,9 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
                 definitions.despesa = ["Nova despesa", "/api/despesas", "despesas", `<div class="field"><label for="expense-sector">Setor</label><select id="expense-sector" name="setor_id" required>${selectOptions(sectors)}</select></div><div class="field"><label for="expense-description">Descrição</label><input id="expense-description" name="descricao" required></div><div class="field"><label for="expense-nature">Natureza</label><select id="expense-nature" name="natureza"><option value="FIXA">Fixa</option><option value="VARIAVEL">Variável</option><option value="EXTRAORDINARIA">Extraordinária</option></select></div><label class="form-note"><input name="recorrente" type="checkbox" value="1"> Despesa recorrente</label>`];
             }
             if (kind === "conta") {
-                const activeExpenses = registrations.despesas.filter((item) => Number(item.ativo) === 1);
+                const activeExpenses = despesasElegiveis(registrations);
                 if (!activeExpenses.length) {
-                    showAlert("Cadastro necessário", "Cadastre uma despesa ativa antes de lançar uma conta.");
+                    showAlert("Cadastro necessário", "Cadastre ou reative uma despesa vinculada a um setor ativo antes de lançar uma conta.");
                     return;
                 }
                 definitions.conta = ["Nova conta a pagar", "/api/contas-pagar", "contas_pagar", `<div class="field"><label for="payable-expense">Despesa</label><select id="payable-expense" name="despesa_id" required>${activeExpenses.map((item) => `<option value="${item.id}">${escapeHtml(item.descricao)} — ${escapeHtml(item.setor_nome)}</option>`).join("")}</select></div><div class="field"><label for="financial-due-date">Vencimento</label><input id="financial-due-date" name="data_vencimento" type="date" value="${today}" required></div>${moneyField("Valor da conta")}`];
@@ -725,11 +737,11 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     function updateSettlementRemaining(form) {
         if (!form) return;
-        const initial = Number(form.querySelector("[data-remaining]")?.dataset.remaining || 0);
-        const received = currencyValue(form.elements.valor.value);
-        const discount = currencyValue(form.elements.desconto.value);
+        const initial = Math.round(Number(form.querySelector("[data-remaining]")?.dataset.remaining || 0) * 100);
+        const received = Math.round(currencyValue(form.elements.valor.value) * 100);
+        const discount = Math.round(currencyValue(form.elements.desconto.value) * 100);
         const remaining = initial - received - discount;
-        form.querySelector("[data-receipt-remaining]").value = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Math.max(0, remaining));
+        form.querySelector("[data-receipt-remaining]").value = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Math.max(0, remaining) / 100);
         const message = remaining < 0 ? "O valor e o desconto não podem ultrapassar o saldo restante." : "";
         form.elements.valor.setCustomValidity(message);
         form.elements.desconto.setCustomValidity(message);
@@ -829,7 +841,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         } catch (error) { showAlert("Não foi possível abrir", error.message); }
     }
 
-    async function openMaintenanceForm(kind, id) {
+    async function openMaintenanceForm(kind, id, residentId = "") {
         if (['internment-end', 'internment-extend', 'refund', 'refund-reversal', 'wallet-refund', 'contact-primary', 'recurrence', 'recurrence-generate', 'recurrence-adjust', 'recurrence-dispense'].includes(kind)) return workflows.open(kind, id);
         try {
             const today = localDate();
@@ -840,15 +852,26 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             if (kind === "resident") {
                 const item = (await api("/api/residentes")).dados.find((row) => String(row.id) === String(id));
                 title = "Editar residente"; endpoint = "/api/residentes/editar"; refresh = "residentes";
-                fields = `<input type="hidden" name="id" value="${item.id}"><div class="field"><label>Nome</label><input name="nome" value="${escapeHtml(item.nome)}" required></div><div class="field"><label>CPF</label><input name="cpf" value="${escapeHtml(item.cpf)}" inputmode="numeric" data-mask="cpf" maxlength="14" required></div><div class="field"><label>Cidade de origem</label><input name="cidade_origem" value="${escapeHtml(item.cidade_origem || "")}"></div><p class="form-note">A situação é calculada automaticamente pela internação.</p>`;
+                fields = `<input type="hidden" name="id" value="${item.id}"><div class="field"><label>Nome</label><input name="nome" value="${escapeHtml(item.nome)}" required></div><div class="field"><label>CPF</label><input name="cpf" value="${escapeHtml(item.cpf)}" ${String(item.cpf).startsWith("PENDENTE-") ? "" : 'inputmode="numeric" data-mask="cpf" maxlength="14"'} required></div><div class="field"><label>Cidade de origem</label><input name="cidade_origem" value="${escapeHtml(item.cidade_origem || "")}"></div><p class="form-note">A situação é calculada automaticamente pela internação.</p>`;
+            } else if (kind === "resident-item-new") {
+                title = "Novo item pessoal"; endpoint = "/api/residentes/itens"; refresh = "residentes";
+                fields = `<input type="hidden" name="residente_id" value="${escapeHtml(id)}"><div class="field"><label>Item</label><input name="nome" maxlength="200" required></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" step="1" value="1" required></div><div class="field"><label>Data de entrada no inventário</label><input name="data_entrada" type="date" value="${today}" max="${today}" required></div><div class="field"><label>Data de retirada pela família (opcional)</label><input name="data_retirada" type="date" max="${today}"></div><div class="field"><label>Descrição (opcional)</label><textarea name="descricao" maxlength="2000" rows="3"></textarea></div>`;
+            } else if (kind === "resident-item") {
+                const item = (await api(`/api/residentes/itens?residente_id=${encodeURIComponent(residentId)}`)).dados.find((row) => String(row.id) === String(id));
+                if (!item) throw new Error("Item pessoal não encontrado.");
+                title = "Editar item pessoal"; endpoint = "/api/residentes/itens/editar"; refresh = "residentes";
+                fields = `<input type="hidden" name="id" value="${item.id}"><input type="hidden" name="residente_id" value="${escapeHtml(residentId)}"><div class="field"><label>Item</label><input name="nome" maxlength="200" value="${escapeHtml(item.nome)}" required></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" step="1" value="${item.quantidade}" required></div><div class="field"><label>Data de entrada no inventário${item.data_entrada ? "" : " (a confirmar)"}</label><input name="data_entrada" type="date" value="${escapeHtml(item.data_entrada || "")}" max="${today}"></div><div class="field"><label>Data de retirada pela família (opcional)</label><input name="data_retirada" type="date" value="${escapeHtml(item.data_retirada || "")}" max="${today}"></div><div class="field"><label>Descrição (opcional)</label><textarea name="descricao" maxlength="2000" rows="3">${escapeHtml(item.descricao || "")}</textarea></div>`;
             } else if (kind === "guardian") {
                 const item = (await api("/api/responsaveis")).dados.find((row) => String(row.id) === String(id));
                 title = "Editar responsável"; endpoint = "/api/responsaveis/editar"; refresh = "responsaveis";
-                fields = `<input type="hidden" name="id" value="${item.id}"><div class="field"><label>Nome</label><input name="nome" value="${escapeHtml(item.nome)}" required></div><div class="field"><label>CPF ou CNPJ</label><input name="cpf" value="${escapeHtml(item.cpf)}" inputmode="numeric" data-mask="document" maxlength="18" required></div><div class="field"><label>Telefone</label><input name="telefone" type="tel" inputmode="numeric" data-mask="phone" maxlength="15" value="${escapeHtml(item.telefone || "")}"></div><div class="field"><label>E-mail</label><input name="email" type="email" value="${escapeHtml(item.email || "")}"></div>${activeSelect(item.ativo)}`;
+                fields = `<input type="hidden" name="id" value="${item.id}"><div class="field"><label>Nome</label><input name="nome" value="${escapeHtml(item.nome)}" required></div><div class="field"><label>CPF ou CNPJ</label><input name="cpf" value="${escapeHtml(item.cpf)}" ${String(item.cpf).startsWith("PENDENTE-") ? "" : 'inputmode="numeric" data-mask="document" maxlength="18"'} required></div><div class="field"><label>Telefone</label><input name="telefone" type="tel" inputmode="numeric" data-mask="phone" maxlength="15" value="${escapeHtml(item.telefone || "")}"></div><div class="field"><label>E-mail</label><input name="email" type="email" value="${escapeHtml(item.email || "")}"></div>${activeSelect(item.ativo)}`;
             } else if (kind === "internment-guardian") {
-                const guardians = (await api("/api/responsaveis")).dados.filter((row) => Number(row.ativo) === 1);
-                title = "Alterar responsável principal"; endpoint = "/api/internacoes/responsavel"; refresh = "internacoes";
-                fields = `<input type="hidden" name="id" value="${escapeHtml(id)}"><div class="field"><label>Responsável</label><select name="responsavel_id">${selectOptions(guardians)}</select></div>`;
+                const [{ dados: internacao }, { dados: responsaveis }] = await Promise.all([
+                    api(`/api/internacoes/detalhe?id=${encodeURIComponent(id)}`), api("/api/responsaveis")
+                ]);
+                const escolha = opcoesResponsavelContratual(internacao, responsaveis);
+                title = "Alterar responsável contratual"; endpoint = "/api/internacoes/responsavel"; refresh = "internacoes";
+                fields = `<input type="hidden" name="id" value="${escapeHtml(id)}"><div class="field"><label>Responsável contratual</label><select name="responsavel_id">${escolha.opcoes}</select>${escolha.aviso ? `<small>${escapeHtml(escolha.aviso)}</small>` : ""}</div>`;
             } else if (kind === "product") {
                 const item = (await api("/api/itens")).dados.find((row) => String(row.id) === String(id));
                 title = "Editar produto"; endpoint = "/api/itens/editar"; refresh = "itens";
@@ -896,7 +919,11 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             const result = await api(form.dataset.endpoint, { method: "POST", body: data });
             const refresh = form.dataset.refresh;
             closeLayer("auxiliary");
-            await openMainPanel(refresh, { preserveWalletResident: refresh === "carteiras" });
+            if (form.dataset.kind === "resident-item-new" || form.dataset.kind === "resident-item") {
+                await openResidentItems(data.residente_id);
+            } else {
+                await openMainPanel(refresh, { preserveWalletResident: refresh === "carteiras" });
+            }
             const message = form.dataset.kind === 'recurrence-generate'
                 ? `${result.quantidade} conta(s) criada(s). ${result.contas_existentes.length} vencimento(s) compatível(is) preservado(s), ${result.competencias_dispensadas.length} dispensado(s) e ${result.conflitos.length} conflito(s) mantido(s) para revisão.`
                 : form.dataset.kind === 'internment-extend'
@@ -926,11 +953,31 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         } catch (error) { showAlert("Não foi possível consultar", error.message); }
     }
 
+    async function openResidentItems(residentId) {
+        try {
+            const [{ dados: items }, { dados: residents }] = await Promise.all([
+                api(`/api/residentes/itens?residente_id=${encodeURIComponent(residentId)}`),
+                api("/api/residentes"),
+            ]);
+            const resident = residents.find((row) => String(row.id) === String(residentId));
+            if (!resident) throw new Error("Residente não encontrado.");
+            const table = renderActionTable(items, [["Item", "nome"], ["Quantidade", "quantidade"], ["Entrada no inventário", "data_entrada", formatDate], ["Retirada pela família", "data_retirada", formatDate], ["Descrição", "descricao"]],
+                (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="resident-item" data-id="${row.id}" data-resident-id="${escapeHtml(residentId)}">Editar</button>`);
+            const body = `<div class="toolbar"><p>Itens pessoais de ${escapeHtml(resident.nome)}</p><button class="button" type="button" data-action="open-maintenance-form" data-kind="resident-item-new" data-id="${escapeHtml(residentId)}">Adicionar item</button></div>${table}`;
+            layers.auxiliary.replaceChildren(createPanel({ title: "Itens pessoais", eyebrow: "Residente", body, size: "large" }));
+        } catch (error) { showAlert("Não foi possível consultar", error.message); }
+    }
+
     async function submitResident(form) {
         const data = Object.fromEntries(new FormData(form));
         setFormBusy(form, true);
         try {
-            await api("/api/residentes", { method: "POST", body: data });
+            const resultado = await criarPessoa(api, "/api/residentes", data);
+            if (!resultado.criada) {
+                form.querySelector("#resident-error").textContent = resultado.mensagem;
+                form.querySelector("#resident-error").insertAdjacentHTML("afterend", `<button class="button button--secondary" type="button" data-action="edit-existing-person" data-kind="resident" data-id="${escapeHtml(resultado.id)}">Editar cadastro existente</button>`);
+                return;
+            }
             closeLayer("auxiliary");
             await openMainPanel("residentes");
             showAlert("Residente salvo", "O cadastro foi registrado com sucesso.");
@@ -1137,7 +1184,12 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const data = Object.fromEntries(new FormData(form));
         setFormBusy(form, true);
         try {
-            await api("/api/responsaveis", { method: "POST", body: data });
+            const resultado = await criarPessoa(api, "/api/responsaveis", data);
+            if (!resultado.criada) {
+                form.querySelector("[data-guardian-error]").textContent = resultado.mensagem;
+                form.querySelector("[data-guardian-error]").insertAdjacentHTML("afterend", `<button class="button button--secondary" type="button" data-action="edit-existing-person" data-kind="guardian" data-id="${escapeHtml(resultado.id)}">Editar cadastro existente</button>`);
+                return;
+            }
             closeLayer("auxiliary"); await openMainPanel("responsaveis");
             showAlert("Responsável salvo", "O responsável foi cadastrado com sucesso.");
         } catch (error) { form.querySelector("[data-guardian-error]").textContent = error.message; }
@@ -1153,7 +1205,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function submitInternment(form) {
         updateContractTotal();
-        const data = Object.fromEntries(new FormData(form));
+        const data = prepararInternacao(Object.fromEntries(new FormData(form)));
         setFormBusy(form, true);
         try {
             const resultado = await api("/api/internacoes", { method: "POST", body: data });
@@ -1194,7 +1246,12 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function renderResidents() {
         const { dados } = await api("/api/residentes");
-        return `<div class="toolbar"><div></div><button class="button" type="button" data-action="open-new-resident">Novo residente</button></div>${renderActionTable(dados, [["Nome", "nome"], ["CPF", "cpf", formatCpf], ["Cidade de origem", "cidade_origem"], ["Contato principal", "contato_principal", (value, row) => Number(row.contatos_principais) > 1 ? "REVISAR — múltiplos contatos" : valueOrDash(value)], ["Situação", "ativo", formatActive]], (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="resident" data-id="${row.id}">Editar</button><button class="button button--secondary" data-action="open-maintenance-form" data-kind="contact-primary" data-id="${row.id}">Contato principal</button><button class="button" data-action="open-statement" data-id="${row.id}">Extrato</button>`)}`;
+        const table = renderActionTable(dados, [["Nome", "nome"], ["CPF", "cpf", formatCpf], ["Cidade de origem", "cidade_origem"], ["Contato principal", "contato_principal", (value, row) => Number(row.contatos_principais) > 1 ? "REVISAR — múltiplos contatos" : valueOrDash(value)], ["Situação", "ativo", formatActive]], () => "", {
+            selectableRows: true,
+            selectionData: (row) => ({ id: row.id, capabilities: ["edit", "contact", "items", "statement"] }),
+        });
+        const actions = `<div class="selection-actions" aria-label="Ações do residente selecionado"><span class="selection-actions__label">Residente selecionado</span><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="resident" data-selection-action="edit" disabled>Editar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="contact-primary" data-selection-action="contact" disabled>Contato principal</button><button class="button button--secondary" type="button" data-action="resident-items" data-selection-action="items" disabled>Itens pessoais</button><button class="button button--secondary" type="button" data-action="open-statement" data-selection-action="statement" disabled>Extrato</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button" type="button" data-action="open-new-resident">Novo residente</button></div>`;
+        return `<section class="selection-scope"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 
     async function renderGuardians() {
@@ -1208,7 +1265,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             selectableRows: true,
             selectionData: (row) => ({
                 id: row.id,
-                capabilities: ["guardian", ...(!row.encerrada_em && row.status !== "CANCELADA" && row.modalidade !== "VOLUNTARIO" ? ["extend"] : []), ...(row.status === "AGENDADA" ? ["cancel"] : []), ...(row.status === "ATIVA" && !row.encerrada_em ? ["end"] : [])],
+                capabilities: [...(["ATIVA", "AGENDADA"].includes(row.status) ? ["guardian"] : []), ...(!row.encerrada_em && row.status !== "CANCELADA" && row.modalidade !== "VOLUNTARIO" ? ["extend"] : []), ...(row.status === "AGENDADA" ? ["cancel"] : []), ...(row.status === "ATIVA" && !row.encerrada_em ? ["end"] : [])],
             }),
         });
         const actions = `<div class="selection-actions" aria-label="Ações da internação selecionada"><span class="selection-actions__label">Internação selecionada</span><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-guardian" data-selection-action="guardian" disabled>Responsável</button><button class="button button--danger" type="button" data-action="cancel-internment" data-selection-action="cancel" disabled>Cancelar agendamento</button><button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-selection-action="end" disabled>Encerrar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-extend" data-selection-action="extend" disabled>Prorrogar</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button" type="button" data-action="open-new-internment">Nova internação</button></div>`;
@@ -1328,16 +1385,16 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const { dados } = await api("/api/contas-receber");
         const table = renderActionTable(dados, [["Residente", "residente_nome"], ["Responsável", "responsavel_nome"], ["Tipo", "tipo"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Recebido", "total_recebido_com_encargos", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Pagamento", "status"], ["Prazo", "situacao_temporal", valueOrStatus], ["Dias em atraso", "dias_atraso"]], (row) => {
             const open = Number(row.saldo_restante) > 0 && !["PAGA", "DESCONTADA"].includes(row.status);
-            return `${open ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento" data-id="${row.id}">Receber</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`;
+            return `${open ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento" data-id="${row.id}">Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto" data-id="${row.id}">Desconto</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`;
         }, {
             selectableRows: true,
             selectionData: (row) => ({
                 id: row.id,
                 capabilities: Number(row.saldo_restante) > 0 && !["PAGA", "DESCONTADA"].includes(row.status)
-                    ? ["receive", "history"] : ["history"],
+                    ? ["receive", "discount", "history"] : ["history"],
             }),
         });
-        const actions = `<div class="selection-actions" aria-label="Ações da conta selecionada"><span class="selection-actions__label">Conta selecionada</span><button class="button" type="button" data-action="open-financial-form" data-kind="recebimento" data-selection-action="receive" disabled>Receber</button><button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-selection-action="history" disabled>Histórico</button></div>`;
+        const actions = `<div class="selection-actions" aria-label="Ações da conta selecionada"><span class="selection-actions__label">Conta selecionada</span><button class="button" type="button" data-action="open-financial-form" data-kind="recebimento" data-selection-action="receive" disabled>Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto" data-selection-action="discount" disabled>Desconto</button><button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-selection-action="history" disabled>Histórico</button></div>`;
         return `<section class="selection-scope"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 
@@ -1348,17 +1405,17 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     function monthlyFeesContent(rows) {
-        const table = renderActionTable(rows, [["Residente", "residente_nome"], ["Modalidade", "modalidade"], ["Convênio", "convenio_nome"], ["Parcela", "numero_parcela"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor_devido", formatMoney], ["Recebido", "total_recebido_com_encargos", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "status", (_, row) => monthlyStatus(row)]], (row) => `${!["PAGA", "DESCONTADA"].includes(monthlyStatus(row)) ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-id="${row.id}">Receber</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`, {
+        const table = renderActionTable(rows, [["Residente", "residente_nome"], ["Modalidade", "modalidade"], ["Convênio", "convenio_nome"], ["Parcela", "numero_parcela"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor_devido", formatMoney], ["Recebido", "total_recebido_com_encargos", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "status", (_, row) => monthlyStatus(row)]], (row) => `${Number(row.saldo_restante) > 0 && !["PAGA", "DESCONTADA"].includes(monthlyStatus(row)) ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-id="${row.id}">Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto_mensalidade" data-id="${row.id}">Desconto</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`, {
             allStatusesLabel: "Todas as mensalidades",
             statuses: [["A VENCER", "A pagar"], ["PAGA", "Pagas"], ["VENCIDA", "Vencidas"], ["DESCONTADA", "Descontadas"], ["PARCIAL", "Parcialmente pagas"]],
             selectableRows: true,
             selectionData: (row) => ({
                 id: row.id,
-                capabilities: !["PAGA", "DESCONTADA"].includes(monthlyStatus(row))
-                    ? ["receive", "history"] : ["history"],
+                capabilities: Number(row.saldo_restante) > 0 && !["PAGA", "DESCONTADA"].includes(monthlyStatus(row))
+                    ? ["receive", "discount", "history"] : ["history"],
             }),
         });
-        const actions = `<div class="selection-actions" aria-label="Ações da mensalidade selecionada"><span class="selection-actions__label">Mensalidade selecionada</span><button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-selection-action="receive" disabled>Receber</button><button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-selection-action="history" disabled>Histórico</button></div>`;
+        const actions = `<div class="selection-actions" aria-label="Ações da mensalidade selecionada"><span class="selection-actions__label">Mensalidade selecionada</span><button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-selection-action="receive" disabled>Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto_mensalidade" data-selection-action="discount" disabled>Desconto</button><button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-selection-action="history" disabled>Histórico</button></div>`;
         return `<section class="selection-scope monthly-report"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 
@@ -1368,7 +1425,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     async function renderPayables() {
-        const query = new URLSearchParams({...payableState, tamanho: "50"});
+        const query = parametrosContasPagar(payableState);
         const { dados: pagina } = await api(`/api/contas-pagar?${query}`);
         const dados = pagina.linhas || [];
         const table = renderActionTable(dados, [["Descrição", "despesa_descricao"], ["Setor", "setor_nome"], ["Natureza", "natureza"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Pago", "total_pago_com_encargos", formatMoney], ["Restante", "restante", formatMoney], ["Status", "status"]], (row) => {
@@ -1387,7 +1444,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const paginas = Math.max(1, Math.ceil(pagina.total_filtrado / pagina.tamanho));
         const filtros = `<div class="table-filters"><label>Buscar<input type="search" data-payables-search value="${escapeHtml(payableState.busca)}" placeholder="Descrição, setor ou natureza"></label><label>Situação<select data-payables-filter="status"><option value="">Todas</option>${["ABERTA","PARCIAL","PAGA","CANCELADA"].map(v => `<option value="${v}"${payableState.status === v ? " selected" : ""}>${v}</option>`).join("")}</select></label><label>Vencimento de<input type="date" data-payables-filter="inicio" value="${escapeHtml(payableState.inicio)}"></label><label>Até<input type="date" data-payables-filter="fim" value="${escapeHtml(payableState.fim)}"></label><label>Ordenar<select data-payables-filter="ordem"><option value="vencimento_asc">Vencimento crescente</option><option value="vencimento_desc"${payableState.ordem === "vencimento_desc" ? " selected" : ""}>Vencimento decrescente</option><option value="descricao_asc"${payableState.ordem === "descricao_asc" ? " selected" : ""}>Descrição A–Z</option></select></label></div>`;
         const navegacao = `<div class="filterable__meta"><p>${pagina.total_filtrado} de ${pagina.total_registros} conta(s) · Restante filtrado: ${formatMoney(pagina.totais_filtrados.restante)}</p><div class="report-actions"><button class="button button--secondary button--compact" data-action="payables-page" data-page="${pagina.pagina - 1}"${pagina.pagina <= 1 ? " disabled" : ""}>Anterior</button><span>Página ${pagina.pagina} de ${paginas}</span><button class="button button--secondary button--compact" data-action="payables-page" data-page="${pagina.pagina + 1}"${pagina.pagina >= paginas ? " disabled" : ""}>Próxima</button></div></div>`;
-        return `<section class="selection-scope"><div class="toolbar selection-toolbar">${actions}</div>${filtros}${navegacao}${table}</section>`;
+        return `<section class="selection-scope"><div class="toolbar selection-toolbar">${actions}</div>${filtros}${navegacao}<p class="form-note">O restante exclui contas canceladas; o valor original delas permanece no histórico.</p>${table}</section>`;
     }
 
     async function renderExpenses() {
