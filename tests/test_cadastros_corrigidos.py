@@ -101,6 +101,57 @@ class CadastrosCorrigidos(unittest.TestCase):
         self.assertFalse(internacoes.alterar_responsavel_principal(internacao['id'], segundo)['sucesso'])
         self.assertEqual(self.fixture.sql('SELECT responsavel_id FROM internacoes WHERE id=?', (internacao['id'],))[0][0], 1)
 
+    def test_editar_internacao_recalcula_cobrancas_sem_historico(self):
+        rid = residentes.cadastrar_residente('Editar internação', '56789012345', 'Cidade')['id']
+        criada = internacoes.cadastrar_internacao_com_cobrancas(
+            rid, 1, self.fixture.hoje, 2, 70000, 10000, 30000, 'PARTICULAR'
+        )
+        self.assertTrue(criada['sucesso'], criada)
+        editada = self.post('/api/internacoes/editar', {
+            'id': criada['id'], 'residente_id': rid, 'responsavel_id': 1,
+            'data_acolhimento': self.fixture.hoje, 'periodo_tratamento': 3,
+            'valor_contrato': '700.00', 'valor_acolhimento': '100.00',
+            'valor_mensalidade': '200.00', 'modalidade': 'PARTICULAR',
+        })
+        self.assertTrue(editada['sucesso'], editada)
+        self.assertTrue(editada['contrato_alterado'])
+        self.assertEqual(editada['cobrancas'], 4)
+        self.assertEqual(
+            self.fixture.sql('SELECT periodo_tratamento,valor_contrato,valor_mensalidade FROM internacoes WHERE id=?', (criada['id'],))[0],
+            (3, 70000, 20000),
+        )
+        self.assertEqual(
+            self.fixture.sql('SELECT numero_parcela,valor FROM cobrancas WHERE internacao_id=? ORDER BY numero_parcela', (criada['id'],)),
+            [(0, 10000), (1, 20000), (2, 20000), (3, 20000)],
+        )
+
+    def test_editar_internacao_com_historico_permite_apenas_responsavel(self):
+        rid = residentes.cadastrar_residente('Contrato com histórico', '67890123456', 'Cidade')['id']
+        segundo = responsaveis.cadastrar_responsavel('Novo contratual', '78901234567', None, None)['id']
+        criada = internacoes.cadastrar_internacao_com_cobrancas(
+            rid, 1, self.fixture.hoje, 2, 70000, 10000, 30000, 'PARTICULAR'
+        )
+        cobranca = self.fixture.sql(
+            'SELECT id FROM cobrancas WHERE internacao_id=? ORDER BY numero_parcela', (criada['id'],)
+        )[0][0]
+        self.fixture.sql(
+            "INSERT INTO recebimentos(cobranca_id,data_recebimento,valor,forma_recebimento) VALUES(?,?,?,?)",
+            (cobranca, self.fixture.hoje, 1000, 'PIX'),
+        )
+        bloqueada = internacoes.editar_internacao(
+            criada['id'], rid, segundo, self.fixture.hoje, 3, 100000, 10000, 30000,
+            'PARTICULAR', None, None,
+        )
+        self.assertFalse(bloqueada['sucesso'])
+        self.assertIn('histórico', bloqueada['erro'])
+        responsavel = internacoes.editar_internacao(
+            criada['id'], rid, segundo, self.fixture.hoje, 2, 70000, 10000, 30000,
+            'PARTICULAR', None, None,
+        )
+        self.assertTrue(responsavel['sucesso'], responsavel)
+        self.assertFalse(responsavel['contrato_alterado'])
+        self.assertEqual(self.fixture.sql('SELECT responsavel_id FROM internacoes WHERE id=?', (criada['id'],))[0][0], segundo)
+
 
 if __name__ == '__main__':
     unittest.main()

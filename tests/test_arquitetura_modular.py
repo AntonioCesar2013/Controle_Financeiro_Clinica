@@ -20,7 +20,7 @@ class ArquiteturaModular(unittest.TestCase):
         self.addCleanup(self.patch_banco.stop)
 
     def test_registro_e_permissoes_de_extensao(self):
-        self.assertEqual([m.nome for m in modulos_registrados()], ["cadastros", "financeiro", "cantina"])
+        self.assertEqual([m.nome for m in modulos_registrados()], ["cadastros", "financeiro", "administracao", "cantina"])
         self.assertIn("financeiro.receber", permissoes_disponiveis())
         self.assertIn("cantina.vender", permissoes_disponiveis())
 
@@ -31,25 +31,26 @@ class ArquiteturaModular(unittest.TestCase):
             linhas = conexao.execute(
                 "SELECT modulo,versao FROM migracoes_schema ORDER BY modulo"
             ).fetchall()
-        self.assertEqual(linhas, [("cadastros", 1), ("cadastros", 2),
+        self.assertEqual(linhas, [("administracao", 1), ("cadastros", 1), ("cadastros", 2),
+                                 ("cadastros", 3), ("cadastros", 4),
                                  ("cantina", 1), ("cantina", 2), ("cantina", 3),
                                  *[("financeiro", n) for n in range(1, 11)], ("infraestrutura", 1)])
 
     def test_migracoes_futuras_fazem_rollback_com_transacao_externa(self):
-        conexao = sqlite3.connect(":memory:")
-        preparar_controle(conexao)
+        with closing(sqlite3.connect(":memory:")) as conexao:
+            preparar_controle(conexao)
 
-        def falhar(conn):
-            conn.execute("CREATE TABLE temporaria(id INTEGER)")
-            raise RuntimeError("falha simulada")
+            def falhar(conn):
+                conn.execute("CREATE TABLE temporaria(id INTEGER)")
+                raise RuntimeError("falha simulada")
 
-        with self.assertRaises(RuntimeError):
-            with conexao:
-                aplicar_migracoes(conexao, [Migracao("teste", 1, falhar)])
-        self.assertIsNone(conexao.execute(
-            "SELECT name FROM sqlite_master WHERE name='temporaria'"
-        ).fetchone())
-        self.assertEqual(conexao.execute("SELECT COUNT(*) FROM migracoes_schema").fetchone()[0], 0)
+            with self.assertRaises(RuntimeError):
+                with conexao:
+                    aplicar_migracoes(conexao, [Migracao("teste", 1, falhar)])
+            self.assertIsNone(conexao.execute(
+                "SELECT name FROM sqlite_master WHERE name='temporaria'"
+            ).fetchone())
+            self.assertEqual(conexao.execute("SELECT COUNT(*) FROM migracoes_schema").fetchone()[0], 0)
 
     def test_migracao_renomeia_tabelas_da_cantina_preservando_vinculos(self):
         from src.cantina.migracao_nomes_tabelas import migrar

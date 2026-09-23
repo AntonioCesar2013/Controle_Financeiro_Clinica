@@ -218,7 +218,10 @@ class Conferencia(unittest.TestCase):
             payload['valores']['CARTEIRA:1']=''
             with self.assertRaises(HTTPError) as erro:
                 urlopen(Request(url+'/api/conferencia/saldos', json.dumps(payload).encode(), {'Content-Type':'application/json'}))
-            self.assertEqual(erro.exception.code, 400)
+            try:
+                self.assertEqual(erro.exception.code, 400)
+            finally:
+                erro.exception.close()
 
 
 if __name__ == '__main__':

@@ -32,6 +32,7 @@ from src.interface import extrato_residente
 from src.financeiro import recibos
 from src.financeiro import pagamentos
 from src.financeiro import recebimentos
+from src.administracao import itens as itens_administracao
 from src.financeiro.moeda import reais_para_centavos
 from src.financeiro.estornos import historico, historico_ajustes
 from src.cadastros.internacoes import cancelar_agendamento
@@ -41,6 +42,7 @@ from src.infraestrutura.backup.service import BackupService
 from src.infraestrutura.backup.scheduler import BackupScheduler
 from src.interface.rotas.backup import dispatch as dispatch_backup
 from src.infraestrutura.configuracao_instalacao import somente_leitura
+from src.infraestrutura.uso_banco import TravaUsoBanco
 from src.cadastros.colaboradores import (
     autenticar_colaborador, cadastrar_colaborador, editar_colaborador,
     possui_colaboradores, redefinir_senha,
@@ -55,7 +57,7 @@ from src.interface.consultas_interface import (
 from src.cadastros.residentes import cadastrar_residente, editar_residente
 from src.cadastros.responsaveis import cadastrar_responsavel, editar_responsavel
 from src.cadastros.internacoes import (
-    alterar_responsavel_principal, cadastrar_internacao_com_cobrancas, encerrar_internacao,
+    alterar_responsavel_principal, cadastrar_internacao_com_cobrancas, editar_internacao, encerrar_internacao,
     sincronizar_status_residentes,
 )
 from src.financeiro.cobrancas import aplicar_desconto, gerar_cobrancas
@@ -254,6 +256,30 @@ class Requisicao(BaseHTTPRequestHandler):
         if rota == "/api/residentes":
             resultado = cadastrar_residente(dados.get("nome"), dados.get("cpf"), dados.get("cidade_origem"))
             return self._json(resultado, HTTPStatus.CREATED if resultado.get("sucesso") else HTTPStatus.BAD_REQUEST)
+        if rota == "/api/administracao/itens":
+            valor = dados.get("valor_aquisicao")
+            return self._resultado_operacao(itens_administracao.cadastrar(
+                dados.get("nome"),dados.get("descricao"),dados.get("categoria"),dados.get("codigo_patrimonio"),
+                dados.get("quantidade_inicial"),dados.get("unidade_medida"),dados.get("setor_id"),dados.get("data_aquisicao"),
+                None if valor in (None,"") else _centavos(valor),dados.get("estado_conservacao"),dados.get("localizacao"),
+                dados.get("data_movimentacao"),dados.get("motivo"),dados.get("documento")))
+        if rota == "/api/administracao/itens/editar":
+            valor = dados.get("valor_aquisicao")
+            return self._resultado_operacao(itens_administracao.editar(
+                dados.get("id"),dados.get("versao_esperada"),dados.get("nome"),dados.get("descricao"),dados.get("categoria"),
+                dados.get("codigo_patrimonio"),dados.get("data_aquisicao"),None if valor in (None,"") else _centavos(valor),
+                dados.get("estado_conservacao"),dados.get("motivo")),criado=False)
+        if rota == "/api/administracao/itens/movimentar":
+            return self._resultado_operacao(itens_administracao.movimentar(
+                dados.get("id"),dados.get("versao_esperada"),dados.get("tipo"),dados.get("data_movimentacao"),
+                dados.get("motivo"),dados.get("documento"),dados.get("quantidade"),dados.get("quantidade_alvo")),criado=False)
+        if rota == "/api/administracao/itens/transferir":
+            return self._resultado_operacao(itens_administracao.transferir(
+                dados.get("id"),dados.get("versao_esperada"),dados.get("setor_destino_id"),dados.get("localizacao_destino"),
+                dados.get("data_movimentacao"),dados.get("motivo")),criado=False)
+        if rota == "/api/administracao/itens/status":
+            return self._resultado_operacao(itens_administracao.alterar_status(
+                dados.get("id"),dados.get("versao_esperada"),dados.get("ativo"),dados.get("motivo")),criado=False)
         if rota == "/api/residentes/itens":
             return self._resultado_operacao(itens_residentes.cadastrar(
                 dados.get("residente_id"), dados.get("nome"), dados.get("quantidade", 1),
@@ -282,6 +308,18 @@ class Requisicao(BaseHTTPRequestHandler):
             except ValueError as erro:
                 return self._json({"sucesso": False, "erro": str(erro)}, HTTPStatus.BAD_REQUEST)
             return self._json(resultado, HTTPStatus.CREATED if resultado.get("sucesso") else HTTPStatus.BAD_REQUEST)
+        if rota == "/api/internacoes/editar":
+            try:
+                resultado = editar_internacao(
+                    dados.get("id"), dados.get("residente_id"), dados.get("responsavel_id"),
+                    dados.get("data_acolhimento"), dados.get("periodo_tratamento"),
+                    _centavos(dados.get("valor_contrato")), _centavos(dados.get("valor_acolhimento")),
+                    _centavos(dados.get("valor_mensalidade")), dados.get("modalidade", "PARTICULAR"),
+                    dados.get("convenio_id"), dados.get("servicos_voluntario"),
+                )
+            except ValueError as erro:
+                return self._json({"sucesso": False, "erro": str(erro)}, HTTPStatus.BAD_REQUEST)
+            return self._resultado_operacao(resultado, criado=False)
         if rota == "/api/convenios":
             try:
                 resultado = convenios.cadastrar_convenio(
@@ -368,6 +406,11 @@ class Requisicao(BaseHTTPRequestHandler):
                 dados.get("natureza", "VARIAVEL"), str(dados.get("recorrente", "0")) in ("1", "true", "True"),
             )
             return self._resultado_operacao(resultado)
+        if rota == "/api/despesas/editar":
+            return self._resultado_operacao(despesas.editar_despesa(
+                dados.get("id"), dados.get("setor_id"), dados.get("descricao"),
+                dados.get("natureza"), dados.get("recorrente", 0), dados.get("ativo", 1),
+            ), criado=False)
         if rota == "/api/contas-pagar":
             try:
                 resultado = contas_pagar.cadastrar_conta(dados.get("despesa_id"), dados.get("data_vencimento"), _centavos(dados.get("valor")))
@@ -543,7 +586,7 @@ class Requisicao(BaseHTTPRequestHandler):
             self.close_connection = True
             return
         estado = 'NAO_REALIZADA'
-        if isinstance(erro, operacoes.ConflitoOperacao):
+        if isinstance(erro, (operacoes.ConflitoOperacao, itens_administracao.ConflitoVersao)):
             status, mensagem, estado = 409, str(erro), 'VERIFICAR'
         elif isinstance(erro, ErroHTTP):
             status, mensagem = erro.status, str(erro)
@@ -601,29 +644,32 @@ class ServidorClinica(ThreadingHTTPServer):
 
 def criar_servidor(host="127.0.0.1", porta=8000):
     """Prepara o backend sem iniciar navegador nem bloquear a thread atual."""
-    criar_tabelas()
     from src.infraestrutura import banco
     backup = 'Agendamento configurável em Configurações → Backup'
-    sincronizar_status_residentes()
     endereco = f"http://{host}:{porta}"
+    trava = TravaUsoBanco(banco.CAMINHO_BANCO).adquirir()
+    servidor = None
     try:
-        servidor = ServidorClinica((host, porta), Requisicao)
-    except OSError as erro:
-        raise SystemExit(
-            f"Não foi possível iniciar o sistema em {endereco}. "
-            "Verifique se ele já está aberto em outra janela."
-        ) from erro
-
-    try:
-        from src.infraestrutura.uso_banco import TravaUsoBanco
-        servidor.trava_uso_banco = TravaUsoBanco(banco.CAMINHO_BANCO).adquirir()
+        criar_tabelas()
+        sincronizar_status_residentes()
+        try:
+            servidor = ServidorClinica((host, porta), Requisicao)
+        except OSError as erro:
+            raise SystemExit(
+                f"Não foi possível iniciar o sistema em {endereco}. "
+                "Verifique se ele já está aberto em outra janela."
+            ) from erro
+        servidor.trava_uso_banco = trava
         servidor.backup_service = BackupService(banco.CAMINHO_BANCO)
-    except Exception:
-        servidor.server_close()
+        servidor.backup_scheduler = BackupScheduler(servidor.backup_service)
+        servidor.backup_scheduler.start()
+        return servidor, endereco, backup
+    except BaseException:
+        if servidor is None:
+            trava.liberar()
+        else:
+            servidor.server_close()
         raise
-    servidor.backup_scheduler = BackupScheduler(servidor.backup_service)
-    servidor.backup_scheduler.start()
-    return servidor, endereco, backup
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from src.infraestrutura import banco, backup_banco
 from src.infraestrutura.backup.config import BackupConfig
-from src.infraestrutura.backup.snapshot import create_snapshot
+from src.infraestrutura.backup.snapshot import create_compressed_snapshot, create_snapshot
 from src.infraestrutura.backup.service import BackupService
 from src.infraestrutura.uso_banco import BancoEmUsoError, TravaUsoBanco
 
@@ -54,6 +54,20 @@ class RecuperacaoBackupTests(unittest.TestCase):
         with closing(sqlite3.connect(resultado["backup_anterior"])) as conn:
             self.assertEqual(conn.execute("SELECT nome FROM residentes").fetchone()[0], "Antes da restauração")
 
+    def test_restaura_backup_compactado(self):
+        with closing(sqlite3.connect(self.banco)) as conn, conn:
+            conn.execute("UPDATE residentes SET nome='Restaurado do gzip'")
+        origem = create_compressed_snapshot(
+            self.banco, self.novos / "controle_financeiro_2026-09-22_120000_1.db.gz"
+        )
+        with closing(sqlite3.connect(self.banco)) as conn, conn:
+            conn.execute("UPDATE residentes SET nome='Antes da restauração gzip'")
+        resultado = backup_banco.restaurar_backup(origem.name, self.config)
+        with closing(sqlite3.connect(self.banco)) as conn:
+            self.assertEqual(conn.execute("SELECT nome FROM residentes").fetchone()[0], "Restaurado do gzip")
+        with closing(sqlite3.connect(resultado["backup_anterior"])) as conn:
+            self.assertEqual(conn.execute("SELECT nome FROM residentes").fetchone()[0], "Antes da restauração gzip")
+
     def test_invalido_ou_incompativel_nao_modifica_banco(self):
         invalido = self.novos / "controle_financeiro_invalido.db"
         invalido.parent.mkdir(parents=True)
@@ -91,6 +105,25 @@ class RecuperacaoBackupTests(unittest.TestCase):
         status = service.status()
         self.assertEqual(status["automatic_state"], "EM_DIA")
         self.assertEqual(status["last_r2_success"], "2026-09-13T12:00:00+00:00")
+
+    def test_estado_parcial_quando_destino_externo_nao_recebeu_snapshot_atual(self):
+        service = BackupService(self.banco, self.config)
+        self.config.save({
+            "backup_enabled": True,
+            "interval_hours": 6,
+            "r2_enabled": True,
+            "r2_bucket": "bucket",
+            "r2_endpoint": "https://" + "a" * 32 + ".r2.cloudflarestorage.com",
+        })
+        service._update(
+            last_success=datetime.now(timezone.utc).isoformat(),
+            last_r2_success=(datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
+        )
+        status = service.status()
+        self.assertEqual(status["automatic_state"], "PARCIAL")
+        self.assertEqual(status["external_pending"], ["r2"])
+        service._update(last_r2_success=datetime.now(timezone.utc).isoformat())
+        self.assertEqual(service.status()["automatic_state"], "EM_DIA")
 
 
 if __name__ == "__main__":

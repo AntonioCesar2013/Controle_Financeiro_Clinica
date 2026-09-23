@@ -11,6 +11,12 @@ from src.financeiro.acertos import aplicar as aplicar_acerto_encerramento
 from src.financeiro.prorrogacoes import acrescentar as acrescentar_cobrancas_prorrogacao
 
 
+def consultar_setor(setor_id, conexao):
+    """Contrato mínimo para módulos que precisam validar o setor responsável."""
+    linha = conexao.execute("SELECT id,nome,ativo FROM setores WHERE id=?", (setor_id,)).fetchone()
+    return {"id": linha[0], "nome": linha[1], "ativo": linha[2]} if linha else None
+
+
 def criar_contrato_internacao(internacao_id, conexao=None):
     """Gera as cobranças da internação e retorna o resultado do Financeiro."""
     return gerar_cobrancas(internacao_id, conexao=conexao)

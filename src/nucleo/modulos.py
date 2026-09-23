@@ -15,6 +15,7 @@ class Modulo:
 _CAMINHOS = (
     "src.cadastros.modulo",
     "src.financeiro.modulo",
+    "src.administracao.modulo",
     "src.cantina.modulo",
 )
 

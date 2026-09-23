@@ -5,7 +5,7 @@ export function createBackupPanel(api) {
     let timer;
     let wasRunning = false;
     const labels = {success: '✓ Sucesso', failed: '✗ Falha', disabled: 'Desativado', skipped: 'Não enviado', pending: 'Aguardando'};
-    const automaticLabels = {DESATIVADO: 'Backup automático desativado.', NUNCA_CONCLUIDO: 'Backup automático ativado, mas nenhuma cópia local íntegra foi concluída.', ATRASADO: 'Backup automático atrasado em relação ao intervalo configurado.', EM_DIA: 'Backup automático em dia.'};
+    const automaticLabels = {DESATIVADO: 'Backup automático desativado.', NUNCA_CONCLUIDO: 'Backup automático ativado, mas nenhuma cópia local íntegra foi concluída.', ATRASADO: 'Backup automático atrasado em relação ao intervalo configurado.', PARCIAL: 'Backup local em dia, mas há destino externo pendente.', EM_DIA: 'Backup automático em dia em todos os destinos ativados.'};
     function statusHtml(status) {
         const result = status.result || {};
         return `<p><strong>${esc(automaticLabels[status.automatic_state] || 'Estado do backup indisponível.')}</strong></p><p>${esc(status.message || 'Nenhum backup executado.')}</p>
@@ -50,7 +50,7 @@ export function createBackupPanel(api) {
         const button = (action, label) => `<button type="button" class="button" data-backup-action="${action}">${label}</button>`;
         timer = setTimeout(poll, 100);
         return `<section id="backup-panel"><h3 class="section-title">Backup do sistema</h3>
-            <p class="form-note">Acesso exige sessão. O controle de papéis administrativos ainda está em desenvolvimento no sistema.</p>
+            <p class="form-note">Configuração disponível somente no acesso local deste computador.</p>
             <p class="form-note">${esc(settings.warning)}</p>
             <div class="form-grid">${check('backup_enabled', 'Backup automático ativado')}${field('interval_hours', 'Intervalo (horas)', 'number')}
             ${field('backup_directory', 'Pasta local (caminho absoluto)')}</div>${button('folder', 'Selecionar pasta')}

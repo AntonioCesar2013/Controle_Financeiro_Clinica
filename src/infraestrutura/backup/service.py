@@ -53,7 +53,22 @@ class BackupService:
                 last = datetime.fromisoformat(result['last_success'])
                 due = last + timedelta(hours=config['interval_hours'])
                 result['next_due'] = due.isoformat()
-                result['automatic_state'] = 'ATRASADO' if datetime.now(timezone.utc) > due else 'EM_DIA'
+                if datetime.now(timezone.utc) > due:
+                    result['automatic_state'] = 'ATRASADO'
+                else:
+                    pendentes = []
+                    for destination in ('r2', 'drive'):
+                        if not config[destination + '_enabled']:
+                            continue
+                        value = result.get('last_' + destination + '_success')
+                        try:
+                            sent = datetime.fromisoformat(value) if value else None
+                        except (TypeError, ValueError):
+                            sent = None
+                        if sent is None or sent < last:
+                            pendentes.append(destination)
+                    result['external_pending'] = pendentes
+                    result['automatic_state'] = 'PARCIAL' if pendentes else 'EM_DIA'
             except (TypeError, ValueError):
                 result['automatic_state'] = 'NUNCA_CONCLUIDO'
         return result

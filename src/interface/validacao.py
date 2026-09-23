@@ -16,10 +16,16 @@ OBRIGATORIOS = {
     '/api/recorrencias/dispensar': ('id','data_vencimento','motivo'),
     '/api/internacoes/prorrogar': ('id','periodo_atual','novo_periodo','motivo'),
     '/api/residentes': ('nome','cpf'), '/api/residentes/editar': ('id','nome','cpf'),
+    '/api/administracao/itens': ('nome','quantidade_inicial','unidade_medida','setor_id','estado_conservacao','data_movimentacao','motivo'),
+    '/api/administracao/itens/editar': ('id','versao_esperada','nome','estado_conservacao','motivo'),
+    '/api/administracao/itens/movimentar': ('id','versao_esperada','tipo','data_movimentacao','motivo'),
+    '/api/administracao/itens/transferir': ('id','versao_esperada','setor_destino_id','data_movimentacao','motivo'),
+    '/api/administracao/itens/status': ('id','versao_esperada','ativo','motivo'),
     '/api/residentes/itens': ('residente_id','nome','quantidade'),
     '/api/residentes/itens/editar': ('id','nome','quantidade'),
     '/api/responsaveis': ('nome','cpf'), '/api/responsaveis/editar': ('id','nome','cpf'),
     '/api/internacoes': ('residente_id','responsavel_id','data_acolhimento'),
+    '/api/internacoes/editar': ('id','residente_id','responsavel_id','data_acolhimento'),
     '/api/internacoes/cancelar': ('id','motivo'), '/api/internacoes/encerrar': ('id','data_encerramento','motivo','assinatura'),
     '/api/internacoes/responsavel': ('id','responsavel_id'),
     '/api/convenios': ('nome','valor_diaria'), '/api/colaboradores': ('nome','cpf','senha'),
@@ -35,6 +41,7 @@ OBRIGATORIOS = {
     '/api/cantina/vendas/estornar': ('venda_id','motivo'),
     '/api/setores': ('nome',), '/api/setores/editar': ('id','nome','ativo'),
     '/api/despesas': ('setor_id','descricao'), '/api/despesas/desativar': ('id',),
+    '/api/despesas/editar': ('id','setor_id','descricao','natureza'),
     '/api/contas-pagar': ('despesa_id','data_vencimento','valor'),
     '/api/contas-pagar/cancelar': ('conta_id',),
     '/api/pagamentos-saida': ('conta_pagar_id','data_pagamento','valor'),
@@ -49,8 +56,9 @@ OBRIGATORIOS = {
     '/api/conferencia/reabrir': ('id','motivo'),
 }
 MONETARIOS = {'valor','desconto','saldo_inicial','custo_unitario','valor_diaria',
-              'valor_contrato','valor_acolhimento','valor_mensalidade','multa_juros'}
-INTEIROS = {'quantidade','estoque_inicial','estoque_minimo','periodo_tratamento','periodo_atual','novo_periodo','intervalo_meses'}
+              'valor_contrato','valor_acolhimento','valor_mensalidade','multa_juros',
+              'valor_aquisicao'}
+INTEIROS = {'quantidade','quantidade_inicial','quantidade_alvo','versao_esperada','estoque_inicial','estoque_minimo','periodo_tratamento','periodo_atual','novo_periodo','intervalo_meses'}
 BOOLEANOS = {'ativo','recorrente','autorizar_ajuste_desconto'}
 
 
@@ -64,7 +72,14 @@ def validar(rota, dados):
     for campo in OBRIGATORIOS[rota]:
         if campo not in dados or dados[campo] is None or (isinstance(dados[campo],str) and not dados[campo].strip()):
             raise ValueError(f'Preencha o campo obrigatório: {campo}.')
-    if rota == '/api/internacoes':
+    if rota == '/api/administracao/itens/editar':
+        proibidos = {'quantidade','quantidade_inicial','quantidade_alvo','setor_id','setor_destino_id',
+                     'localizacao','localizacao_destino','unidade_medida','ativo'} & set(dados)
+        if proibidos:
+            raise ValueError('Use a operação específica para alterar saldo, setor, localização, unidade ou situação.')
+    if rota == '/api/administracao/itens' and ({'quantidade','versao','ativo'} & set(dados)):
+        raise ValueError('Saldo, versão e situação são definidos pelo módulo de inventário.')
+    if rota in ('/api/internacoes', '/api/internacoes/editar'):
         if str(dados.get('modalidade') or 'PARTICULAR').upper() == 'VOLUNTARIO':
             dados['periodo_tratamento'] = 0
             dados['convenio_id'] = None

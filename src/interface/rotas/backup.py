@@ -1,15 +1,20 @@
 """Thin HTTP adapter; requests here MUST bypass financial idempotency/audit bodies."""
-from src.nucleo import permissoes
+from ipaddress import ip_address
+
+def _acesso_local(handler):
+    """Autoriza o modo sem login somente no servidor e cliente locais."""
+    try:
+        cliente = ip_address(handler.client_address[0]).is_loopback
+        servidor = ip_address(handler.server.server_address[0]).is_loopback
+        return cliente and servidor
+    except (AttributeError, IndexError, TypeError, ValueError):
+        return False
 
 
 def dispatch(handler, path, data=None):
-    identity = handler._sessao()
-    if identity is None:
-        return handler._json({'erro': 'Sessão não autenticada.'}, 401)
-    # Existing permission contract is currently permissive. Integrate roles HERE
-    # via nucleo.permissoes; do not create a second identity/password store.
-    if not permissoes.permitido(identity, 'sistema.backup.admin'):
-        return handler._json({'erro': 'Acesso administrativo necessário.'}, 403)
+    # Instalação local de administrador único: nenhuma consulta de login ou sessão.
+    if not _acesso_local(handler):
+        return handler._json({'erro': 'O backup sem login está disponível somente no acesso local.'}, 403)
     service = handler.server.backup_service
     try:
         if data is None:

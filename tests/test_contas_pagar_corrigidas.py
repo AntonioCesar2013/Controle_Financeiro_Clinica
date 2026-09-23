@@ -48,6 +48,25 @@ class ContasPagarCorrigidas(unittest.TestCase):
         self.assertEqual(canceladas['totais_filtrados']['restante'], 0)
         self.assertEqual(canceladas['linhas'][0]['valor'], 10000)
 
+    def test_edicao_despesa_preserva_contas_e_protege_recorrencia(self):
+        conta = self.conta(self.fixture.hoje, 12345)
+        novo_setor = despesas.cadastrar_setor('Administrativo')['id']
+        editada = despesas.editar_despesa(
+            self.did, novo_setor, 'Água e esgoto', 'VARIAVEL', True, 1
+        )
+        self.assertTrue(editada['sucesso'], editada)
+        self.assertEqual(
+            self.fixture.sql('SELECT setor_id,descricao,natureza,recorrente,ativo FROM despesas WHERE id=?', (self.did,))[0],
+            (novo_setor, 'Água e esgoto', 'VARIAVEL', 1, 1),
+        )
+        self.assertEqual(self.fixture.sql('SELECT despesa_id,valor FROM contas_pagar WHERE id=?', (conta,))[0], (self.did, 12345))
+        recorrencias.configurar(self.did, 10000, self.fixture.hoje, self.fixture.hoje)
+        bloqueada = despesas.editar_despesa(
+            self.did, novo_setor, 'Água e esgoto', 'VARIAVEL', False, 1
+        )
+        self.assertFalse(bloqueada['sucesso'])
+        self.assertIn('programação recorrente', bloqueada['erro'])
+
     def test_dispensa_considera_contas_manuais_geradas_e_canceladas(self):
         vencimento = '2026-02-15'
         manual = self.conta(vencimento)

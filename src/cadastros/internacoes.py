@@ -283,6 +283,133 @@ def buscar_internacao(internacao_id):
     return dict(resultado)
 
 
+def editar_internacao(
+    internacao_id, residente_id, responsavel_id, data_acolhimento,
+    periodo_tratamento, valor_contrato, valor_acolhimento, valor_mensalidade,
+    modalidade="PARTICULAR", convenio_id=None, servicos_voluntario=None,
+):
+    """Corrige uma internação aberta e refaz cobranças somente sem histórico financeiro."""
+    modalidade = str(modalidade or "PARTICULAR").strip().upper()
+    if modalidade not in {"PARTICULAR", "SOCIAL", "CONVENIO", "VOLUNTARIO"}:
+        return {"sucesso": False, "erro": "Modalidade de residência inválida."}
+    try:
+        internacao_id = int(internacao_id)
+        residente_id = int(residente_id)
+        responsavel_id = int(responsavel_id)
+        inicio = date.fromisoformat(data_acolhimento)
+        if inicio.isoformat() != data_acolhimento:
+            raise ValueError
+        periodo_tratamento = 0 if modalidade == "VOLUNTARIO" else int(periodo_tratamento)
+        valores = [int(valor_contrato), int(valor_acolhimento), int(valor_mensalidade)]
+    except (TypeError, ValueError):
+        return {"sucesso": False, "erro": "Os dados da internação são inválidos."}
+    if modalidade != "VOLUNTARIO" and periodo_tratamento <= 0:
+        return {"sucesso": False, "erro": "O período de tratamento deve ser maior que zero."}
+    if any(valor < 0 for valor in valores):
+        return {"sucesso": False, "erro": "Os valores da internação não podem ser negativos."}
+    if modalidade == "PARTICULAR" and valores[0] != valores[1] + valores[2] * periodo_tratamento:
+        return {"sucesso": False, "erro": "O contrato deve corresponder ao acolhimento mais as mensalidades do período."}
+
+    servicos_voluntario = str(servicos_voluntario or "").strip() or None
+    if modalidade == "VOLUNTARIO" and not servicos_voluntario:
+        return {"sucesso": False, "erro": "Informe os serviços que serão prestados pelo voluntário."}
+
+    conexao = conectar()
+    conexao.row_factory = sqlite3.Row
+    try:
+        conexao.execute("BEGIN IMMEDIATE")
+        atual = conexao.execute("SELECT * FROM internacoes WHERE id=?", (internacao_id,)).fetchone()
+        if not atual:
+            return {"sucesso": False, "erro": "Internação não encontrada."}
+        if atual["status"] not in ("ATIVA", "AGENDADA") or atual["encerrada_em"]:
+            return {"sucesso": False, "erro": "Somente internações ativas ou agendadas podem ser editadas."}
+        if not conexao.execute("SELECT 1 FROM residentes WHERE id=?", (residente_id,)).fetchone():
+            return {"sucesso": False, "erro": "Residente não encontrado."}
+        responsavel = conexao.execute("SELECT ativo FROM responsaveis WHERE id=?", (responsavel_id,)).fetchone()
+        if not responsavel:
+            return {"sucesso": False, "erro": "Responsável não encontrado."}
+        if not responsavel[0]:
+            return {"sucesso": False, "erro": "O responsável selecionado está inativo."}
+
+        valor_diaria = 0
+        if modalidade == "CONVENIO":
+            convenio = conexao.execute("SELECT valor_diaria,ativo FROM convenios WHERE id=?", (convenio_id,)).fetchone()
+            if not convenio or not convenio[1]:
+                return {"sucesso": False, "erro": "Selecione um convênio ativo."}
+            valor_diaria = convenio[0]
+            valores = [0, 0, 0]
+        elif modalidade in ("SOCIAL", "VOLUNTARIO"):
+            convenio_id = None
+            valores = [0, 0, 0]
+        else:
+            convenio_id = None
+
+        from src.cadastros.vigencia import ultimo_dia_vigente
+        fim_novo = date.max if modalidade == "VOLUNTARIO" else data_final_contrato(data_acolhimento, periodo_tratamento)
+        for outra in conexao.execute(
+            """SELECT id,data_acolhimento,periodo_tratamento,encerrada_em,modalidade
+               FROM internacoes WHERE residente_id=? AND id<>? AND status!='CANCELADA'""",
+            (residente_id, internacao_id),
+        ):
+            fim_outra = ultimo_dia_vigente(outra["data_acolhimento"], outra["periodo_tratamento"],
+                                           outra["encerrada_em"], outra["modalidade"])
+            if inicio <= fim_outra and date.fromisoformat(outra["data_acolhimento"]) <= fim_novo:
+                return {"sucesso": False, "erro": f"O residente já possui a internação {outra['id']} em período coincidente."}
+
+        campos_contratuais = (
+            residente_id, data_acolhimento, periodo_tratamento, valores[0], valores[1], valores[2],
+            modalidade, int(convenio_id) if convenio_id not in (None, "") else None,
+            valor_diaria, servicos_voluntario if modalidade == "VOLUNTARIO" else None,
+        )
+        atuais = (
+            atual["residente_id"], atual["data_acolhimento"], atual["periodo_tratamento"],
+            0 if atual["modalidade"] in ("CONVENIO", "SOCIAL", "VOLUNTARIO") else atual["valor_contrato"],
+            atual["valor_acolhimento"], atual["valor_mensalidade"],
+            atual["modalidade"], atual["convenio_id"], atual["valor_diaria"], atual["servicos_voluntario"],
+        )
+        contrato_alterado = campos_contratuais != atuais
+        if contrato_alterado:
+            possui_historico = conexao.execute(
+                """SELECT EXISTS(
+                       SELECT 1 FROM recebimentos r JOIN cobrancas c ON c.id=r.cobranca_id
+                       WHERE c.internacao_id=?
+                   ) OR EXISTS(
+                       SELECT 1 FROM ajustes_cobrancas a JOIN cobrancas c ON c.id=a.cobranca_id
+                       WHERE c.internacao_id=?
+                   )""", (internacao_id, internacao_id)
+            ).fetchone()[0]
+            if possui_historico:
+                return {"sucesso": False, "erro": "Esta internação já possui histórico de recebimentos ou ajustes. Corrija somente o responsável; os dados contratuais precisam ser tratados pelo fluxo financeiro."}
+            conexao.execute("DELETE FROM cobrancas WHERE internacao_id=?", (internacao_id,))
+
+        conexao.execute(
+            """UPDATE internacoes SET residente_id=?,responsavel_id=?,data_acolhimento=?,
+               periodo_tratamento=?,valor_contrato=?,valor_acolhimento=?,valor_mensalidade=?,
+               modalidade=?,convenio_id=?,valor_diaria=?,servicos_voluntario=? WHERE id=?""",
+            (*campos_contratuais[:1], responsavel_id, *campos_contratuais[1:], internacao_id),
+        )
+        conexao.execute(
+            """INSERT INTO residente_responsavel(residente_id,responsavel_id,relacao,principal)
+               VALUES(?,?,?,0) ON CONFLICT(residente_id,responsavel_id) DO NOTHING""",
+            (residente_id, responsavel_id, "Responsável contratual"),
+        )
+        quantidade = 0
+        if contrato_alterado:
+            resultado = criar_contrato_internacao(internacao_id, conexao=conexao)
+            if not resultado.get("sucesso"):
+                raise ValueError(resultado.get("erro") or "Não foi possível recalcular as cobranças.")
+            quantidade = resultado.get("quantidade", 0)
+        conexao.commit()
+    except (ValueError, sqlite3.IntegrityError) as erro:
+        conexao.rollback()
+        return {"sucesso": False, "erro": str(erro)}
+    finally:
+        conexao.close()
+    sincronizar_status_residentes()
+    return {"sucesso": True, "id": internacao_id, "cobrancas": quantidade,
+            "contrato_alterado": contrato_alterado}
+
+
 def encerrar_internacao(internacao_id, data_encerramento=None, motivo=None,
                        autorizar_ajuste_desconto=False, politica=None, assinatura=None):
     data_encerramento = data_encerramento or date.today().isoformat()

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { responsaveisElegiveis, opcoesResponsavelContratual, prepararInternacao, criarPessoa } from '../frontend/js/components/cadastros.js';
 import { applyInputMask } from '../frontend/js/utils/masks.js';
+import { readFile } from 'node:fs/promises';
 
 const responsaveis = [
     {id: 1, nome: 'Ana', ativo: 1},
@@ -35,6 +36,10 @@ assert.equal(duplicado.id, 8);
 assert.match(duplicado.mensagem, /não foram gravados/);
 assert.equal(chamadas.length, 1);
 assert.equal((await criarPessoa(async () => ({sucesso: true, existe: false, id: 9}), '/api/responsaveis', {})).criada, true);
+
+const appSource = await readFile(new URL('../frontend/js/app.js', import.meta.url), 'utf8');
+assert.match(appSource, /Ações do responsável selecionado/);
+assert.match(appSource, /data-kind="guardian" data-selection-action="edit" disabled>Editar/);
 
 const pendente = {value: 'PENDENTE-TESTE', dataset: {}};
 applyInputMask(pendente);

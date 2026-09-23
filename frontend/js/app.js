@@ -12,6 +12,7 @@ import { businessModules } from "./modules/index.js";
 import { setFormBusy } from "./components/forms.js";
 import { createConference } from "./components/conference.js";
 import { renderDashboardChart } from "./components/dashboard-chart.js";
+import { createAdministrationItems } from "./components/itens-administracao.js";
 import {
     emptyState,
     errorState,
@@ -55,11 +56,18 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     let payableSearchTimer;
 
     let backupPanel;
-    const api = createApi({
-        onUnauthorized: (message) => showLogin(false, message),
-    });
+    // Login desativado para a instalação local de administrador único.
+    // const api = createApi({
+    //     onUnauthorized: (message) => showLogin(false, message),
+    // });
+    const api = createApi();
 
     const workflows = createWorkflows({ api, showAlert, showPanel: (title, body) => layers.auxiliary.replaceChildren(createPanel({ title, body, size: 'large' })) });
+    const administrationItems = createAdministrationItems({
+        api, renderActionTable, renderTable, showAlert,
+        showPanel: (title, body) => layers.auxiliary.replaceChildren(createPanel({title, eyebrow:"Administração", body, size:"large"})),
+        closePanel: () => closeLayer("auxiliary"), refresh: () => openMainPanel("itens_administracao"),
+    });
 
     const residentDocuments = createResidentDocuments({
         api, showAlert,
@@ -75,6 +83,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             renderCashFlow, renderExpenses, renderResidents, renderGuardians,
             renderInternments, renderWallets, renderCantina, renderProducts,
             renderCollaborators,
+            renderAdministrationItems: () => administrationItems.render(),
             renderConference: () => conference.render(),
         }),
     };
@@ -126,6 +135,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (!trigger) return;
         const { action, panel } = trigger.dataset;
         if (action.startsWith("conference-")) return conference.click(trigger);
+        if (administrationItems.click(trigger)) return;
         if (action === "open-panel") openMainPanel(panel);
         if (action === "open-financial-menu") openFinancialMenu();
         if (action === "open-registrations-menu") openRegistrationsMenu();
@@ -186,6 +196,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     async function handleSubmit(event) {
         event.preventDefault();
         if (event.target.matches(".conference-form")) return conference.submit(event.target);
+        if (event.target.matches("[data-admin-item-form]")) return administrationItems.submit(event.target);
         if (event.target.matches("#login-form")) return submitLogin(event.target);
         if (event.target.matches("#setup-form")) return submitSetup(event.target);
         if (event.target.matches("#resident-form")) return submitResident(event.target);
@@ -203,6 +214,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     function handleChange(event) {
         conference.change(event.target);
+        if (administrationItems.change(event.target)) return;
         if (event.target.matches("[data-dashboard-chart-control]")) updateDashboardChart(event.target);
         if (event.target.matches("[data-filter-status], [data-filter-start], [data-filter-end]")) applyTableFilters(event.target);
         if (event.target.matches("[data-payables-filter]")) {
@@ -370,6 +382,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     function openAdministrationMenu() {
         renderMenu("Administração", "Módulo", [
+            ["itens_administracao", "Itens administrativos", "Inventário e movimentações", "open-panel", "Inventário"],
             ["colaboradores", "Colaboradores", "Equipe, senhas e acessos", "open-panel", "Acesso"],
             ["configuracoes", "Configurações", "Parâmetros e sincronização", "open-panel", "Sistema"],
             ["", "Sair", "Encerrar esta sessão", "logout", "Sessão"],
@@ -397,7 +410,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             financeiro: ["financeiro", "contas_receber", "mensalidades", "contas_pagar", "caixa", "conferencia", "despesas"],
             cadastros: ["residentes", "responsaveis", "internacoes"],
             cantina: ["cantina", "carteiras", "itens"],
-            administracao: ["colaboradores", "configuracoes"],
+            administracao: ["itens_administracao", "colaboradores", "configuracoes"],
         };
         return modulePanels[id]?.includes(state.activePanelName) || false;
     }
@@ -620,21 +633,35 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         requestAnimationFrame(() => document.getElementById("guardian-name")?.focus());
     }
 
-    async function openInternmentForm() {
+    async function openInternmentForm(id = "") {
         try {
-            const [residentsResponse, guardiansResponse, agreementsResponse] = await Promise.all([api("/api/residentes"), api("/api/responsaveis"), api("/api/convenios")]);
+            const [residentsResponse, guardiansResponse, agreementsResponse, detailResponse] = await Promise.all([
+                api("/api/residentes"), api("/api/responsaveis"), api("/api/convenios"),
+                id ? api(`/api/internacoes/detalhe?id=${encodeURIComponent(id)}`) : Promise.resolve({ dados: null }),
+            ]);
             const residents = residentsResponse.dados || [];
-            const guardians = responsaveisElegiveis(guardiansResponse.dados || []);
+            const internment = detailResponse.dados;
+            const allGuardians = guardiansResponse.dados || [];
+            const guardians = internment
+                ? [allGuardians.find(item => String(item.id) === String(internment.responsavel_id)), ...responsaveisElegiveis(allGuardians).filter(item => String(item.id) !== String(internment.responsavel_id))].filter(Boolean)
+                : responsaveisElegiveis(allGuardians);
             if (!residents.length || !guardians.length) {
                 showAlert("Cadastro necessário", "Cadastre um residente e um responsável ativo, ou reative um responsável, antes de criar a internação.");
                 return;
             }
-            const residentOptions = residents.map((item) => `<option value="${item.id}">${escapeHtml(item.nome)}</option>`).join("");
-            const guardianOptions = guardians.map((item) => `<option value="${item.id}">${escapeHtml(item.nome)}</option>`).join("");
-            const agreementOptions = (agreementsResponse.dados || []).filter((item) => Number(item.ativo) === 1).map((item) => `<option value="${item.id}">${escapeHtml(item.nome)} — ${formatMoney(item.valor_diaria)} por dia</option>`).join("");
+            if (id && !internment) throw new Error("Internação não encontrada.");
+            const selected = (value, current) => String(value) === String(current) ? " selected" : "";
+            const residentOptions = residents.map((item) => `<option value="${item.id}"${selected(item.id, internment?.residente_id)}>${escapeHtml(item.nome)}</option>`).join("");
+            const guardianOptions = guardians.map((item) => `<option value="${item.id}"${selected(item.id, internment?.responsavel_id)}>${escapeHtml(item.nome)}${Number(item.ativo) === 1 ? "" : " (atual, inativo)"}</option>`).join("");
+            const agreements = (agreementsResponse.dados || []).filter((item) => Number(item.ativo) === 1 || String(item.id) === String(internment?.convenio_id));
+            const agreementOptions = agreements.map((item) => `<option value="${item.id}"${selected(item.id, internment?.convenio_id)}>${escapeHtml(item.nome)} — ${formatMoney(item.valor_diaria)} por dia</option>`).join("");
             const today = localDate();
-            const body = `<form class="login-form" id="internment-form"><div class="field"><label for="internment-resident">Residente</label><select id="internment-resident" name="residente_id" required>${residentOptions}</select></div><div class="field"><label for="internment-guardian">Responsável</label><select id="internment-guardian" name="responsavel_id" required>${guardianOptions}</select></div><div class="field"><label for="internment-modality">Modalidade de residência</label><select id="internment-modality" name="modalidade" required><option value="PARTICULAR">Particular</option><option value="SOCIAL">Social</option><option value="CONVENIO">Convênio</option><option value="VOLUNTARIO">Voluntário</option></select></div><div class="field"><label for="internment-date">Data de acolhimento</label><input id="internment-date" name="data_acolhimento" type="date" value="${today}" required></div><div class="field" data-period-field><label for="internment-period">Período de tratamento (meses)</label><input id="internment-period" name="periodo_tratamento" type="number" min="1" step="1" required></div><div class="field" data-agreement-field hidden><label for="internment-agreement">Convênio</label><select id="internment-agreement" name="convenio_id"><option value="">Selecione</option>${agreementOptions}</select><small>O valor é calculado pela diária e pelos dias de tratamento em cada mês.</small></div><div data-particular-fields><div class="field"><label for="internment-contract">Valor do contrato</label><input id="internment-contract" name="valor_contrato" readonly title="Acolhimento + mensalidades do período" type="number" min="0" step="0.01" value="0" required></div><div class="field"><label for="internment-welcome">Valor do acolhimento</label><input id="internment-welcome" name="valor_acolhimento" type="number" min="0" step="0.01" value="0" required></div><div class="field"><label for="internment-monthly">Mensalidade</label><input id="internment-monthly" name="valor_mensalidade" type="number" min="0" step="0.01" value="0" required></div></div><div class="field" data-volunteer-field hidden><label for="internment-services">Serviços prestados à clínica</label><textarea id="internment-services" name="servicos_voluntario" rows="4" placeholder="Descreva as atividades combinadas"></textarea></div><p class="form-note" data-internment-note>O residente ficará ativo somente enquanto esta internação estiver dentro do período contratado.</p><p class="login-error" data-internment-error role="alert"></p><button class="button" type="submit">Salvar internação</button></form>`;
-            layers.auxiliary.replaceChildren(createPanel({ title: "Nova internação", eyebrow: "Acolhimento e contrato", body, size: "medium" }));
+            const mode = internment?.modalidade || "PARTICULAR";
+            const money = value => (Number(value || 0) / 100).toFixed(2);
+            const body = `<form class="login-form" id="internment-form">${id ? `<input type="hidden" name="id" value="${escapeHtml(id)}">` : ""}<div class="field"><label for="internment-resident">Residente</label><select id="internment-resident" name="residente_id" required>${residentOptions}</select></div><div class="field"><label for="internment-guardian">Responsável</label><select id="internment-guardian" name="responsavel_id" required>${guardianOptions}</select></div><div class="field"><label for="internment-modality">Modalidade de residência</label><select id="internment-modality" name="modalidade" required><option value="PARTICULAR"${selected("PARTICULAR", mode)}>Particular</option><option value="SOCIAL"${selected("SOCIAL", mode)}>Social</option><option value="CONVENIO"${selected("CONVENIO", mode)}>Convênio</option><option value="VOLUNTARIO"${selected("VOLUNTARIO", mode)}>Voluntário</option></select></div><div class="field"><label for="internment-date">Data de acolhimento</label><input id="internment-date" name="data_acolhimento" type="date" value="${escapeHtml(internment?.data_acolhimento || today)}" required></div><div class="field" data-period-field><label for="internment-period">Período de tratamento (meses)</label><input id="internment-period" name="periodo_tratamento" type="number" min="1" step="1" value="${escapeHtml(internment?.periodo_tratamento || "")}" required></div><div class="field" data-agreement-field hidden><label for="internment-agreement">Convênio</label><select id="internment-agreement" name="convenio_id"><option value="">Selecione</option>${agreementOptions}</select><small>O valor é calculado pela diária e pelos dias de tratamento em cada mês.</small></div><div data-particular-fields><div class="field"><label for="internment-contract">Valor do contrato</label><input id="internment-contract" name="valor_contrato" readonly title="Acolhimento + mensalidades do período" type="number" min="0" step="0.01" value="${money(internment?.valor_contrato)}" required></div><div class="field"><label for="internment-welcome">Valor do acolhimento</label><input id="internment-welcome" name="valor_acolhimento" type="number" min="0" step="0.01" value="${money(internment?.valor_acolhimento)}" required></div><div class="field"><label for="internment-monthly">Mensalidade</label><input id="internment-monthly" name="valor_mensalidade" type="number" min="0" step="0.01" value="${money(internment?.valor_mensalidade)}" required></div></div><div class="field" data-volunteer-field hidden><label for="internment-services">Serviços prestados à clínica</label><textarea id="internment-services" name="servicos_voluntario" rows="4" placeholder="Descreva as atividades combinadas">${escapeHtml(internment?.servicos_voluntario || "")}</textarea></div>${id ? '<p class="form-note">Alterações contratuais recalculam as cobranças quando ainda não existe histórico financeiro.</p>' : ""}<p class="form-note" data-internment-note></p><p class="login-error" data-internment-error role="alert"></p><button class="button" type="submit">${id ? "Salvar alterações" : "Salvar internação"}</button></form>`;
+            layers.auxiliary.replaceChildren(createPanel({ title: id ? "Editar internação" : "Nova internação", eyebrow: "Acolhimento e contrato", body, size: "medium" }));
+            updateInternmentMode(mode);
+            if (mode === "PARTICULAR") updateContractTotal();
         } catch (error) { showAlert("Não foi possível abrir", error.message); }
     }
 
@@ -842,6 +869,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     async function openMaintenanceForm(kind, id, residentId = "") {
+        if (kind === "internment-edit") return openInternmentForm(id);
         if (['internment-end', 'internment-extend', 'refund', 'refund-reversal', 'wallet-refund', 'contact-primary', 'recurrence', 'recurrence-generate', 'recurrence-adjust', 'recurrence-dispense'].includes(kind)) return workflows.open(kind, id);
         try {
             const today = localDate();
@@ -865,6 +893,14 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
                 const item = (await api("/api/responsaveis")).dados.find((row) => String(row.id) === String(id));
                 title = "Editar responsável"; endpoint = "/api/responsaveis/editar"; refresh = "responsaveis";
                 fields = `<input type="hidden" name="id" value="${item.id}"><div class="field"><label>Nome</label><input name="nome" value="${escapeHtml(item.nome)}" required></div><div class="field"><label>CPF ou CNPJ</label><input name="cpf" value="${escapeHtml(item.cpf)}" ${String(item.cpf).startsWith("PENDENTE-") ? "" : 'inputmode="numeric" data-mask="document" maxlength="18"'} required></div><div class="field"><label>Telefone</label><input name="telefone" type="tel" inputmode="numeric" data-mask="phone" maxlength="15" value="${escapeHtml(item.telefone || "")}"></div><div class="field"><label>E-mail</label><input name="email" type="email" value="${escapeHtml(item.email || "")}"></div>${activeSelect(item.ativo)}`;
+            } else if (kind === "expense") {
+                const registrations = (await api("/api/financeiro/cadastros")).dados;
+                const item = registrations.despesas.find((row) => String(row.id) === String(id));
+                if (!item) throw new Error("Despesa não encontrada.");
+                const sectors = registrations.setores.filter((row) => Number(row.ativo) === 1 || String(row.id) === String(item.setor_id));
+                const sectorOptions = sectors.map(row => `<option value="${row.id}"${String(row.id) === String(item.setor_id) ? " selected" : ""}>${escapeHtml(row.nome)}${Number(row.ativo) === 1 ? "" : " (atual, inativo)"}</option>`).join("");
+                title = "Editar despesa"; endpoint = "/api/despesas/editar"; refresh = "despesas";
+                fields = `<input type="hidden" name="id" value="${item.id}"><div class="field"><label>Setor</label><select name="setor_id" required>${sectorOptions}</select></div><div class="field"><label>Descrição</label><input name="descricao" value="${escapeHtml(item.descricao)}" required></div><div class="field"><label>Natureza</label><select name="natureza"><option value="FIXA"${item.natureza === "FIXA" ? " selected" : ""}>Fixa</option><option value="VARIAVEL"${item.natureza === "VARIAVEL" ? " selected" : ""}>Variável</option><option value="EXTRAORDINARIA"${item.natureza === "EXTRAORDINARIA" ? " selected" : ""}>Extraordinária</option></select></div><label class="form-note"><input name="recorrente" type="checkbox" value="1"${Number(item.recorrente) === 1 ? " checked" : ""}> Despesa recorrente</label>${activeSelect(item.ativo)}<p class="form-note">Contas a pagar já lançadas não serão alteradas.</p>`;
             } else if (kind === "internment-guardian") {
                 const [{ dados: internacao }, { dados: responsaveis }] = await Promise.all([
                     api(`/api/internacoes/detalhe?id=${encodeURIComponent(id)}`), api("/api/responsaveis")
@@ -1208,9 +1244,10 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const data = prepararInternacao(Object.fromEntries(new FormData(form)));
         setFormBusy(form, true);
         try {
-            const resultado = await api("/api/internacoes", { method: "POST", body: data });
+            const editing = Boolean(data.id);
+            const resultado = await api(editing ? "/api/internacoes/editar" : "/api/internacoes", { method: "POST", body: data });
             closeLayer("auxiliary"); await openMainPanel("internacoes");
-            showAlert("Internação salva", `A internação foi cadastrada e ${resultado.cobrancas || 0} cobranças foram geradas.`);
+            showAlert("Internação salva", editing ? "As informações da internação foram atualizadas." : `A internação foi cadastrada e ${resultado.cobrancas || 0} cobranças foram geradas.`);
         } catch (error) { form.querySelector("[data-internment-error]").textContent = error.message; }
         finally { setFormBusy(form, false); }
     }
@@ -1256,7 +1293,12 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function renderGuardians() {
         const { dados } = await api("/api/responsaveis");
-        return `<div class="toolbar"><div></div><button class="button" type="button" data-action="open-new-guardian">Novo responsável</button></div>${renderActionTable(dados, [["Nome", "nome"], ["CPF/CNPJ", "cpf", formatDocument], ["Telefone", "telefone", formatPhone], ["E-mail", "email"], ["Situação", "ativo", formatActive]], (row) => `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="guardian" data-id="${row.id}">Editar</button>`)}`;
+        const table = renderActionTable(dados, [["Nome", "nome"], ["CPF/CNPJ", "cpf", formatDocument], ["Telefone", "telefone", formatPhone], ["E-mail", "email"], ["Situação", "ativo", formatActive]], () => "", {
+            selectableRows: true,
+            selectionData: row => ({ id: row.id, capabilities: ["edit"] }),
+        });
+        const actions = `<div class="selection-actions" aria-label="Ações do responsável selecionado"><span class="selection-actions__label">Responsável selecionado</span><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="guardian" data-selection-action="edit" disabled>Editar</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button" type="button" data-action="open-new-guardian">Novo responsável</button></div>`;
+        return `<section class="selection-scope"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 
     async function renderInternments() {
@@ -1265,10 +1307,10 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             selectableRows: true,
             selectionData: (row) => ({
                 id: row.id,
-                capabilities: [...(["ATIVA", "AGENDADA"].includes(row.status) ? ["guardian"] : []), ...(!row.encerrada_em && row.status !== "CANCELADA" && row.modalidade !== "VOLUNTARIO" ? ["extend"] : []), ...(row.status === "AGENDADA" ? ["cancel"] : []), ...(row.status === "ATIVA" && !row.encerrada_em ? ["end"] : [])],
+                capabilities: [...(["ATIVA", "AGENDADA"].includes(row.status) ? ["edit"] : []), ...(!row.encerrada_em && row.status !== "CANCELADA" && row.modalidade !== "VOLUNTARIO" ? ["extend"] : []), ...(row.status === "AGENDADA" ? ["cancel"] : []), ...(row.status === "ATIVA" && !row.encerrada_em ? ["end"] : [])],
             }),
         });
-        const actions = `<div class="selection-actions" aria-label="Ações da internação selecionada"><span class="selection-actions__label">Internação selecionada</span><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-guardian" data-selection-action="guardian" disabled>Responsável</button><button class="button button--danger" type="button" data-action="cancel-internment" data-selection-action="cancel" disabled>Cancelar agendamento</button><button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-selection-action="end" disabled>Encerrar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-extend" data-selection-action="extend" disabled>Prorrogar</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button" type="button" data-action="open-new-internment">Nova internação</button></div>`;
+        const actions = `<div class="selection-actions" aria-label="Ações da internação selecionada"><span class="selection-actions__label">Internação selecionada</span><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-edit" data-selection-action="edit" disabled>Editar</button><button class="button button--danger" type="button" data-action="cancel-internment" data-selection-action="cancel" disabled>Cancelar agendamento</button><button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-selection-action="end" disabled>Encerrar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-extend" data-selection-action="extend" disabled>Prorrogar</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button" type="button" data-action="open-new-internment">Nova internação</button></div>`;
         return `<section class="selection-scope"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 
@@ -1452,8 +1494,12 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const { dados: schedules } = await api('/api/recorrencias');
         const scheduleTable = renderActionTable(schedules, [["Despesa", "descricao"], ["Valor inicial", "valor", formatMoney], ["Início", "data_inicio", formatDate], ["Fim", "data_fim", formatDate], ["Próxima geração", "proxima_geracao", formatDate], ["Períodos pendentes", "periodos_nao_gerados"], ["Conflitos", "conflitos"], ["Ativa", "ativo", formatYesNo]], row => Number(row.ativo) === 1 ? `<button class="button" data-action="open-maintenance-form" data-kind="recurrence-generate" data-id="${row.id}">Gerar contas</button><button class="button button--secondary" data-action="open-maintenance-form" data-kind="recurrence-adjust" data-id="${row.id}">Reajustar</button><button class="button button--secondary" data-action="open-maintenance-form" data-kind="recurrence-dispense" data-id="${row.id}">Dispensar competência</button><button class="button button--secondary" data-action="end-recurrence" data-id="${row.id}">Encerrar programação</button>` : '');
         const sectors = renderActionTable(dados.setores, [["Setor", "nome"], ["Situação", "ativo", formatActive]], (row) => `<button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="editar_setor" data-id="${row.id}">Editar</button>`);
-        const expenses = renderActionTable(dados.despesas, [["Descrição", "descricao"], ["Setor", "setor_nome"], ["Natureza", "natureza"], ["Recorrente", "recorrente", formatYesNo], ["Situação", "ativo", formatActive]], (row) => Number(row.ativo) === 1 ? `<button class="button button--danger" type="button" data-action="deactivate-expense" data-id="${row.id}">Inativar</button>${Number(row.recorrente) === 1 ? `<button class="button button--secondary" data-action="open-maintenance-form" data-kind="recurrence" data-id="${row.id}">Programar</button>` : ""}` : "");
-        return `<div class="toolbar"><div></div><div class="report-actions"><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="setor">Novo setor</button><button class="button" type="button" data-action="open-financial-form" data-kind="despesa">Nova despesa</button></div></div><h3 class="section-title">Setores</h3>${sectors}<h3 class="section-title">Despesas cadastradas</h3>${expenses}<h3>Programações recorrentes</h3>${scheduleTable}`;
+        const expenses = renderActionTable(dados.despesas, [["Descrição", "descricao"], ["Setor", "setor_nome"], ["Natureza", "natureza"], ["Recorrente", "recorrente", formatYesNo], ["Situação", "ativo", formatActive]], () => "", {
+            selectableRows: true,
+            selectionData: row => ({ id: row.id, capabilities: ["edit", ...(Number(row.ativo) === 1 ? ["deactivate"] : []), ...(Number(row.ativo) === 1 && Number(row.recorrente) === 1 ? ["recurrence"] : [])] }),
+        });
+        const expenseActions = `<div class="selection-actions" aria-label="Ações da despesa selecionada"><span class="selection-actions__label">Despesa selecionada</span><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="expense" data-selection-action="edit" disabled>Editar</button><button class="button button--danger" type="button" data-action="deactivate-expense" data-selection-action="deactivate" disabled>Inativar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="recurrence" data-selection-action="recurrence" disabled>Programar</button></div>`;
+        return `<div class="toolbar"><div></div><div class="report-actions"><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="setor">Novo setor</button><button class="button" type="button" data-action="open-financial-form" data-kind="despesa">Nova despesa</button></div></div><h3 class="section-title">Setores</h3>${sectors}<h3 class="section-title">Despesas cadastradas</h3><section class="selection-scope"><div class="toolbar selection-toolbar">${expenseActions}</div>${expenses}</section><h3>Programações recorrentes</h3>${scheduleTable}`;
     }
 
     async function renderCashFlow(url = "/api/caixa") {

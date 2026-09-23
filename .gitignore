@@ -4,3 +4,8 @@ __pycache__/
 dados/
 configuracao_local.json
 tmp/backup-deps/
+tmp/
+distribuicao/dependencias-python/
+distribuicao/pre-requisitos/
+distribuicao/instalador-sistema/build/
+~*.CAB

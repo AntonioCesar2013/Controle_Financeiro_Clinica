@@ -1,6 +1,7 @@
 """Cadastro de pertences por residente em banco descartável."""
 import unittest
 import sqlite3
+from contextlib import closing
 from datetime import date, timedelta
 from unittest.mock import patch
 
@@ -41,7 +42,7 @@ class ItensResidentes(unittest.TestCase):
         self.assertEqual(self.f.sql("SELECT COUNT(*) FROM migracoes_schema WHERE modulo='cadastros' AND versao=3")[0][0], 1)
 
     def test_migracao_preserva_item_antigo_sem_inventar_data(self):
-        with sqlite3.connect(':memory:') as conexao:
+        with closing(sqlite3.connect(':memory:')) as conexao, conexao:
             conexao.execute('CREATE TABLE itens_residentes(id INTEGER PRIMARY KEY,residente_id INTEGER,nome TEXT)')
             conexao.execute("INSERT INTO itens_residentes(residente_id,nome) VALUES(1,'Mala antiga')")
             _datas_itens_residentes(conexao)

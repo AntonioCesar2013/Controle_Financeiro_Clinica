@@ -73,8 +73,9 @@ O sistema será aberto em uma janela própria baseada no Microsoft Edge WebView2
 O servidor local é iniciado em segundo plano e encerrado automaticamente quando
 a janela for fechada. O navegador comum não é aberto.
 
-No primeiro acesso, o sistema solicitará o cadastro do primeiro colaborador.
-Nos acessos seguintes, utilize o CPF e a senha cadastrados.
+Esta instalação opera localmente, com um único administrador, sem exigir login.
+O código de autenticação permanece preservado no projeto, porém suas chamadas
+obrigatórias estão comentadas.
 
 O frontend deve ser aberto pelo servidor. A abertura direta de
 `frontend/index.html` não possui acesso à API Python.
@@ -164,9 +165,6 @@ Todo residente é cadastrado inicialmente como inativo. O sistema marca o
 residente como ativo somente quando a data atual estiver entre o acolhimento e
 o término do período contratado de uma internação. Internações futuras ou
 encerradas mantêm o residente inativo.
-2. Informe nome, CPF e uma senha com pelo menos 8 caracteres.
-3. Esse cadastro será o primeiro colaborador com acesso ao sistema.
-4. Nos próximos acessos, use o mesmo CPF e senha.
 
 O arquivo local `dados/clinica.db` é criado automaticamente e não é enviado ao
 Git, pois cada instalação deve possuir seu próprio banco.
@@ -178,6 +176,10 @@ O backup automático vem **desativado**. Ele pode ser ativado em
 local. O intervalo padrão é de 6 horas e o agendamento funciona somente enquanto
 o processo do sistema permanece aberto. As cópias não são excluídas
 automaticamente; acompanhe o espaço disponível na pasta configurada.
+O painel funciona sem sessão no modo de administrador único e somente aceita
+acesso quando cliente e servidor estão no próprio computador. Comandos de gravação
+continuam sujeitos à verificação de origem e credenciais externas permanecem no
+Credential Manager do Windows.
 
 Para criar uma cópia manual pelo comando compatível:
 
@@ -189,11 +191,11 @@ Para listar e restaurar uma cópia:
 
 ```powershell
 python -m src.backup_banco listar
-python -m src.backup_banco restaurar NOME_DO_ARQUIVO.db
+python -m src.backup_banco restaurar NOME_DO_ARQUIVO.db.gz
 ```
 
 A listagem reconhece tanto `clinica_*.db` em `dados/backups` quanto
-`controle_financeiro_*.db` na pasta configurada no módulo atual. A restauração
+`controle_financeiro_*.db` e `controle_financeiro_*.db.gz` na pasta configurada no módulo atual. A restauração
 valida integridade e compatibilidade, preserva uma cópia preventiva do banco atual
 e é bloqueada efetivamente enquanto alguma instância do sistema estiver usando o
 banco. Feche todas as janelas do sistema antes de restaurar. Consulte os estados

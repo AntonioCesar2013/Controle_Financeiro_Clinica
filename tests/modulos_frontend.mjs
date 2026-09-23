@@ -7,8 +7,8 @@ import { currencyValue, maskCurrency } from "../frontend/js/utils/masks.js";
 
 const renderers = new Proxy({}, { get: (_, name) => () => name });
 const panels = createPanelRegistry(businessModules, renderers);
-assert.deepEqual(businessModules.map((m) => m.name), ["cadastros", "financeiro", "cantina"]);
-for (const name of ["residentes", "internacoes", "contas_receber", "cantina", "itens"]) {
+assert.deepEqual(businessModules.map((m) => m.name), ["cadastros", "financeiro", "administracao", "cantina"]);
+for (const name of ["residentes", "internacoes", "contas_receber", "itens_administracao", "cantina", "itens"]) {
     assert(resolvePanel(panels, name), `painel ${name} deve estar registrado`);
 }
 assert.equal(can("financeiro.pagar"), true);

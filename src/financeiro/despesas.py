@@ -122,6 +122,43 @@ def cadastrar_despesa(setor_id, descricao, natureza, recorrente=False):
         conexao.close()
 
 
+def editar_despesa(despesa_id, setor_id, descricao, natureza, recorrente=False, ativo=1):
+    """Atualiza somente o cadastro; contas e programações já geradas são preservadas."""
+    descricao = str(descricao or "").strip()
+    natureza = str(natureza or "").strip().upper()
+    recorrente = 1 if recorrente in (True, 1, "1", "true", "True") else 0
+    ativo = 1 if ativo in (True, 1, "1", "true", "True") else 0
+    if not descricao:
+        return {"sucesso": False, "erro": "A descrição da despesa é obrigatória."}
+    if natureza not in NATUREZAS_VALIDAS:
+        return {"sucesso": False, "erro": "Natureza inválida. Use FIXA, VARIAVEL ou EXTRAORDINARIA."}
+    conexao = conectar()
+    try:
+        conexao.execute("BEGIN IMMEDIATE")
+        atual = conexao.execute("SELECT id FROM despesas WHERE id=?", (despesa_id,)).fetchone()
+        if not atual:
+            return {"sucesso": False, "erro": "Despesa não encontrada."}
+        setor = conexao.execute("SELECT id,ativo FROM setores WHERE id=?", (setor_id,)).fetchone()
+        if not setor:
+            return {"sucesso": False, "erro": "Setor não encontrado."}
+        if ativo and not setor[1]:
+            return {"sucesso": False, "erro": "Uma despesa ativa precisa pertencer a um setor ativo."}
+        if not recorrente and conexao.execute(
+            "SELECT 1 FROM recorrencias_despesas WHERE despesa_id=? AND ativo=1", (despesa_id,)
+        ).fetchone():
+            return {"sucesso": False, "erro": "Encerre a programação recorrente ativa antes de retirar a recorrência da despesa."}
+        conexao.execute(
+            "UPDATE despesas SET setor_id=?,descricao=?,natureza=?,recorrente=?,ativo=? WHERE id=?",
+            (setor_id, descricao, natureza, recorrente, ativo, despesa_id),
+        )
+        conexao.commit()
+        return {"sucesso": True, "id": despesa_id, "setor_id": setor_id,
+                "descricao": descricao, "natureza": natureza,
+                "recorrente": recorrente, "ativo": ativo}
+    finally:
+        conexao.close()
+
+
 def buscar_despesa(despesa_id):
     conexao = conectar()
     try:

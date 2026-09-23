@@ -1,5 +1,19 @@
 # Backup SQLite
 
+## Configuração desta instalação — 22/09/2026
+
+O backup funciona no acesso local sem consultar login, sessão ou perfil de usuário.
+A pasta configurada é `C:\Users\Cliente\Documents\backupsistema`, com execução
+automática habilitada a cada seis horas enquanto o sistema estiver aberto.
+Foi gerada a cópia `controle_financeiro_2026-09-22_084013_033521.db` e testada sua
+restauração em banco temporário: integridade aprovada, nenhuma violação de chave
+estrangeira e arquivo restaurado idêntico à cópia. O banco operacional não foi
+substituído. Acesso e operações sem login foram verificados em 18 testes Python
+de backup e no teste JavaScript de status, todos aprovados.
+
+Esta configuração é local ao usuário Windows atual. Uma pasta no próprio computador
+não substitui uma cópia externa para recuperação em caso de perda do equipamento.
+
 Em **Administração → Configurações → Backup do sistema**, informe uma pasta absoluta,
 salve e use **Executar backup agora**. O seletor abre uma pasta do computador que
 executa o WebView2; no navegador, digite o caminho. Pastas inexistentes são criadas
@@ -11,7 +25,7 @@ na primeira execução. A pasta precisa permitir gravação e ter espaço dispon
   Caminho calculado por `platformdirs.user_data_path`, sem diretório do fabricante.
 - Estado operacional → `backup-status.json` na mesma pasta. Guarda a última tentativa,
   último snapshot local íntegro, destinos, erros sanitizados, nome, tamanho, duração
-  e execução ignorada. Não é um histórico financeiro nem uma política de retenção.
+  e execução ignorada. Não é um histórico financeiro.
 - Segredos → **Windows Credential Manager**, serviço `Controle_Financeiro_Clinica.Backup`:
   `r2_access_key_id`, `r2_secret_access_key`, `drive_client_secret`, `drive_token`.
   O último contém o material OAuth, incluindo access token, refresh token e expiração.
@@ -61,15 +75,24 @@ automática legada), `frontend/js/app.js` (integração em Configurações), `RE
 O snapshot abre o banco existente em modo somente leitura, chama `Connection.backup`
 em páginas com limite de cinco minutos, fecha conexões, exige que **todos** os
 resultados de `PRAGMA integrity_check` sejam `ok`, sincroniza e renomeia o temporário
-na própria pasta de destino. Cópias incompletas são excluídas; backups anteriores
-não são excluídos. Não há cópia direta do arquivo ativo.
+na própria pasta de destino. Em seguida, compacta o snapshot íntegro como `.db.gz`,
+valida integralmente o stream gzip e publica o arquivo por renomeação atômica.
+Cópias incompletas são excluídas; não há cópia direta do arquivo ativo.
+
+Depois da publicação bem-sucedida, são mantidos os **50 backups automáticos mais
+recentes** (`controle_financeiro_*.db` ou `.db.gz`) na pasta configurada. Os mais
+antigos são removidos. Arquivos com outros nomes, cópias preventivas de restauração
+e backups legados não entram nessa limpeza. Se a criação do novo snapshot falhar,
+nenhum backup anterior é removido.
 
 Após sucesso local, R2 e Drive recebem o mesmo arquivo, cada qual com seu resultado.
 Uma falha R2 não impede o Drive, nem apaga a cópia local. Sem snapshot íntegro, nenhum
 upload ocorre. `last_success` significa **snapshot local íntegro**, não sucesso de
 todas as nuvens. `last_r2_success` e `last_drive_success` registram separadamente o
 último envio bem-sucedido para cada destino. A tela informa desativação, ausência de
-cópia concluída, atraso em relação ao intervalo e falhas parciais.
+cópia concluída, atraso em relação ao intervalo e falhas parciais. O estado geral
+somente aparece **em dia** quando cada destino externo habilitado recebeu o snapshot
+local atual; caso contrário, aparece **parcial** e identifica os destinos pendentes.
 
 O automático vem desativado, com intervalo padrão de seis horas. Ao habilitar sem
 tentativa anterior, executa no próximo ciclo de verificação (até cinco segundos).
@@ -80,17 +103,22 @@ registrado como ignorado e aguarda o próximo intervalo. Use uma instância do s
 por banco. Ao fechar, o scheduler para; um upload daemon em curso pode ser interrompido,
 mas o snapshot local já concluído permanece. Reinício sinaliza execução interrompida.
 
+A trava entre processos do banco é adquirida antes de preparar schema, executar
+migrações ou sincronizar estados. Uma segunda instância, inclusive em outra porta,
+é recusada sem escrever no banco. Falhas durante a inicialização liberam a trava
+antes de devolver o erro, permitindo uma nova tentativa segura.
+
 Uploads/testes/OAuth rodam em thread e retornam HTTP 202; a interface consulta o status.
 Erros temporários têm no máximo três tentativas, com esperas de um e dois segundos.
-Erros permanentes/autenticação não são repetidos. Não há exclusão automática.
+Erros permanentes/autenticação não são repetidos.
 
 ## Catálogo e recuperação local
 
 O comando `python -m src.backup_banco listar` reúne as cópias antigas
-`clinica_*.db` de `dados/backups` e as novas `controle_financeiro_*.db` da pasta
-configurada. A restauração aceita o nome exibido; se houver nomes iguais em pastas
+`clinica_*.db` de `dados/backups` e as novas `controle_financeiro_*.db` ou
+`controle_financeiro_*.db.gz` da pasta configurada. A restauração aceita o nome exibido; se houver nomes iguais em pastas
 diferentes, informe o caminho completo. Antes de substituir o banco, o comando
-valida a integridade e as tabelas essenciais, cria uma cópia preventiva em
+descompacta quando necessário, valida a integridade e as tabelas essenciais, cria uma cópia preventiva em
 `dados/backups` e prepara a substituição em arquivo temporário.
 
 A restauração é recusada enquanto uma instância do sistema mantém a trava de uso do
@@ -98,17 +126,15 @@ banco. Feche todas as janelas e processos do sistema antes de executar o comando
 Essa trava não transforma o cancelamento de uma interface em encerramento do banco.
 Recuperação direta de cópias remotas pela interface não faz parte deste fluxo.
 
-## Acesso administrativo
+## Acesso administrativo local
 
-Já existem usuários e sessões, mas `src/nucleo/permissoes.py` retorna `True` para
-todas as permissões e o login inicial da interface está desativado para testes.
-As novas rotas **sempre exigem sessão**, inclusive GET, e chamam
-`permitido(identidade, 'sistema.backup.admin')` em `src/interface/rotas/backup.py`.
-Ao abrir Backup sem sessão, o tratamento existente da API mostra o login existente.
-**Ainda não há distinção efetiva entre administrador e colaborador autenticado.**
-Quando o controle de acesso for concluído, essa permissão deverá ser concedida apenas
-ao papel admin no mecanismo existente. Não foi criada autenticação paralela ou papel
-inferido por ID. O servidor desktop deve permanecer no loopback padrão.
+A instalação atual é destinada a um único administrador e não exige sessão. O código
+de autenticação foi preservado, mas suas verificações obrigatórias permanecem
+comentadas. As rotas de backup sem sessão só respondem quando o cliente e o servidor
+estão no loopback do próprio computador. Os comandos de gravação também validam a
+origem HTTP e o tipo JSON. Segredos de R2 e Drive continuam armazenados no Credential
+Manager do Windows e não são devolvidos pela API. O servidor desktop deve permanecer
+no endereço local padrão.
 
 ## Configurar Cloudflare R2
 

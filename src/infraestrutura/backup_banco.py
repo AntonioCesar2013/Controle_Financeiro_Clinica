@@ -12,8 +12,14 @@ PASTA_BACKUPS = banco.CAMINHO_BANCO.parent / "backups"
 
 
 def _validar_banco(caminho):
+    caminho = Path(caminho)
+    if caminho.name.endswith('.db.gz'):
+        from src.infraestrutura.backup.snapshot import extract_compressed_snapshot
+        with tempfile.TemporaryDirectory(prefix='validar_backup_') as pasta:
+            extraido = extract_compressed_snapshot(caminho, Path(pasta) / 'backup.db')
+            return _validar_banco(extraido)
     try:
-        conexao = sqlite3.connect(Path(caminho).resolve().as_uri() + "?mode=ro", uri=True)
+        conexao = sqlite3.connect(caminho.resolve().as_uri() + "?mode=ro", uri=True)
     except sqlite3.Error as erro:
         raise ValueError("O arquivo não é um banco SQLite válido.") from erro
     try:
@@ -54,7 +60,7 @@ def listar_backups(config=None):
     for pasta in pastas:
         if not pasta.is_dir():
             continue
-        for padrao in ("clinica_*.db", "controle_financeiro_*.db"):
+        for padrao in ("clinica_*.db", "controle_financeiro_*.db", "controle_financeiro_*.db.gz"):
             for arquivo in pasta.glob(padrao):
                 encontrados[str(arquivo.resolve()).casefold()] = arquivo.resolve()
     return sorted(encontrados.values(), key=lambda item: item.stat().st_mtime, reverse=True)
@@ -94,7 +100,11 @@ def restaurar_backup(nome_arquivo, config=None):
         os.close(fd)
         Path(temporario).unlink(missing_ok=True)
         try:
-            create_snapshot(origem, temporario)
+            if origem.name.endswith('.db.gz'):
+                from src.infraestrutura.backup.snapshot import extract_compressed_snapshot
+                extract_compressed_snapshot(origem, temporario)
+            else:
+                create_snapshot(origem, temporario)
             _validar_banco(temporario)
             os.replace(temporario, banco.CAMINHO_BANCO)
         finally:
