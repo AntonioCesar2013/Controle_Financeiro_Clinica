@@ -39,7 +39,7 @@ def _consulta(sql, parametros=()):
         conn.close()
 
 
-def gerar(tipo, data_inicio=None, data_fim=None):
+def gerar(tipo, data_inicio=None, data_fim=None, pagina=1, tamanho=50, completo=False):
     if tipo not in TIPOS:
         raise ValueError("Tipo de relatório inválido.")
     if tipo in {"residentes", "internacoes"}:
@@ -146,8 +146,21 @@ def gerar(tipo, data_inicio=None, data_fim=None):
         colunas = [("Nome", "nome", "texto"), ("CPF", "cpf", "cpf"),
                    ("Status", "status", "texto"), ("Cadastrado em", "criado_em", "data_hora")]
 
+    total_linhas = len(linhas)
+    try:
+        pagina, tamanho = int(pagina), int(tamanho)
+    except (TypeError, ValueError) as erro:
+        raise ValueError("Paginação inválida.") from erro
+    if pagina < 1 or not 10 <= tamanho <= 100:
+        raise ValueError("Paginação inválida.")
+    if not completo:
+        linhas = linhas[(pagina - 1) * tamanho:pagina * tamanho]
+
     return {"tipo": tipo, "titulo": TIPOS[tipo], "usa_periodo": usa_periodo,
             "data_inicio": inicio, "data_fim": fim, "emitido_em": datetime.now().isoformat(timespec="minutes"),
             "resumo": [{"rotulo": x[0], "valor": x[1], "formato": x[2]} for x in resumo],
             "colunas": [{"rotulo": x[0], "campo": x[1], "formato": x[2]} for x in colunas],
-            "linhas": linhas}
+            "linhas": linhas,
+            "paginacao": {"pagina": pagina, "tamanho": tamanho,
+                           "total_registros": total_linhas, "total_filtrado": total_linhas,
+                           "completo": bool(completo)}}

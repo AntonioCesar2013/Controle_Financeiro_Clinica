@@ -6,6 +6,7 @@ from src.cadastros.booleanos import normalizar_booleano
 
 
 OBRIGATORIOS = {
+    '/api/administracao/importacoes/contas-receber': ('acao','linhas'),
     '/api/recebimentos/devolucoes/estornar': ('id','motivo'),
     '/api/residentes/contato-principal': ('residente_id','responsavel_id','motivo'),
     '/api/recebimentos/devolver': ('recebimento_id','valor','data_devolucao','forma_pagamento','motivo','documento'),
@@ -90,6 +91,18 @@ def validar(rota, dados):
     for campo, valor in dados.items():
         if len(campo) > 100:
             raise ValueError('Nome de campo inválido.')
+        if campo == 'linhas' and rota == '/api/administracao/importacoes/contas-receber':
+            if not isinstance(valor,list) or not 1 <= len(valor) <= 1000:
+                raise ValueError('A importacao deve conter de 1 a 1000 linhas.')
+            for linha in valor:
+                if not isinstance(linha,dict) or len(linha)>20:
+                    raise ValueError('Cada linha da importacao deve ser um objeto valido.')
+                if any(not isinstance(chave,str) or len(chave)>100 for chave in linha):
+                    raise ValueError('A importacao possui um nome de coluna invalido.')
+                if any(isinstance(item,(dict,list)) or (isinstance(item,str) and len(item)>10000)
+                       for item in linha.values()):
+                    raise ValueError('A importacao possui um valor de coluna invalido.')
+            continue
         if campo == 'produtos':
             if not isinstance(valor,list) or not 1 <= len(valor) <= 500:
                 raise ValueError('O carrinho deve conter de 1 a 500 itens.')

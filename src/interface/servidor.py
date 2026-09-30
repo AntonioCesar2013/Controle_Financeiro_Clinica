@@ -3,6 +3,7 @@ import mimetypes
 import secrets
 import threading
 import sqlite3
+import time
 import webbrowser
 from datetime import date
 from http import HTTPStatus
@@ -33,6 +34,7 @@ from src.financeiro import recibos
 from src.financeiro import pagamentos
 from src.financeiro import recebimentos
 from src.administracao import itens as itens_administracao
+from src.administracao import importacoes as importacoes_administracao
 from src.financeiro.moeda import reais_para_centavos
 from src.financeiro.estornos import historico, historico_ajustes
 from src.cadastros.internacoes import cancelar_agendamento
@@ -61,13 +63,15 @@ from src.cadastros.internacoes import (
     sincronizar_status_residentes,
 )
 from src.financeiro.cobrancas import aplicar_desconto, gerar_cobrancas
-from src.interface.rotas import rotas_get
+from src.interface.rotas import resolver_rota, rotas_get
 
 
 RAIZ_PROJETO = Path(__file__).resolve().parents[2]
 RAIZ_FRONTEND = RAIZ_PROJETO / "frontend"
 SESSOES = {}
 LOCK_SESSOES = threading.Lock()
+SESSAO_TEMPO_LIMITE = 8 * 60 * 60
+SESSOES_LIMITE = 128
 LIMITE_CORPO = 1_048_576
 
 
@@ -89,18 +93,37 @@ def _centavos(valor):
         raise ValueError("Valor financeiro inválido.") from erro
 
 
-def _dashboard():
+def _limpar_sessoes(agora=None):
+    """Remove sessões vencidas e limita a memória usada pelo armazenamento local."""
+    agora = time.monotonic() if agora is None else agora
+    vencidas = [token for token, sessao in SESSOES.items()
+                if agora - sessao['ultimo_acesso'] >= SESSAO_TEMPO_LIMITE]
+    for token in vencidas:
+        SESSOES.pop(token, None)
+    excesso = len(SESSOES) - SESSOES_LIMITE
+    if excesso > 0:
+        antigas = sorted(SESSOES, key=lambda token: SESSOES[token]['ultimo_acesso'])[:excesso]
+        for token in antigas:
+            SESSOES.pop(token, None)
+
+
+def _dashboard(data_inicio=None, data_fim=None):
+    from calendar import monthrange
     hoje = date.today()
-    resumo = caixa.resumo_mensal(hoje.year, hoje.month)
+    data_inicio = data_inicio or hoje.replace(day=1).isoformat()
+    data_fim = data_fim or hoje.replace(day=monthrange(hoje.year, hoje.month)[1]).isoformat()
+    resumo = caixa.resumo_caixa(data_inicio, data_fim)
     receber = contas_receber.listar_cobrancas_consolidadas(data_referencia=hoje.isoformat())
-    pagar = contas_pagar.listar_contas()
-    total_receber = sum(conta["saldo_restante"] for conta in receber if conta["status"] not in ("PAGA", "DESCONTADA"))
+    pagar = contas_pagar.listar_contas(data_inicio=data_inicio, data_fim=data_fim)
+    total_receber = sum(conta["saldo_restante"] for conta in receber
+                        if data_inicio <= conta["data_vencimento"] <= data_fim
+                        and conta["status"] not in ("PAGA", "DESCONTADA"))
     total_pagar = sum(
         conta["restante"]
         for conta in pagar
         if conta["status"] != "CANCELADA"
     )
-    movimentacoes = caixa.listar_movimentacoes(limite=10)
+    movimentacoes = caixa.listar_movimentacoes(data_inicio, data_fim, limite=10)
     return {
         **resumo,
         "total_receber": total_receber,
@@ -185,7 +208,12 @@ class Requisicao(BaseHTTPRequestHandler):
                 return self._json({"erro": "CPF ou senha inválidos."}, HTTPStatus.UNAUTHORIZED)
             token = secrets.token_urlsafe(32)
             with LOCK_SESSOES:
-                SESSOES[token] = colaborador
+                agora = time.monotonic()
+                _limpar_sessoes(agora)
+                if len(SESSOES) >= SESSOES_LIMITE:
+                    mais_antiga = min(SESSOES, key=lambda item: SESSOES[item]['ultimo_acesso'])
+                    SESSOES.pop(mais_antiga, None)
+                SESSOES[token] = {'colaborador': colaborador, 'ultimo_acesso': agora}
             return self._json({"sucesso": True, "colaborador": colaborador}, cookie=f"sessao={token}; HttpOnly; SameSite=Strict; Path=/")
         if rota == "/api/auth/logout":
             token = self._token_sessao()
@@ -263,6 +291,12 @@ class Requisicao(BaseHTTPRequestHandler):
                 dados.get("quantidade_inicial"),dados.get("unidade_medida"),dados.get("setor_id"),dados.get("data_aquisicao"),
                 None if valor in (None,"") else _centavos(valor),dados.get("estado_conservacao"),dados.get("localizacao"),
                 dados.get("data_movimentacao"),dados.get("motivo"),dados.get("documento")))
+        if rota == "/api/administracao/importacoes/contas-receber":
+            acao = str(dados.get("acao") or "").upper()
+            if acao not in {"PREVIA", "IMPORTAR"}:
+                return self._json({"sucesso": False, "erro": "Acao de importacao invalida."}, HTTPStatus.BAD_REQUEST)
+            return self._resultado_operacao(importacoes_administracao.processar_contas_receber(
+                dados.get("linhas"), confirmar=acao == "IMPORTAR"), criado=acao == "IMPORTAR")
         if rota == "/api/administracao/itens/editar":
             valor = dados.get("valor_aquisicao")
             return self._resultado_operacao(itens_administracao.editar(
@@ -456,8 +490,8 @@ class Requisicao(BaseHTTPRequestHandler):
         return self._json({"erro": "Rota não encontrada."}, HTTPStatus.NOT_FOUND)
 
     def _get_api(self, rota, query):
-        rotas = {"/api/dashboard": _dashboard, **rotas_get(query)}
-        funcao = rotas.get(rota)
+        funcao = (lambda: _dashboard(_parametro(query, 'data_inicio'), _parametro(query, 'data_fim'))) \
+            if rota == "/api/dashboard" else resolver_rota(rota, query)
         if funcao is None:
             return self._json({"erro": "Rota não encontrada."}, HTTPStatus.NOT_FOUND)
         try:
@@ -539,7 +573,10 @@ class Requisicao(BaseHTTPRequestHandler):
             dados = json.loads(corpo or b'{}', object_pairs_hook=pares, parse_constant=constante)
             if not isinstance(dados, dict):
                 raise ErroHTTP('O corpo da requisição deve ser um objeto JSON.')
-            return dados
+            if urlparse(self.path).path.startswith(('/api/backup/', '/api/sincronizacao/')):
+                return dados
+            from src.interface.textos import normalizar_textos
+            return normalizar_textos(dados)
         except ErroHTTP:
             raise
         except (ValueError, UnicodeError, RecursionError):
@@ -553,8 +590,16 @@ class Requisicao(BaseHTTPRequestHandler):
 
     def _sessao(self):
         token = self._token_sessao()
+        if not token:
+            return None
         with LOCK_SESSOES:
-            return SESSOES.get(token)
+            agora = time.monotonic()
+            _limpar_sessoes(agora)
+            sessao = SESSOES.get(token)
+            if sessao is None:
+                return None
+            sessao['ultimo_acesso'] = agora
+            return sessao['colaborador']
 
     def _json(self, dados, status=HTTPStatus.OK, cookie=None):
         if getattr(self, '_capturando', False):
@@ -632,6 +677,29 @@ def executar(host="127.0.0.1", porta=8000, abrir_navegador=False):
 
 
 class ServidorClinica(ThreadingHTTPServer):
+    daemon_threads = True
+    block_on_close = False
+    request_queue_size = 16
+    MAXIMO_REQUISICOES_SIMULTANEAS = 8
+
+    def __init__(self, *args, **kwargs):
+        self._vagas_requisicoes = threading.BoundedSemaphore(self.MAXIMO_REQUISICOES_SIMULTANEAS)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        self._vagas_requisicoes.acquire()
+        try:
+            return super().process_request(request, client_address)
+        except BaseException:
+            self._vagas_requisicoes.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            return super().process_request_thread(request, client_address)
+        finally:
+            self._vagas_requisicoes.release()
+
     def server_close(self):
         if hasattr(self, 'backup_scheduler'):
             self.backup_scheduler.stop()

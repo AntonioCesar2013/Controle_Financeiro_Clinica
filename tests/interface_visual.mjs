@@ -5,6 +5,8 @@ import { renderActionTable } from "../frontend/js/components/renderers.js";
 const base = await readFile(new URL("../frontend/css/base.css", import.meta.url), "utf8");
 const layout = await readFile(new URL("../frontend/css/layout.css", import.meta.url), "utf8");
 const responsive = await readFile(new URL("../frontend/css/responsive.css", import.meta.url), "utf8");
+const tableLayout = await readFile(new URL("../frontend/css/table-layout.css", import.meta.url), "utf8");
+const tableLayoutScript = await readFile(new URL("../frontend/js/components/table-layout.js", import.meta.url), "utf8");
 const app = await readFile(new URL("../frontend/js/app.js", import.meta.url), "utf8");
 
 assert.doesNotMatch(base, /transform:\s*scale\(/, "a interface não deve usar escala global");
@@ -21,6 +23,11 @@ assert.match(app, /new Date\(currentYear, currentMonth, 0\)/, "o gráfico deve i
 assert.match(app, /openStartupDueAlert/, "o sistema deve exibir o aviso financeiro ao iniciar");
 assert.match(app, /setDate\(limitDate\.getDate\(\) \+ 5\)/, "o aviso deve considerar os próximos cinco dias");
 assert.match(app, /Contas que exigem atenção/, "o aviso deve identificar claramente as contas críticas");
+assert.match(app, /organizeTablePanels\(panel\)/, "a organização deve ocorrer depois do carregamento do painel");
+assert.match(app, /data-action="clear-payables-filters"/, "contas a pagar deve oferecer limpeza dos filtros");
+assert.match(tableLayout, /padding-top:\s*5px/, "painéis financeiros devem iniciar até 5 px abaixo do cabeçalho");
+assert.match(tableLayout, /justify-content:\s*space-between/, "ações e limpeza devem ocupar a mesma linha");
+assert.match(tableLayoutScript, /filters\.after\(toolbar\)/, "as ações devem ficar abaixo dos filtros");
 
 const html = renderActionTable(
     [{ nome: "Conta", status: "VENCIDA", valor: 12550 }],

@@ -5,7 +5,9 @@ $pastaBuild = Join-Path $PSScriptRoot "build"
 $pastaSistema = Join-Path $pastaBuild "sistema"
 $arquivoZip = Join-Path $pastaBuild "sistema.zip"
 $arquivoSed = Join-Path $pastaBuild "instalador.sed"
-$saida = Join-Path $raizProjeto "ControleFinanceiroClinica-Setup.exe"
+$saida = Join-Path $PSScriptRoot "ControleFinanceiroClinica-Setup.exe"
+$saidaTemporaria = Join-Path $PSScriptRoot "ControleFinanceiroClinica-Setup.novo.exe"
+$cabTemporario = Join-Path $PSScriptRoot "~ControleFinanceiroClinica-Setup.CAB"
 
 if (Test-Path -LiteralPath $pastaBuild) {
     $resolvido = [IO.Path]::GetFullPath($pastaBuild)
@@ -18,7 +20,13 @@ if (Test-Path -LiteralPath $pastaBuild) {
 
 New-Item -ItemType Directory -Path $pastaSistema -Force | Out-Null
 
-foreach ($arquivo in @("main.py", "iniciar.ps1", "iniciar.cmd", "requirements.txt")) {
+foreach ($artefatoAnterior in @($saida, $saidaTemporaria, $cabTemporario)) {
+    if (Test-Path -LiteralPath $artefatoAnterior) {
+        Remove-Item -LiteralPath $artefatoAnterior -Force
+    }
+}
+
+foreach ($arquivo in @("main.py", "iniciar.ps1", "iniciar.cmd", "iniciar.vbs", "requirements.txt")) {
     Copy-Item -LiteralPath (Join-Path $raizProjeto $arquivo) -Destination $pastaSistema
 }
 
@@ -57,7 +65,7 @@ RebootMode=N
 InstallPrompt=
 DisplayLicense=
 FinishMessage=
-TargetName=$saida
+TargetName=$saidaTemporaria
 FriendlyName=Controle Financeiro da Clinica
 AppLaunched=powershell.exe -NoProfile -ExecutionPolicy Bypass -File instalar-sistema.ps1
 PostInstallCmd=<None>
@@ -76,8 +84,24 @@ SourceFiles0=$pastaBuild\
 
 Set-Content -LiteralPath $arquivoSed -Value $sed -Encoding ASCII
 & "$env:SystemRoot\System32\iexpress.exe" /N /Q $arquivoSed
-if (-not (Test-Path -LiteralPath $saida)) {
+$tamanhoMinimo = (Get-Item -LiteralPath $arquivoZip).Length
+for ($tentativa = 0; $tentativa -lt 120; $tentativa++) {
+    if ((Test-Path -LiteralPath $saidaTemporaria) -and
+        (Get-Item -LiteralPath $saidaTemporaria).Length -gt $tamanhoMinimo) {
+        break
+    }
+    Start-Sleep -Milliseconds 250
+}
+if (-not (Test-Path -LiteralPath $saidaTemporaria) -or
+    (Get-Item -LiteralPath $saidaTemporaria).Length -le $tamanhoMinimo) {
     throw "O IExpress não conseguiu gerar o instalador."
+}
+Start-Sleep -Seconds 1
+Copy-Item -LiteralPath $saidaTemporaria -Destination $saida -Force
+Remove-Item -LiteralPath $saidaTemporaria -Force
+
+if (Test-Path -LiteralPath $cabTemporario) {
+    Remove-Item -LiteralPath $cabTemporario -Force
 }
 
 $arquivo = Get-Item -LiteralPath $saida

@@ -251,6 +251,23 @@ class BackupTests(unittest.TestCase):
         scheduler.stop()
         self.assertFalse(scheduler.thread.is_alive())
 
+    def test_scheduler_reduz_polling_quando_backup_desativado(self):
+        from src.infraestrutura.backup.scheduler import BackupScheduler
+        service = Mock()
+        service.config.load.return_value = dict(DEFAULTS)
+        scheduler = BackupScheduler(service)
+        waits = []
+
+        def wait(seconds):
+            waits.append(seconds)
+            scheduler.stop_event.set()
+            return True
+
+        scheduler.stop_event.wait = wait
+        scheduler._run()
+        self.assertEqual(waits, [scheduler.INACTIVE_POLL_SECONDS])
+        service.start.assert_not_called()
+
     def test_sdk_logs_nao_propagam_segredos(self):
         import logging
         from src.infraestrutura.backup.security import protect_sdk_logs

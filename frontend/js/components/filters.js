@@ -21,6 +21,7 @@ export function applyTableFilters(control) {
         start: container.querySelector("[data-filter-start]")?.value || "",
         end: container.querySelector("[data-filter-end]")?.value || "" };
     const invalid = fields.start && fields.end && fields.start > fields.end;
+    container.querySelector('.table-filter-feedback')?.classList.toggle('has-error', Boolean(invalid));
     let count = 0;
     container.querySelectorAll("tbody tr[data-search]").forEach(row => {
         let search = normalizedRows.get(row);

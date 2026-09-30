@@ -30,19 +30,26 @@ def rotas_get(query):
         '/api/recorrencias': recorrencias.listar,
         '/api/recorrencias/previa': lambda: recorrencias.previa(
             _parametro(query, 'id'), _parametro(query, 'data_limite')),
-        "/api/conciliacao": conciliacao.painel,
-        "/api/conferencia/saldos": conferencia.saldos,
-        "/api/conferencia/mensal": lambda: conferencia.mensal(_parametro(query, "competencia")),
+        "/api/conciliacao": lambda: conciliacao.painel(
+            _parametro(query, "pagina", 1), _parametro(query, "tamanho", 50)),
+        "/api/conferencia/saldos": lambda: conferencia.saldos(
+            _parametro(query, "pagina", 1), _parametro(query, "tamanho", 20)),
+        "/api/conferencia/mensal": lambda: conferencia.mensal(
+            _parametro(query, "competencia"), _parametro(query, "pagina", 1), _parametro(query, "tamanho", 20)),
         "/api/recibos": lambda: recibos.consultar(_parametro(query, "id")),
-        "/api/contas-receber": lambda: contas_receber.listar_cobrancas_consolidadas(
-            data_referencia=date.today().isoformat()
-        ),
+        "/api/contas-receber": lambda: contas_receber.listar_cobrancas_paginadas(
+            data_referencia=date.today().isoformat(), busca=_parametro(query, "busca"),
+            pagina=_parametro(query, "pagina", 1), tamanho=_parametro(query, "tamanho", 50),
+        ) if _parametro(query, "pagina") else contas_receber.listar_cobrancas_consolidadas(
+            data_referencia=date.today().isoformat()),
         "/api/contas-receber/detalhe": lambda: contas_receber.buscar_cobranca_consolidada(
             _parametro(query, "id"), data_referencia=date.today().isoformat()
         ),
-        "/api/mensalidades": lambda: contas_receber.listar_mensalidades(
-            data_referencia=date.today().isoformat()
-        ),
+        "/api/mensalidades": lambda: contas_receber.listar_cobrancas_paginadas(
+            data_referencia=date.today().isoformat(), tipo="MENSALIDADE", busca=_parametro(query, "busca"),
+            pagina=_parametro(query, "pagina", 1), tamanho=_parametro(query, "tamanho", 50),
+        ) if _parametro(query, "pagina") else contas_receber.listar_mensalidades(
+            data_referencia=date.today().isoformat()),
         "/api/contas-pagar": lambda: contas_pagar.listar_contas_paginadas(
             status=_parametro(query, "status"), data_inicio=inicio, data_fim=fim,
             busca=_parametro(query, "busca"), pagina=_parametro(query, "pagina", 1),
@@ -54,7 +61,8 @@ def rotas_get(query):
             **contas_pagar.buscar_conta(_parametro(query, "id")),
             **contas_pagar.calcular_total_pago(_parametro(query, "id")),
         },
-        "/api/caixa": lambda: caixa.resumo_com_movimentacoes(inicio, fim),
+        "/api/caixa": lambda: caixa.resumo_com_movimentacoes(
+            inicio, fim, _parametro(query, "pagina"), _parametro(query, "tamanho", 50)),
         "/api/despesas": lambda: despesas.listar_despesas(apenas_ativas=False),
         "/api/financeiro/cadastros": lambda: {
             "setores": despesas.listar_setores(False),

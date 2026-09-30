@@ -34,6 +34,11 @@
 .resident-search-result span.amount--negative { color: var(--color-danger); }
 .monthly-report table { min-width: 0; table-layout: auto; font-size: .76rem; }
 .monthly-report th, .monthly-report td { padding: 9px 10px; white-space: normal; line-height: 1.35; }
+.monthly-report td[data-column-type="money"] { white-space: nowrap; overflow-wrap: normal; word-break: normal; }
+@media screen {
+    .financial-fixed-header .table-wrap { max-height: 60vh; overflow: auto; }
+    .financial-fixed-header thead th { position: sticky; top: 0; z-index: 2; background: #24272d; }
+}
 .monthly-report th:nth-child(1) { min-width: 130px; }
 .monthly-report th:nth-child(2) { width: 65px; }
 .monthly-report th:nth-child(3) { width: 88px; }
@@ -51,6 +56,35 @@
 .inventory-summary span { color: var(--color-text-muted); font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; }
 .inventory-summary strong { font-size: 1.25rem; }
 .products-report table { min-width: 0; font-size: .8rem; }
+
+#internment-form .internment-form__row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+#internment-form [hidden] { display: none; }
+#internment-form .field { min-width: 0; }
+#internment-form input, #internment-form select { width: 100%; min-width: 0; }
+#internment-form input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+#internment-form input[type="number"]::-webkit-inner-spin-button,
+#internment-form input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.internment-person__select { display: flex; align-items: center; gap: 8px; }
+#internment-form .internment-person__select .button { width: auto; margin: 0; flex-shrink: 0; }
+.internment-person__search { padding: 12px; border: 1px solid var(--color-border); border-radius: 8px; }
+.internment-person__results { max-height: 210px; overflow-y: auto; }
+.internment-person__results hr { border: 0; border-top: 2px solid var(--color-border); margin: 12px 0; }
+.internment-person__result { display: block; width: 100%; text-align: left; padding: 10px; background: #fff; color: var(--color-text); border: 0; border-bottom: 1px solid var(--color-border); cursor: pointer; }
+.internment-person__result:hover, .internment-person__result:focus-visible { background: var(--color-action-soft); }
+@media (max-width: 560px) {
+    #internment-form .internment-form__row { grid-template-columns: 1fr; }
+}
+@media screen {
+    .internments-report table { font-size: calc(1em - 2pt); }
+    .internments-report th { font-size: calc(.74rem - 2pt); }
+    .internments-report .status { font-size: calc(.72rem - 2pt); }
+    @container (max-width: 920px) {
+        .internments-report table { font-size: calc(.84rem - 2pt); }
+    }
+    @container (max-width: 680px) {
+        .internments-report .status { font-size: calc(.68rem - 2pt); }
+    }
+}
 .products-report th, .products-report td { padding: 9px 10px; }
 .products-report td:last-child:has(.report-actions) { min-width: 150px; }
 .products-report td:last-child .report-actions { flex-wrap: wrap; }

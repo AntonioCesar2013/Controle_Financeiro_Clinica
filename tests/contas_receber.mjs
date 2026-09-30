@@ -5,6 +5,7 @@ import { createResidentDocuments, printDocument } from '../frontend/js/component
 import { renderActionTable } from '../frontend/js/components/renderers.js';
 import { formatMoney, formatDate, valueOrDash } from '../frontend/js/utils/formatters.js';
 import { currencyValue } from '../frontend/js/utils/masks.js';
+import { receivableType, receivablePayment, shortInitial } from '../frontend/js/components/financial-labels.js';
 
 const source = await readFile(new URL('../frontend/js/app.js', import.meta.url), 'utf8');
 function trecho(inicio, fim) {
@@ -35,13 +36,14 @@ for (const kind of ['recebimento', 'pagamento']) {
     assert.match(restante.value, /0,01/);
 }
 
-const panelCtx = vm.createContext({ api: async path => ({ dados: path === '/api/mensalidades'
+const panelCtx = vm.createContext({ api: async path => ({ dados: { pagina: 1, tamanho: 50, total_filtrado: 2,
+    linhas: path.startsWith('/api/mensalidades')
     ? [{ id: 1, status: 'ABERTA', saldo_restante: 10000, data_vencimento: '2026-09-16' },
        { id: 2, status: 'PAGA', saldo_restante: 0, data_vencimento: '2026-09-16' }]
     : [{ id: 1, status: 'ABERTA', saldo_restante: 10000, data_vencimento: '2026-09-16' },
-       { id: 2, status: 'DESCONTADA', saldo_restante: 0, data_vencimento: '2026-09-16' }] }),
-    renderActionTable, formatMoney, formatDate, valueOrStatus: valueOrDash,
-    localDate: () => '2026-09-16' });
+       { id: 2, status: 'DESCONTADA', saldo_restante: 0, data_vencimento: '2026-09-16' }] } }),
+    renderActionTable, formatMoney, formatDate, valueOrStatus: valueOrDash, receivableType, receivablePayment, shortInitial,
+    localDate: () => '2026-09-16', receivableState: { pagina: 1 }, monthlyState: { pagina: 1 } });
 vm.runInContext(trecho('    async function renderReceivables()', '    async function renderPayables()'), panelCtx);
 for (const method of ['renderReceivables()', 'renderMonthlyFees()']) {
     const html = await vm.runInContext(method, panelCtx);

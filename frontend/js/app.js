@@ -1,8 +1,10 @@
-import { renderInstitutionalHeader } from "./components/institutional-header.js";
+import { installUppercase } from "./utils/uppercase.js";
+import { organizeTablePanels } from "./components/table-layout.js";
+import { shortSector, shortInitial, receivableType, receivablePayment } from "./components/financial-labels.js";
+import { groupInternmentPeople, internmentPeopleOptions, internmentSearchField, bindInternmentSearch, internmentContractTotal, internmentMoneyPayload } from "./components/internment-form.js";
 import { createWorkflows } from './components/workflows.js';
 import { responsaveisElegiveis, opcoesResponsavelContratual, prepararInternacao, criarPessoa } from './components/cadastros.js';
 import { parametrosContasPagar, despesasElegiveis } from './components/contas-pagar.js';
-import { createBackupPanel } from './components/backup.js';
 import { applyTableFilters, normalizeSearch, scheduleTableFilters } from "./components/filters.js";
 import { createResidentDocuments, printDocument } from "./components/resident-documents.js";
 import { createApi } from "./core/api.js";
@@ -13,6 +15,7 @@ import { setFormBusy } from "./components/forms.js";
 import { createConference } from "./components/conference.js";
 import { renderDashboardChart } from "./components/dashboard-chart.js";
 import { createAdministrationItems } from "./components/itens-administracao.js";
+import { createImports } from "./components/importacoes.js";
 import {
     emptyState,
     errorState,
@@ -47,15 +50,28 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     let canteenState = { wallets: [], products: [] };
     let selectedCanteenWalletId = "";
     let selectedWalletId = "";
+    let walletHistoryPage = 1;
     let walletResidents = [];
     let dashboardChartMovements = [];
     let dashboardChartRequest = 0;
     let startupDueAlertShown = false;
     const dashboardChartState = { metric: "daily", type: "bar", start: "", end: "" };
     const payableState = { pagina: 1, busca: "", status: "", inicio: "", fim: "", ordem: "vencimento_asc" };
+    const receivableState = { pagina: 1 };
+    const monthlyState = { pagina: 1 };
+    const cashState = { pagina: 1 };
+    let reportPage = 1;
     let payableSearchTimer;
 
     let backupPanel;
+    let institutionalHeaderRenderer;
+
+    async function institutionalHeader() {
+        if (!institutionalHeaderRenderer) {
+            ({ renderInstitutionalHeader: institutionalHeaderRenderer } = await import("./components/institutional-header.js"));
+        }
+        return institutionalHeaderRenderer();
+    }
     // Login desativado para a instalação local de administrador único.
     // const api = createApi({
     //     onUnauthorized: (message) => showLogin(false, message),
@@ -68,6 +84,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         showPanel: (title, body) => layers.auxiliary.replaceChildren(createPanel({title, eyebrow:"Administração", body, size:"large"})),
         closePanel: () => closeLayer("auxiliary"), refresh: () => openMainPanel("itens_administracao"),
     });
+    const imports = createImports({ api, showAlert });
 
     const residentDocuments = createResidentDocuments({
         api, showAlert,
@@ -84,6 +101,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             renderInternments, renderWallets, renderCantina, renderProducts,
             renderCollaborators,
             renderAdministrationItems: () => administrationItems.render(),
+            renderImports: () => imports.render(),
             renderConference: () => conference.render(),
         }),
     };
@@ -106,6 +124,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         app.addEventListener("submit", handleSubmit);
         app.addEventListener("change", handleChange);
         app.addEventListener("input", handleInput);
+        installUppercase(app);
         app.addEventListener("pointerdown", (event) => {
             const panel = event.target.closest(".panel");
             if (panel) panel.style.zIndex = String(++state.panelSequence);
@@ -136,6 +155,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const { action, panel } = trigger.dataset;
         if (action.startsWith("conference-")) return conference.click(trigger);
         if (administrationItems.click(trigger)) return;
+        if (imports.click(trigger)) return;
         if (action === "open-panel") openMainPanel(panel);
         if (action === "open-financial-menu") openFinancialMenu();
         if (action === "open-registrations-menu") openRegistrationsMenu();
@@ -143,9 +163,30 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (action === "open-administration-menu") openAdministrationMenu();
         if (action === "open-general-menu") openGeneralMenu();
         if (action === "clear-table-filters") clearTableFilters(trigger);
+        if (action === "clear-payables-filters") {
+            Object.assign(payableState, { pagina: 1, busca: "", status: "", inicio: "", fim: "", ordem: "vencimento_asc" });
+            openMainPanel("contas_pagar");
+        }
         if (action === "payables-page") {
             payableState.pagina = Number(trigger.dataset.page);
             openMainPanel("contas_pagar");
+        }
+        if (action === "receivables-page") {
+            receivableState.pagina = Number(trigger.dataset.page);
+            openMainPanel("contas_receber");
+        }
+        if (action === "monthly-page") {
+            monthlyState.pagina = Number(trigger.dataset.page);
+            openMainPanel("mensalidades");
+        }
+        if (action === "cash-page") {
+            cashState.pagina = Number(trigger.dataset.page);
+            openMainPanel("caixa");
+        }
+        if (action === "wallet-history-page") {
+            walletHistoryPage = Number(trigger.dataset.page);
+            const select = document.querySelector("#wallet-resident");
+            if (select) refreshWalletDetail(select);
         }
         if (action === "select-report-row") selectReportRow(trigger);
         if (action === "close-panel") closePanel(trigger.closest(".panel"));
@@ -158,8 +199,9 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (action === "open-new-convenio") openConvenioForm();
         if (action === "toggle-password") togglePassword(trigger);
         if (action === "logout") logout();
-        if (action === "apply-report") refreshReport(trigger.closest(".panel"));
-        if (action === "print-report") { document.querySelector("#document-print-target")?.remove(); window.print(); }
+        if (action === "apply-report") { reportPage = 1; refreshReport(trigger.closest(".panel")); }
+        if (action === "report-page") { reportPage = Number(trigger.dataset.page); refreshReport(trigger.closest(".panel")); }
+        if (action === "print-report") printFullReport(trigger.closest(".panel"));
         if (action === "open-statement") residentDocuments.openStatement(trigger.dataset.id);
         if (action === "resident-items") openResidentItems(trigger.dataset.id);
         if (action === "generate-receipt") residentDocuments.openReceipt(trigger.dataset.id);
@@ -183,6 +225,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (action === "end-recurrence") runMaintenanceCommand("/api/recorrencias/encerrar", { id: trigger.dataset.id }, "Encerrar a programação? Contas já geradas permanecem registradas.", "despesas");
         if (action === "open-maintenance-form") openMaintenanceForm(trigger.dataset.kind, trigger.dataset.id, trigger.dataset.residentId);
         if (action === "product-history") openProductHistory(trigger.dataset.id);
+        if (action === "product-history-page") openProductHistory(trigger.dataset.id, Number(trigger.dataset.page));
         if (action === "canteen-cart-change") changeCanteenQuantity(trigger.dataset.id, Number(trigger.dataset.delta));
         if (action === "canteen-cart-remove") removeCanteenProduct(trigger.dataset.id);
         if (action === "canteen-cart-clear") clearCanteenCart();
@@ -197,6 +240,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         event.preventDefault();
         if (event.target.matches(".conference-form")) return conference.submit(event.target);
         if (event.target.matches("[data-admin-item-form]")) return administrationItems.submit(event.target);
+        if (event.target.matches("[data-receivables-import]")) return imports.submit(event.target);
         if (event.target.matches("#login-form")) return submitLogin(event.target);
         if (event.target.matches("#setup-form")) return submitSetup(event.target);
         if (event.target.matches("#resident-form")) return submitResident(event.target);
@@ -215,6 +259,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     function handleChange(event) {
         conference.change(event.target);
         if (administrationItems.change(event.target)) return;
+        if (event.target.matches("[data-import-file]")) { void imports.change(event.target); return; }
         if (event.target.matches("[data-dashboard-chart-control]")) updateDashboardChart(event.target);
         if (event.target.matches("[data-filter-status], [data-filter-start], [data-filter-end]")) applyTableFilters(event.target);
         if (event.target.matches("[data-payables-filter]")) {
@@ -383,6 +428,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     function openAdministrationMenu() {
         renderMenu("Administração", "Módulo", [
             ["itens_administracao", "Itens administrativos", "Inventário e movimentações", "open-panel", "Inventário"],
+            ["importacoes", "Importar arquivos", "CSV de contas a receber", "open-panel", "Dados"],
             ["colaboradores", "Colaboradores", "Equipe, senhas e acessos", "open-panel", "Acesso"],
             ["configuracoes", "Configurações", "Parâmetros e sincronização", "open-panel", "Sistema"],
             ["", "Sair", "Encerrar esta sessão", "logout", "Sessão"],
@@ -410,7 +456,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             financeiro: ["financeiro", "contas_receber", "mensalidades", "contas_pagar", "caixa", "conferencia", "despesas"],
             cadastros: ["residentes", "responsaveis", "internacoes"],
             cantina: ["cantina", "carteiras", "itens"],
-            administracao: ["itens_administracao", "colaboradores", "configuracoes"],
+            administracao: ["itens_administracao", "importacoes", "colaboradores", "configuracoes"],
         };
         return modulePanels[id]?.includes(state.activePanelName) || false;
     }
@@ -480,6 +526,10 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (endInput) endInput.min = start;
         const dateChanged = control.matches("[data-dashboard-chart-start], [data-dashboard-chart-end]");
         const request = dateChanged ? ++dashboardChartRequest : dashboardChartRequest;
+        if (dateChanged) {
+            panel.querySelector('[data-dashboard-metrics]').textContent = 'Selecione um período válido para consultar os indicadores.';
+            panel.querySelector('[data-dashboard-recent]').textContent = '';
+        }
         if (!start || !end || start > end) {
             target.innerHTML = '<div class="chart-empty chart-empty--error"><strong>Período inválido</strong><span>Informe uma data inicial anterior ou igual à data final.</span></div>';
             return;
@@ -489,13 +539,20 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             return;
         }
         target.setAttribute("aria-busy", "true");
+        panel.querySelector('[data-dashboard-metrics]').textContent = 'Atualizando indicadores do período…';
         target.innerHTML = '<div class="chart-empty"><strong>Atualizando gráfico</strong><span>Consultando as movimentações do período…</span></div>';
         try {
-            const response = await api(`/api/caixa?data_inicio=${encodeURIComponent(start)}&data_fim=${encodeURIComponent(end)}`);
+            const query = `data_inicio=${encodeURIComponent(start)}&data_fim=${encodeURIComponent(end)}`;
+            const [response, dashboard] = await Promise.all([
+                api(`/api/caixa?${query}`), api(`/api/dashboard?${query}`),
+            ]);
             if (request !== dashboardChartRequest) return;
             dashboardChartMovements = response.dados?.movimentacoes || [];
+            panel.querySelector('[data-dashboard-metrics]').innerHTML = dashboardMetrics(dashboard.dados);
+            panel.querySelector('[data-dashboard-recent]').innerHTML = dashboardRecent(dashboard.dados);
             target.innerHTML = renderDashboardChart(dashboardChartMovements, dashboardChartState.metric, dashboardChartState.type);
         } catch (error) {
+            if (request === dashboardChartRequest) panel.querySelector('[data-dashboard-metrics]').textContent = 'Não foi possível carregar os indicadores do período.';
             if (request === dashboardChartRequest) target.innerHTML = `<div class="chart-empty chart-empty--error"><strong>Não foi possível atualizar</strong><span>${escapeHtml(error.message)}</span></div>`;
         } finally {
             if (request === dashboardChartRequest) target.removeAttribute("aria-busy");
@@ -524,7 +581,10 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const [title, eyebrow, renderer] = definition;
         layers.main.append(createPanel({ id: `panel-${name}`, title, eyebrow, body: loadingState() }));
         const panel = layers.main.querySelector(".panel");
-        try { panel.querySelector(".panel__body").innerHTML = await renderer(); }
+        try {
+            panel.querySelector(".panel__body").innerHTML = await renderer();
+            organizeTablePanels(panel);
+        }
         catch (error) { panel.querySelector(".panel__body").innerHTML = errorState(error.message); }
         requestAnimationFrame(() => panel.focus({ preventScroll: true }));
     }
@@ -534,6 +594,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         wrapper.innerHTML = `${modal ? '<div class="panel-backdrop panel-backdrop--modal"></div>' : ""}<section class="panel panel--${size}" id="${id}" role="${modal ? "alertdialog" : "dialog"}" aria-labelledby="${id}-title" tabindex="-1"><header class="panel__header"><div class="panel__heading">${eyebrow ? `<p class="panel__eyebrow">${eyebrow}</p>` : ""}<h2 class="panel__title" id="${id}-title">${title}</h2></div>${closable ? `<button class="panel__close" type="button" data-action="close-panel" aria-label="Fechar ${title}">&times;</button>` : ""}</header><div class="panel__body">${body}</div>${footer ? `<footer class="panel__footer">${footer}</footer>` : ""}</section>`;
         const fragment = document.createDocumentFragment();
         applyInputMasks(wrapper);
+        organizeTablePanels(wrapper);
         while (wrapper.firstChild) fragment.append(wrapper.firstChild);
         return fragment;
     }
@@ -635,9 +696,9 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function openInternmentForm(id = "") {
         try {
-            const [residentsResponse, guardiansResponse, agreementsResponse, detailResponse] = await Promise.all([
+            const [residentsResponse, guardiansResponse, agreementsResponse, detailResponse, internmentsResponse] = await Promise.all([
                 api("/api/residentes"), api("/api/responsaveis"), api("/api/convenios"),
-                id ? api(`/api/internacoes/detalhe?id=${encodeURIComponent(id)}`) : Promise.resolve({ dados: null }),
+                id ? api(`/api/internacoes/detalhe?id=${encodeURIComponent(id)}`) : Promise.resolve({ dados: null }), api("/api/internacoes"),
             ]);
             const residents = residentsResponse.dados || [];
             const internment = detailResponse.dados;
@@ -651,15 +712,17 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             }
             if (id && !internment) throw new Error("Internação não encontrada.");
             const selected = (value, current) => String(value) === String(current) ? " selected" : "";
-            const residentOptions = residents.map((item) => `<option value="${item.id}"${selected(item.id, internment?.residente_id)}>${escapeHtml(item.nome)}</option>`).join("");
-            const guardianOptions = guardians.map((item) => `<option value="${item.id}"${selected(item.id, internment?.responsavel_id)}>${escapeHtml(item.nome)}${Number(item.ativo) === 1 ? "" : " (atual, inativo)"}</option>`).join("");
+            const internments = internmentsResponse.dados || [];
+            const residentOptions = internmentPeopleOptions(groupInternmentPeople(residents, internments, 'residente_id'), internment?.residente_id);
+            const guardianOptions = internmentPeopleOptions(groupInternmentPeople(guardians, internments, 'responsavel_id'), internment?.responsavel_id);
             const agreements = (agreementsResponse.dados || []).filter((item) => Number(item.ativo) === 1 || String(item.id) === String(internment?.convenio_id));
             const agreementOptions = agreements.map((item) => `<option value="${item.id}"${selected(item.id, internment?.convenio_id)}>${escapeHtml(item.nome)} — ${formatMoney(item.valor_diaria)} por dia</option>`).join("");
             const today = localDate();
             const mode = internment?.modalidade || "PARTICULAR";
-            const money = value => (Number(value || 0) / 100).toFixed(2);
-            const body = `<form class="login-form" id="internment-form">${id ? `<input type="hidden" name="id" value="${escapeHtml(id)}">` : ""}<div class="field"><label for="internment-resident">Residente</label><select id="internment-resident" name="residente_id" required>${residentOptions}</select></div><div class="field"><label for="internment-guardian">Responsável</label><select id="internment-guardian" name="responsavel_id" required>${guardianOptions}</select></div><div class="field"><label for="internment-modality">Modalidade de residência</label><select id="internment-modality" name="modalidade" required><option value="PARTICULAR"${selected("PARTICULAR", mode)}>Particular</option><option value="SOCIAL"${selected("SOCIAL", mode)}>Social</option><option value="CONVENIO"${selected("CONVENIO", mode)}>Convênio</option><option value="VOLUNTARIO"${selected("VOLUNTARIO", mode)}>Voluntário</option></select></div><div class="field"><label for="internment-date">Data de acolhimento</label><input id="internment-date" name="data_acolhimento" type="date" value="${escapeHtml(internment?.data_acolhimento || today)}" required></div><div class="field" data-period-field><label for="internment-period">Período de tratamento (meses)</label><input id="internment-period" name="periodo_tratamento" type="number" min="1" step="1" value="${escapeHtml(internment?.periodo_tratamento || "")}" required></div><div class="field" data-agreement-field hidden><label for="internment-agreement">Convênio</label><select id="internment-agreement" name="convenio_id"><option value="">Selecione</option>${agreementOptions}</select><small>O valor é calculado pela diária e pelos dias de tratamento em cada mês.</small></div><div data-particular-fields><div class="field"><label for="internment-contract">Valor do contrato</label><input id="internment-contract" name="valor_contrato" readonly title="Acolhimento + mensalidades do período" type="number" min="0" step="0.01" value="${money(internment?.valor_contrato)}" required></div><div class="field"><label for="internment-welcome">Valor do acolhimento</label><input id="internment-welcome" name="valor_acolhimento" type="number" min="0" step="0.01" value="${money(internment?.valor_acolhimento)}" required></div><div class="field"><label for="internment-monthly">Mensalidade</label><input id="internment-monthly" name="valor_mensalidade" type="number" min="0" step="0.01" value="${money(internment?.valor_mensalidade)}" required></div></div><div class="field" data-volunteer-field hidden><label for="internment-services">Serviços prestados à clínica</label><textarea id="internment-services" name="servicos_voluntario" rows="4" placeholder="Descreva as atividades combinadas">${escapeHtml(internment?.servicos_voluntario || "")}</textarea></div>${id ? '<p class="form-note">Alterações contratuais recalculam as cobranças quando ainda não existe histórico financeiro.</p>' : ""}<p class="form-note" data-internment-note></p><p class="login-error" data-internment-error role="alert"></p><button class="button" type="submit">${id ? "Salvar alterações" : "Salvar internação"}</button></form>`;
+            const money = value => escapeHtml(formatMoney(Number(value || 0)));
+            const body = `<form class="login-form" id="internment-form">${id ? `<input type="hidden" name="id" value="${escapeHtml(id)}">` : ""}${internmentSearchField('resident', 'Residente', 'residente_id', residentOptions)}${internmentSearchField('guardian', 'Responsável', 'responsavel_id', guardianOptions)}<div class="internment-form__row"><div class="field"><label for="internment-modality">Modalidade de residência</label><select id="internment-modality" name="modalidade" required><option value="PARTICULAR"${selected("PARTICULAR", mode)}>Particular</option><option value="SOCIAL"${selected("SOCIAL", mode)}>Social</option><option value="CONVENIO"${selected("CONVENIO", mode)}>Convênio</option><option value="VOLUNTARIO"${selected("VOLUNTARIO", mode)}>Voluntário</option></select></div><div class="field"><label for="internment-date">Data de acolhimento</label><input id="internment-date" name="data_acolhimento" type="date" value="${escapeHtml(internment?.data_acolhimento || today)}" required></div><div class="field" data-period-field><label for="internment-period">Período de tratamento (meses)</label><input id="internment-period" name="periodo_tratamento" inputmode="numeric" type="number" min="1" step="1" value="${escapeHtml(internment?.periodo_tratamento || "")}" required></div></div><div class="field" data-agreement-field hidden><label for="internment-agreement">Convênio</label><select id="internment-agreement" name="convenio_id"><option value="">Selecione</option>${agreementOptions}</select><small>O valor é calculado pela diária e pelos dias de tratamento em cada mês.</small></div><div class="internment-form__row" data-particular-fields><div class="field"><label for="internment-contract">Valor do contrato</label><input id="internment-contract" name="valor_contrato" readonly title="Acolhimento + mensalidades do período" type="text" inputmode="numeric" data-mask="currency" value="${money(internment?.valor_contrato)}" required></div><div class="field"><label for="internment-welcome">Valor do acolhimento</label><input id="internment-welcome" name="valor_acolhimento" type="text" inputmode="numeric" data-mask="currency" value="${money(internment?.valor_acolhimento)}" required></div><div class="field"><label for="internment-monthly">Mensalidade</label><input id="internment-monthly" name="valor_mensalidade" type="text" inputmode="numeric" data-mask="currency" value="${money(internment?.valor_mensalidade)}" required></div></div><div class="field" data-volunteer-field hidden><label for="internment-services">Serviços prestados à clínica</label><textarea id="internment-services" name="servicos_voluntario" rows="4" placeholder="Descreva as atividades combinadas">${escapeHtml(internment?.servicos_voluntario || "")}</textarea></div>${id ? '<p class="form-note">Alterações contratuais recalculam as cobranças quando ainda não existe histórico financeiro.</p>' : ""}<p class="form-note" data-internment-note></p><p class="login-error" data-internment-error role="alert"></p><button class="button" type="submit">${id ? "Salvar alterações" : "Salvar internação"}</button></form>`;
             layers.auxiliary.replaceChildren(createPanel({ title: id ? "Editar internação" : "Nova internação", eyebrow: "Acolhimento e contrato", body, size: "medium" }));
+            bindInternmentSearch(document.querySelector("#internment-form"), residents, guardians, internments);
             updateInternmentMode(mode);
             if (mode === "PARTICULAR") updateContractTotal();
         } catch (error) { showAlert("Não foi possível abrir", error.message); }
@@ -980,12 +1043,14 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         } catch (error) { showAlert("Não foi possível concluir", error.message); }
     }
 
-    async function openProductHistory(id) {
+    async function openProductHistory(id, page = 1) {
         try {
-            const { dados } = await api(`/api/itens/historico?id=${encodeURIComponent(id)}`);
+            const { dados } = await api(`/api/itens/historico?id=${encodeURIComponent(id)}&pagina=${page}&tamanho=50`);
             const prices = renderTable(dados.precos, [["Válido desde", "data_inicio_valor", formatDate], ["Preço", "valor", formatMoney], ["Situação", "ativo", formatActive]]);
             const stock = renderTable(dados.estoque, [["Data", "data_movimentacao", formatDate], ["Tipo", "tipo"], ["Cupom", "venda_id"], ["Anterior", "quantidade_anterior"], ["Movimento", "quantidade_movimentada"], ["Atual", "quantidade_atual"], ["Custo unitário", "custo_unitario", formatOptionalMoney], ["Fornecedor", "fornecedor"], ["Documento", "documento"], ["Lote", "lote"], ["Validade", "data_validade", formatDate], ["Motivo", "motivo"]]);
-            layers.auxiliary.replaceChildren(createPanel({ title: "Histórico do produto", eyebrow: "Preços e estoque", body: `<h3 class="section-title">Preços</h3>${prices}<h3 class="section-title">Ajustes de estoque</h3>${stock}`, size: "large" }));
+            const paginas = Math.max(1, Math.ceil(dados.paginacao.total_filtrado / dados.paginacao.tamanho));
+            const nav = paginationControls("product-history-page", dados.paginacao, paginas, "movimentação(ões)").replaceAll('data-action="product-history-page"', `data-action="product-history-page" data-id="${escapeHtml(id)}"`);
+            layers.auxiliary.replaceChildren(createPanel({ title: "Histórico do produto", eyebrow: "Preços e estoque", body: `<h3 class="section-title">Preços</h3>${prices}<h3 class="section-title">Ajustes de estoque</h3>${nav}${stock}`, size: "large" }));
         } catch (error) { showAlert("Não foi possível consultar", error.message); }
     }
 
@@ -1235,13 +1300,12 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     function updateContractTotal() {
         const form = document.querySelector("#internment-form");
         if (!form) return;
-        const cents = (name) => Math.round(Number(form.elements[name].value || 0) * 100);
-        form.elements.valor_contrato.value = ((cents("valor_acolhimento") + cents("valor_mensalidade") * Number(form.elements.periodo_tratamento.value || 0)) / 100).toFixed(2);
+        form.elements.valor_contrato.value = internmentContractTotal(form.elements.valor_acolhimento.value, form.elements.valor_mensalidade.value, form.elements.periodo_tratamento.value);
     }
 
     async function submitInternment(form) {
         updateContractTotal();
-        const data = prepararInternacao(Object.fromEntries(new FormData(form)));
+        const data = prepararInternacao(internmentMoneyPayload(Object.fromEntries(new FormData(form))));
         setFormBusy(form, true);
         try {
             const editing = Boolean(data.id);
@@ -1264,6 +1328,14 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         finally { setFormBusy(form, false); }
     }
 
+    function dashboardMetrics(dados) {
+        return `${metric("Entradas do período", dados.total_entradas, "success")}${metric("Saídas do período", dados.total_saidas, "danger")}${metric("Resultado", dados.resultado, "primary")}${metric("A receber", dados.total_receber, "warning")}${metric("A pagar", dados.total_pagar, "warning")}`;
+    }
+
+    function dashboardRecent(dados) {
+        return `${renderTable(dados.movimentacoes_recentes, [["Data", "data", formatDate], ["Descrição", "descricao"], ["Tipo", "tipo"], ["Forma", "forma_pagamento"], ["Valor", "valor", formatMoney]])}`;
+    }
+
     async function renderDashboard() {
         const today = localDate();
         const defaultStart = `${today.slice(0, 8)}01`;
@@ -1272,13 +1344,13 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         dashboardChartState.start ||= defaultStart;
         dashboardChartState.end ||= defaultEnd;
         const [dashboardResponse, cashResponse] = await Promise.all([
-            api("/api/dashboard"),
+            api(`/api/dashboard?data_inicio=${encodeURIComponent(dashboardChartState.start)}&data_fim=${encodeURIComponent(dashboardChartState.end)}`),
             api(`/api/caixa?data_inicio=${encodeURIComponent(dashboardChartState.start)}&data_fim=${encodeURIComponent(dashboardChartState.end)}`),
         ]);
         const dados = dashboardResponse.dados;
         dashboardChartMovements = cashResponse.dados?.movimentacoes || [];
         const chart = renderDashboardChart(dashboardChartMovements, dashboardChartState.metric, dashboardChartState.type);
-        return `<section class="workspace-intro"><div><h3>Visão geral da operação</h3><p>Acompanhe o mês e acesse rapidamente as rotinas financeiras mais utilizadas.</p></div><div class="quick-actions"><button class="button button--secondary" type="button" data-action="open-panel" data-panel="contas_receber">Contas a receber</button><button class="button button--secondary" type="button" data-action="open-panel" data-panel="contas_pagar">Contas a pagar</button><button class="button" type="button" data-action="open-panel" data-panel="conferencia">Abrir conferência</button></div></section><div class="metrics">${metric("Entradas do mês", dados.total_entradas, "success")}${metric("Saídas do mês", dados.total_saidas, "danger")}${metric("Resultado", dados.resultado, "primary")}${metric("A receber", dados.total_receber, "warning")}${metric("A pagar", dados.total_pagar, "warning")}</div><section class="dashboard-chart"><header class="dashboard-chart__header"><div><p class="panel__eyebrow">Análise por período</p><h3>Evolução financeira</h3></div><div class="dashboard-chart__controls"><label>Data inicial<input type="date" value="${dashboardChartState.start}" max="${dashboardChartState.end}" data-dashboard-chart-control data-dashboard-chart-start></label><label>Data final<input type="date" value="${dashboardChartState.end}" min="${dashboardChartState.start}" data-dashboard-chart-control data-dashboard-chart-end></label><label>Apresentar<select data-dashboard-chart-control data-dashboard-chart-metric><option value="daily"${dashboardChartState.metric === "daily" ? " selected" : ""}>Entradas e saídas por dia</option><option value="balance"${dashboardChartState.metric === "balance" ? " selected" : ""}>Resultado acumulado</option><option value="payment"${dashboardChartState.metric === "payment" ? " selected" : ""}>Movimentações por forma</option></select></label><label>Tipo do gráfico<select data-dashboard-chart-control data-dashboard-chart-type><option value="bar"${dashboardChartState.type === "bar" ? " selected" : ""}>Barras</option><option value="line"${dashboardChartState.type === "line" ? " selected" : ""}>Linhas</option><option value="area"${dashboardChartState.type === "area" ? " selected" : ""}>Área</option></select></label></div></header><div class="dashboard-chart__canvas" data-dashboard-chart>${chart}</div></section><h3 class="section-title">Movimentações recentes</h3>${renderTable(dados.movimentacoes_recentes, [["Data", "data", formatDate], ["Descrição", "descricao"], ["Tipo", "tipo"], ["Forma", "forma_pagamento"], ["Valor", "valor", formatMoney]])}`;
+        return `<section class="workspace-intro"><div><h3>Visão geral da operação</h3><p>Todos os indicadores seguem o período selecionado. A receber e a pagar consideram os saldos pendentes por vencimento.</p></div><div class="quick-actions"><button class="button button--secondary" type="button" data-action="open-panel" data-panel="contas_receber">Contas a receber</button><button class="button button--secondary" type="button" data-action="open-panel" data-panel="contas_pagar">Contas a pagar</button><button class="button" type="button" data-action="open-panel" data-panel="conferencia">Abrir conferência</button></div></section><div class="metrics" data-dashboard-metrics>${dashboardMetrics(dados)}</div><section class="dashboard-chart"><header class="dashboard-chart__header"><div><p class="panel__eyebrow">Análise por período</p><h3>Evolução financeira</h3></div><div class="dashboard-chart__controls"><label>Data inicial<input type="date" value="${dashboardChartState.start}" max="${dashboardChartState.end}" data-dashboard-chart-control data-dashboard-chart-start></label><label>Data final<input type="date" value="${dashboardChartState.end}" min="${dashboardChartState.start}" data-dashboard-chart-control data-dashboard-chart-end></label><label>Apresentar<select data-dashboard-chart-control data-dashboard-chart-metric><option value="daily"${dashboardChartState.metric === "daily" ? " selected" : ""}>Entradas e saídas por dia</option><option value="balance"${dashboardChartState.metric === "balance" ? " selected" : ""}>Resultado acumulado</option><option value="payment"${dashboardChartState.metric === "payment" ? " selected" : ""}>Movimentações por forma</option></select></label><label>Tipo do gráfico<select data-dashboard-chart-control data-dashboard-chart-type><option value="bar"${dashboardChartState.type === "bar" ? " selected" : ""}>Barras</option><option value="line"${dashboardChartState.type === "line" ? " selected" : ""}>Linhas</option><option value="area"${dashboardChartState.type === "area" ? " selected" : ""}>Área</option></select></label></div></header><div class="dashboard-chart__canvas" data-dashboard-chart>${chart}</div></section><h3 class="section-title">Movimentações recentes</h3><div data-dashboard-recent>${dashboardRecent(dados)}</div>`;
     }
 
     async function renderResidents() {
@@ -1311,7 +1383,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             }),
         });
         const actions = `<div class="selection-actions" aria-label="Ações da internação selecionada"><span class="selection-actions__label">Internação selecionada</span><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-edit" data-selection-action="edit" disabled>Editar</button><button class="button button--danger" type="button" data-action="cancel-internment" data-selection-action="cancel" disabled>Cancelar agendamento</button><button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-selection-action="end" disabled>Encerrar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-extend" data-selection-action="extend" disabled>Prorrogar</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button" type="button" data-action="open-new-internment">Nova internação</button></div>`;
-        return `<section class="selection-scope"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
+        return `<section class="selection-scope internments-report"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 
     async function renderWallets() {
@@ -1356,6 +1428,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     async function refreshWalletDetail(select) {
         const target = select.closest(".panel__body").querySelector("[data-wallet-detail]");
         const walletId = select.value;
+        if (selectedWalletId !== walletId) walletHistoryPage = 1;
         selectedWalletId = walletId;
         if (!walletId) {
             target.innerHTML = walletSelectionPlaceholder();
@@ -1370,14 +1443,16 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     async function renderWalletDetail(walletId) {
-        const resultado = await api(`/api/carteiras/detalhe?id=${encodeURIComponent(walletId)}`);
+        const resultado = await api(`/api/carteiras/detalhe?id=${encodeURIComponent(walletId)}&pagina=${walletHistoryPage}&tamanho=50`);
         const dados = resultado.dados;
         if (!dados?.sucesso) throw new Error(dados?.erro || "Carteira não encontrada.");
         const wallet = dados.carteira;
         const credits = renderActionTable(dados.creditos, [["Data", "data_movimentacao", formatDate], ["Valor", "valor_total", formatMoney], ["Situação", "estornada", formatReversal], ["Motivo do estorno", "motivo_estorno"]], (row) => Number(row.estornada) === 0 ? `<button class="button button--secondary" type="button" data-action="open-wallet-form" data-kind="correct" data-id="${row.id}" data-value="${row.valor_total}" data-date="${row.data_movimentacao}">Corrigir</button><button class="button button--danger" type="button" data-action="wallet-reversal" data-id="${row.id}">Estornar</button>` : "");
         const purchases = renderActionTable(dados.compras, [["Cupom", "venda_id"], ["Data", "data_movimentacao", formatDate], ["Produto", "item_nome"], ["Quantidade", "quantidade"], ["Valor unitário", "valor_unitario", formatMoney], ["Total descontado", "valor_total", formatMoney], ["Situação", "estornada", formatReversal]], (row) => Number(row.estornada) === 0 && !row.venda_id ? `<button class="button button--danger" type="button" data-action="wallet-reversal" data-id="${row.id}">Estornar compra</button>` : "");
         const walletActions = Number(wallet.ativo) === 1 ? `<button class="button" type="button" data-action="open-wallet-form" data-kind="credit" data-id="${wallet.id}">Adicionar crédito</button><button class="button button--danger" type="button" data-action="wallet-status" data-id="${wallet.id}" data-ativo="0">Inativar carteira</button>` : `<button class="button" type="button" data-action="wallet-status" data-id="${wallet.id}" data-ativo="1">Reativar carteira</button>`;
-        return `<div class="toolbar"><div></div><div class="report-actions">${walletActions}${Number(wallet.saldo) > 0 ? `<button class="button button--secondary" data-action="open-maintenance-form" data-kind="wallet-refund" data-id="${wallet.id}">Devolver saldo</button>` : ""}</div></div><div class="wallet-summary"><article><span>Residente</span><strong>${escapeHtml(wallet.residente_nome)}</strong></article><article><span>Saldo disponível</span><strong class="${Number(wallet.saldo) > 0 ? "amount--positive" : "amount--negative"}">${escapeHtml(formatMoney(wallet.saldo))}</strong></article><article><span>Situação</span><strong>${escapeHtml(formatActive(wallet.ativo))}</strong></article></div><h3 class="section-title">Créditos</h3>${credits}<h3 class="section-title">Compras na Cantina</h3>${purchases}<h3>Devoluções da carteira</h3>${renderActionTable(dados.movimentacoes.filter(m => m.tipo === "DEVOLUCAO"), [["Data", "data_movimentacao", formatDate], ["Valor", "valor_total", formatMoney], ["Situação", "estornada", formatReversal], ["Motivo", "motivo"], ["Documento", "documento"], ["Motivo da correção", "motivo_estorno"]], row => Number(row.estornada) === 0 ? `<button class="button button--danger" data-action="wallet-reversal" data-id="${row.id}">Corrigir lançamento</button>` : "")}`;
+        const paginas = Math.max(1, Math.ceil(dados.paginacao.total_filtrado / dados.paginacao.tamanho));
+        const navegacao = paginationControls("wallet-history-page", dados.paginacao, paginas, "movimentação(ões)");
+        return `<div class="toolbar"><div></div><div class="report-actions">${walletActions}${Number(wallet.saldo) > 0 ? `<button class="button button--secondary" data-action="open-maintenance-form" data-kind="wallet-refund" data-id="${wallet.id}">Devolver saldo</button>` : ""}</div></div><div class="wallet-summary"><article><span>Residente</span><strong>${escapeHtml(wallet.residente_nome)}</strong></article><article><span>Saldo disponível</span><strong class="${Number(wallet.saldo) > 0 ? "amount--positive" : "amount--negative"}">${escapeHtml(formatMoney(wallet.saldo))}</strong></article><article><span>Situação</span><strong>${escapeHtml(formatActive(wallet.ativo))}</strong></article></div>${navegacao}<h3 class="section-title">Créditos</h3>${credits}<h3 class="section-title">Compras na Cantina</h3>${purchases}<h3>Devoluções da carteira</h3>${renderActionTable(dados.movimentacoes.filter(m => m.tipo === "DEVOLUCAO"), [["Data", "data_movimentacao", formatDate], ["Valor", "valor_total", formatMoney], ["Situação", "estornada", formatReversal], ["Motivo", "motivo"], ["Documento", "documento"], ["Motivo da correção", "motivo_estorno"]], row => Number(row.estornada) === 0 ? `<button class="button button--danger" data-action="wallet-reversal" data-id="${row.id}">Corrigir lançamento</button>` : "")}`;
     }
 
     async function renderCantina() {
@@ -1424,8 +1499,9 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     async function renderReceivables() {
-        const { dados } = await api("/api/contas-receber");
-        const table = renderActionTable(dados, [["Residente", "residente_nome"], ["Responsável", "responsavel_nome"], ["Tipo", "tipo"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Recebido", "total_recebido_com_encargos", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Pagamento", "status"], ["Prazo", "situacao_temporal", valueOrStatus], ["Dias em atraso", "dias_atraso"]], (row) => {
+        const { dados: pagina } = await api(`/api/contas-receber?pagina=${receivableState.pagina}&tamanho=50`);
+        const dados = pagina.linhas || [];
+        const table = renderActionTable(dados, [["Residente", "residente_nome"], ["Responsável", "responsavel_nome"], ["Tipo", "tipo", receivableType], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Recebido", "total_recebido_com_encargos", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Pagamento", "status", receivablePayment]], (row) => {
             const open = Number(row.saldo_restante) > 0 && !["PAGA", "DESCONTADA"].includes(row.status);
             return `${open ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento" data-id="${row.id}">Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto" data-id="${row.id}">Desconto</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`;
         }, {
@@ -1437,7 +1513,9 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             }),
         });
         const actions = `<div class="selection-actions" aria-label="Ações da conta selecionada"><span class="selection-actions__label">Conta selecionada</span><button class="button" type="button" data-action="open-financial-form" data-kind="recebimento" data-selection-action="receive" disabled>Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto" data-selection-action="discount" disabled>Desconto</button><button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-selection-action="history" disabled>Histórico</button></div>`;
-        return `<section class="selection-scope"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
+        const paginas = Math.max(1, Math.ceil(pagina.total_filtrado / pagina.tamanho));
+        const navegacao = paginationControls("receivables-page", pagina, paginas, "conta(s)");
+        return `<section class="selection-scope financial-fixed-header"><div class="toolbar selection-toolbar">${actions}</div>${navegacao}${table}</section>`;
     }
 
     function monthlyStatus(row) {
@@ -1446,8 +1524,8 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         return String(row.data_vencimento) < localDate() ? "VENCIDA" : "A VENCER";
     }
 
-    function monthlyFeesContent(rows) {
-        const table = renderActionTable(rows, [["Residente", "residente_nome"], ["Modalidade", "modalidade"], ["Convênio", "convenio_nome"], ["Parcela", "numero_parcela"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor_devido", formatMoney], ["Recebido", "total_recebido_com_encargos", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "status", (_, row) => monthlyStatus(row)]], (row) => `${Number(row.saldo_restante) > 0 && !["PAGA", "DESCONTADA"].includes(monthlyStatus(row)) ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-id="${row.id}">Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto_mensalidade" data-id="${row.id}">Desconto</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`, {
+    function monthlyFeesContent(rows, pagina) {
+        const table = renderActionTable(rows, [["Residente", "residente_nome"], ["Modalidade", "modalidade", shortInitial], ["Convênio", "convenio_nome"], ["Parcela", "numero_parcela"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor_devido", formatMoney], ["Recebido", "total_recebido_com_encargos", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "status", (_, row) => monthlyStatus(row)]], (row) => `${Number(row.saldo_restante) > 0 && !["PAGA", "DESCONTADA"].includes(monthlyStatus(row)) ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-id="${row.id}">Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto_mensalidade" data-id="${row.id}">Desconto</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`, {
             allStatusesLabel: "Todas as mensalidades",
             statuses: [["A VENCER", "A pagar"], ["PAGA", "Pagas"], ["VENCIDA", "Vencidas"], ["DESCONTADA", "Descontadas"], ["PARCIAL", "Parcialmente pagas"]],
             selectableRows: true,
@@ -1458,19 +1536,25 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             }),
         });
         const actions = `<div class="selection-actions" aria-label="Ações da mensalidade selecionada"><span class="selection-actions__label">Mensalidade selecionada</span><button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-selection-action="receive" disabled>Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto_mensalidade" data-selection-action="discount" disabled>Desconto</button><button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-selection-action="history" disabled>Histórico</button></div>`;
-        return `<section class="selection-scope monthly-report"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
+        const paginas = Math.max(1, Math.ceil(pagina.total_filtrado / pagina.tamanho));
+        const navegacao = paginationControls("monthly-page", pagina, paginas, "mensalidade(s)");
+        return `<section class="selection-scope monthly-report financial-fixed-header"><div class="toolbar selection-toolbar">${actions}</div>${navegacao}${table}</section>`;
     }
 
     async function renderMonthlyFees() {
-        const { dados } = await api("/api/mensalidades");
-        return monthlyFeesContent(dados || []);
+        const { dados: pagina } = await api(`/api/mensalidades?pagina=${monthlyState.pagina}&tamanho=50`);
+        return monthlyFeesContent(pagina.linhas || [], pagina);
+    }
+
+    function paginationControls(action, pagina, paginas, label) {
+        return `<div class="filterable__meta"><p>${pagina.total_filtrado} ${label}</p><div class="report-actions"><button class="button button--secondary button--compact" data-action="${action}" data-page="${pagina.pagina - 1}"${pagina.pagina <= 1 ? " disabled" : ""}>Anterior</button><span>Página ${pagina.pagina} de ${paginas}</span><button class="button button--secondary button--compact" data-action="${action}" data-page="${pagina.pagina + 1}"${pagina.pagina >= paginas ? " disabled" : ""}>Próxima</button></div></div>`;
     }
 
     async function renderPayables() {
         const query = parametrosContasPagar(payableState);
         const { dados: pagina } = await api(`/api/contas-pagar?${query}`);
         const dados = pagina.linhas || [];
-        const table = renderActionTable(dados, [["Descrição", "despesa_descricao"], ["Setor", "setor_nome"], ["Natureza", "natureza"], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Pago", "total_pago_com_encargos", formatMoney], ["Restante", "restante", formatMoney], ["Status", "status"]], (row) => {
+        const table = renderActionTable(dados, [["Descrição", "despesa_descricao"], ["Setor", "setor_nome", shortSector], ["Tipo", "natureza", shortInitial], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Pago", "total_pago_com_encargos", formatMoney], ["Restante", "restante", formatMoney], ["Status", "status"]], (row) => {
             const open = Number(row.restante) > 0 && !["PAGA", "CANCELADA"].includes(row.status);
             return `${open ? `<button class="button" type="button" data-action="open-financial-form" data-kind="pagamento" data-id="${row.id}">Pagar</button><button class="button button--danger" type="button" data-action="cancel-payable" data-id="${row.id}">Cancelar</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="saida" data-id="${row.id}">Histórico</button>`;
         }, {
@@ -1486,7 +1570,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const paginas = Math.max(1, Math.ceil(pagina.total_filtrado / pagina.tamanho));
         const filtros = `<div class="table-filters"><label>Buscar<input type="search" data-payables-search value="${escapeHtml(payableState.busca)}" placeholder="Descrição, setor ou natureza"></label><label>Situação<select data-payables-filter="status"><option value="">Todas</option>${["ABERTA","PARCIAL","PAGA","CANCELADA"].map(v => `<option value="${v}"${payableState.status === v ? " selected" : ""}>${v}</option>`).join("")}</select></label><label>Vencimento de<input type="date" data-payables-filter="inicio" value="${escapeHtml(payableState.inicio)}"></label><label>Até<input type="date" data-payables-filter="fim" value="${escapeHtml(payableState.fim)}"></label><label>Ordenar<select data-payables-filter="ordem"><option value="vencimento_asc">Vencimento crescente</option><option value="vencimento_desc"${payableState.ordem === "vencimento_desc" ? " selected" : ""}>Vencimento decrescente</option><option value="descricao_asc"${payableState.ordem === "descricao_asc" ? " selected" : ""}>Descrição A–Z</option></select></label></div>`;
         const navegacao = `<div class="filterable__meta"><p>${pagina.total_filtrado} de ${pagina.total_registros} conta(s) · Restante filtrado: ${formatMoney(pagina.totais_filtrados.restante)}</p><div class="report-actions"><button class="button button--secondary button--compact" data-action="payables-page" data-page="${pagina.pagina - 1}"${pagina.pagina <= 1 ? " disabled" : ""}>Anterior</button><span>Página ${pagina.pagina} de ${paginas}</span><button class="button button--secondary button--compact" data-action="payables-page" data-page="${pagina.pagina + 1}"${pagina.pagina >= paginas ? " disabled" : ""}>Próxima</button></div></div>`;
-        return `<section class="selection-scope"><div class="toolbar selection-toolbar">${actions}</div>${filtros}${navegacao}<p class="form-note">O restante exclui contas canceladas; o valor original delas permanece no histórico.</p>${table}</section>`;
+        return `<section class="selection-scope financial-fixed-header"><div class="toolbar selection-toolbar">${actions}<button class="button button--secondary button--compact" type="button" data-action="clear-payables-filters">Limpar filtros</button></div>${filtros}${navegacao}${table}</section>`;
     }
 
     async function renderExpenses() {
@@ -1503,14 +1587,18 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     async function renderCashFlow(url = "/api/caixa") {
-        const { dados } = await api(url);
-        return `<div class="metrics">${metric("Entradas", dados.total_entradas, "success")}${metric("Saídas", dados.total_saidas, "danger")}${metric("Resultado", dados.resultado, "primary")}</div>${renderTable(dados.movimentacoes, [["Data", "data", formatDate], ["Descrição", "descricao"], ["Tipo", "tipo"], ["Forma", "forma_pagamento"], ["Valor", "valor", formatMoney]])}`;
+        const separador = url.includes("?") ? "&" : "?";
+        const { dados } = await api(`${url}${separador}pagina=${cashState.pagina}&tamanho=50`);
+        const pagina = dados.movimentacoes;
+        const paginas = Math.max(1, Math.ceil(pagina.total_filtrado / pagina.tamanho));
+        return `<div class="metrics">${metric("Entradas", dados.total_entradas, "success")}${metric("Saídas", dados.total_saidas, "danger")}${metric("Resultado", dados.resultado, "primary")}</div>${paginationControls("cash-page", pagina, paginas, "movimentação(ões)")}${renderTable(pagina.linhas, [["Data", "data", formatDate], ["Descrição", "descricao"], ["Tipo", "tipo"], ["Forma", "forma_pagamento"], ["Valor", "valor", formatMoney]])}`;
     }
 
     async function renderReports() {
         const today = localDate();
         const start = `${today.slice(0, 8)}01`;
-        return `<div class="toolbar report-controls"><div class="toolbar__group"><div class="field"><label for="report-type">Relatório</label><select id="report-type"><option value="financeiro">Financeiro - fluxo de caixa</option><option value="despesas_setor">Despesas por setor</option><option value="internacoes">Internações</option><option value="residentes">Residentes</option><option value="cantina">Cantina - vendas</option><option value="carteiras">Carteiras</option><option value="estoque">Estoque da Cantina</option><option value="colaboradores">Colaboradores</option></select></div><div class="field"><label for="report-start">Data inicial</label><input id="report-start" type="date" value="${start}"></div><div class="field"><label for="report-end">Data final</label><input id="report-end" type="date" value="${today}"></div></div><div class="report-actions"><button class="button" type="button" data-action="apply-report">Visualizar</button><button class="button button--secondary" type="button" data-action="print-report">Imprimir A4</button></div></div><div data-report-results>${await renderInstitutionalReport("financeiro", start, today)}</div>`;
+        reportPage = 1;
+        return `<div class="toolbar report-controls"><div class="toolbar__group"><div class="field"><label for="report-type">Relatório</label><select id="report-type"><option value="financeiro">Financeiro - fluxo de caixa</option><option value="despesas_setor">Despesas por setor</option><option value="internacoes">Internações</option><option value="residentes">Residentes</option><option value="cantina">Cantina - vendas</option><option value="carteiras">Carteiras</option><option value="estoque">Estoque da Cantina</option><option value="colaboradores">Colaboradores</option></select></div><div class="field"><label for="report-start">Data inicial</label><input id="report-start" type="date" value="${start}"></div><div class="field"><label for="report-end">Data final</label><input id="report-end" type="date" value="${today}"></div></div><div class="report-actions"><button class="button" type="button" data-action="apply-report">Visualizar</button><button class="button button--secondary" type="button" data-action="print-report">Imprimir A4 completo</button></div></div><div data-report-results>${await renderInstitutionalReport("financeiro", start, today)}</div>`;
     }
 
     async function refreshReport(panel) {
@@ -1524,12 +1612,36 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     async function renderInstitutionalReport(type, start, end) {
-        const { dados } = await api(`/api/relatorios?tipo=${encodeURIComponent(type)}&data_inicio=${encodeURIComponent(start)}&data_fim=${encodeURIComponent(end)}`);
+        const { dados } = await api(`/api/relatorios?tipo=${encodeURIComponent(type)}&data_inicio=${encodeURIComponent(start)}&data_fim=${encodeURIComponent(end)}&pagina=${reportPage}&tamanho=50`);
         const summary = dados.resumo.map((item) => `<article><span>${escapeHtml(item.rotulo)}</span><strong>${escapeHtml(formatReportValue(item.valor, item.formato))}</strong></article>`).join("");
         const head = dados.colunas.map((column) => `<th data-column-key="${escapeHtml(column.campo)}"${column.formato === "centavos" || column.formato === "reais" ? ' data-column-type="money"' : ""}>${escapeHtml(column.rotulo)}</th>`).join("");
         const body = dados.linhas.length ? dados.linhas.map((row) => `<tr>${dados.colunas.map((column) => `<td data-column-key="${escapeHtml(column.campo)}"${column.formato === "centavos" || column.formato === "reais" ? ' data-column-type="money"' : ""}>${escapeHtml(formatReportValue(row[column.campo], column.formato))}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${dados.colunas.length}">Nenhum registro encontrado para este relatório.</td></tr>`;
         const period = dados.usa_periodo ? `<p>Período: ${formatDate(dados.data_inicio)} a ${formatDate(dados.data_fim)}</p>` : "";
-        return `<article class="print-report">${renderInstitutionalHeader()}<section class="print-report__title"><p>RELATÓRIO INSTITUCIONAL</p><h3>${escapeHtml(dados.titulo)}</h3>${period}</section><div class="print-report__summary">${summary}</div><div class="print-report__table"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><footer class="print-report__footer"><span>Emitido em ${formatDateTime(dados.emitido_em)}</span><span>Clínica da Cruz de Reabilitação</span></footer></article>`;
+        const paginas = Math.max(1, Math.ceil(dados.paginacao.total_filtrado / dados.paginacao.tamanho));
+        const nav = paginationControls("report-page", dados.paginacao, paginas, "linha(s)");
+        return `${nav}<article class="print-report">${await institutionalHeader()}<section class="print-report__title"><p>RELATÓRIO INSTITUCIONAL</p><h3>${escapeHtml(dados.titulo)}</h3>${period}</section><div class="print-report__summary">${summary}</div><div class="print-report__table"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><footer class="print-report__footer"><span>Emitido em ${formatDateTime(dados.emitido_em)}</span><span>Clínica da Cruz de Reabilitação</span></footer></article>`;
+    }
+
+    async function printFullReport(panel) {
+        const type = panel.querySelector("#report-type").value;
+        const start = panel.querySelector("#report-start").value;
+        const end = panel.querySelector("#report-end").value;
+        const target = panel.querySelector("[data-report-results]");
+        const currentPage = reportPage;
+        try {
+            const { dados } = await api(`/api/relatorios?tipo=${encodeURIComponent(type)}&data_inicio=${encodeURIComponent(start)}&data_fim=${encodeURIComponent(end)}&pagina=1&tamanho=100&completo=1`);
+            reportPage = 1;
+            const original = target.innerHTML;
+            dados.paginacao.total_filtrado = dados.linhas.length;
+            dados.paginacao.tamanho = Math.max(1, dados.linhas.length);
+            const summary = dados.resumo.map(item => `<article><span>${escapeHtml(item.rotulo)}</span><strong>${escapeHtml(formatReportValue(item.valor, item.formato))}</strong></article>`).join("");
+            const head = dados.colunas.map(column => `<th>${escapeHtml(column.rotulo)}</th>`).join("");
+            const body = dados.linhas.map(row => `<tr>${dados.colunas.map(column => `<td>${escapeHtml(formatReportValue(row[column.campo], column.formato))}</td>`).join("")}</tr>`).join("");
+            target.innerHTML = `<article class="print-report">${await institutionalHeader()}<section class="print-report__title"><h3>${escapeHtml(dados.titulo)}</h3></section><div class="print-report__summary">${summary}</div><div class="print-report__table"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div></article>`;
+            window.print();
+            target.innerHTML = original;
+        } catch (error) { showAlert("Não foi possível imprimir", error.message); }
+        finally { reportPage = currentPage; }
     }
 
     function formatReportValue(value, format) {
@@ -1550,7 +1662,10 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const financial = dados ? renderTable([dados], [["Aplicar juros", "aplicar_juros", formatYesNo], ["Tipo de juros", "tipo_juros"], ["Valor dos juros", "valor_juros"], ["Aplicar multa", "aplicar_multa", formatYesNo], ["Tipo da multa", "tipo_multa"], ["Valor da multa", "valor_multa"]]) : emptyState();
         const actions = cloud.ativa ? `<div class="report-actions">${cloud.modo === "ESCRITA" ? '<button class="button" type="button" data-action="cloud-publish">Publicar versão</button>' : '<button class="button" type="button" data-action="cloud-update">Buscar versão mais recente</button>'}</div>` : "";
         const cloudTable = renderTable([cloud], [["Situação", "ativa", (value) => value ? "Ativa" : "Desativada"], ["Modo preparado", "modo"], ["Pasta Google Drive", "pasta_google_drive", valueOrDash], ["Última versão", "ultima_versao", valueOrDash], ["Versões disponíveis", "quantidade_versoes"]]);
-        backupPanel ||= createBackupPanel(api);
+        if (!backupPanel) {
+            const { createBackupPanel } = await import('./components/backup.js');
+            backupPanel = createBackupPanel(api);
+        }
         return `<h3 class="section-title">Parâmetros financeiros</h3>${financial}<h3 class="section-title">Sincronização futura com Google Drive</h3><p class="form-note">${escapeHtml(cloud.mensagem)}</p>${actions}${cloudTable}${await backupPanel.render()}`;
     }
 

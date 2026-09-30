@@ -1,5 +1,7 @@
 """Dashboard e Visão Financeira usam a mesma consulta de movimentos recentes."""
 import unittest
+from datetime import date
+from unittest.mock import patch
 
 import test_regressoes as base_tests
 from src.financeiro import caixa, contas_pagar, despesas, devolucoes, pagamentos, recebimentos
@@ -17,6 +19,34 @@ class DashboardFinanceiro(unittest.TestCase):
         painel = _dashboard()
         self.assertEqual(painel['movimentacoes_recentes'], [])
         self.assertEqual(painel['resultado'], 0)
+
+    def test_vencimentos_no_periodo_inclusivo_e_saldo_parcial(self):
+        contas = [dict(data_vencimento=d, saldo_restante=v, status=s) for d,v,s in [
+            ('2026-01-31', 900, 'ABERTA'), ('2026-02-01', 100, 'PARCIAL'),
+            ('2026-02-28', 200, 'ABERTA'), ('2026-03-01', 800, 'ABERTA'),
+            ('2026-02-15', 0, 'PAGA')]]
+        with patch('src.interface.servidor.contas_receber.listar_cobrancas_consolidadas', return_value=contas):
+            self.assertEqual(_dashboard('2026-02-01', '2026-02-28')['total_receber'], 300)
+            self.assertEqual(_dashboard('2026-03-01', '2026-03-31')['total_receber'], 800)
+
+    def test_padrao_mes_corrente_e_movimentos_fora_do_periodo(self):
+        with patch('src.interface.servidor.date') as clock:
+            clock.today.return_value = date(2026, 2, 10)
+            self.assertEqual(_dashboard(), _dashboard('2026-02-01', '2026-02-28'))
+        self.f.sql("""INSERT INTO entradas_bancarias(data_entrada,valor,forma_recebimento,descricao,origem_documento)
+                      VALUES('2026-02-15',400,'PIX','Teste','PERIODO')""")
+        sid = despesas.cadastrar_setor('Período')['id']
+        did = despesas.cadastrar_despesa(sid, 'Teste', 'FIXA')['id']
+        contas_pagar.cadastrar_conta(did, '2026-02-01', 300)
+        contas_pagar.cadastrar_conta(did, '2026-03-01', 700)
+        fevereiro = _dashboard('2026-02-01', '2026-02-28')
+        marco = _dashboard('2026-03-01', '2026-03-31')
+        self.assertEqual((fevereiro['total_pagar'], marco['total_pagar']), (300, 700))
+        self.assertEqual((fevereiro['total_entradas'], marco['total_entradas']), (400, 0))
+        self.assertEqual(len(fevereiro['movimentacoes_recentes']), 1)
+        self.assertEqual(marco['movimentacoes_recentes'], [])
+        with self.assertRaises(ValueError):
+            _dashboard('2026-03-01', '2026-02-01')
 
     def test_dashboard_e_caixa_com_todas_as_origens(self):
         _, iid = self.f.internar()
@@ -42,6 +72,17 @@ class DashboardFinanceiro(unittest.TestCase):
                          (1400, 500, 900))
         self.assertEqual((caixa_api['total_entradas'], caixa_api['total_saidas'], caixa_api['resultado']),
                          (1400, 500, 900))
+
+    def test_caixa_paginado_limita_linhas_sem_alterar_totais(self):
+        for indice in range(12):
+            self.f.sql("""INSERT INTO entradas_bancarias(data_entrada,valor,forma_recebimento,descricao,origem_documento)
+                          VALUES(?,100,'PIX',?,?)""", (self.f.hoje, f'Entrada {indice}', f'P-{indice}'))
+        pagina = caixa.resumo_com_movimentacoes(self.f.hoje, self.f.hoje, pagina=1, tamanho=10)
+        self.assertEqual(len(pagina['movimentacoes']['linhas']), 10)
+        self.assertEqual(pagina['movimentacoes']['total_registros'], 12)
+        self.assertEqual(pagina['total_entradas'], 1200)
+        segunda = caixa.resumo_com_movimentacoes(self.f.hoje, self.f.hoje, pagina=2, tamanho=10)
+        self.assertEqual(len(segunda['movimentacoes']['linhas']), 2)
 
 
 if __name__ == '__main__':

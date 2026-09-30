@@ -65,6 +65,9 @@ def consolidar_cobranca(cobranca, data_referencia=None):
         "internacao_id": cobranca["internacao_id"],
         "residente_nome": cobranca.get("residente_nome"),
         "responsavel_nome": cobranca.get("responsavel_nome"),
+        "residente_id": cobranca.get("residente_id"),
+        "modalidade": cobranca.get("modalidade"),
+        "convenio_nome": cobranca.get("convenio_nome"),
         "numero_parcela": cobranca["numero_parcela"],
         "tipo": cobranca["tipo"],
         "data_vencimento": cobranca["data_vencimento"],
@@ -89,7 +92,8 @@ def consolidar_cobranca(cobranca, data_referencia=None):
     }
 
 
-def _consultar_cobrancas(cobranca_id=None, internacao_id=None):
+def _consultar_cobrancas(cobranca_id=None, internacao_id=None, tipo=None, busca=None,
+                         limite=None, deslocamento=0):
     conexao = conectar()
     cursor = conexao.cursor()
 
@@ -104,8 +108,19 @@ def _consultar_cobrancas(cobranca_id=None, internacao_id=None):
         filtros.append("c.internacao_id = ?")
         parametros.append(internacao_id)
 
+    if tipo is not None:
+        filtros.append("c.tipo = ?")
+        parametros.append(tipo)
+
+    if busca:
+        filtros.append("(res.nome LIKE ? OR rp.nome LIKE ?)")
+        termo = f"%{busca.strip()}%"
+        parametros.extend((termo, termo))
+
     where = " WHERE " + " AND ".join(filtros) if filtros else ""
 
+    paginacao = " LIMIT ? OFFSET ?" if limite is not None else ""
+    parametros_consulta = [*parametros, *([limite, deslocamento] if limite is not None else [])]
     cobrancas = cursor.execute(
         f"""
         SELECT
@@ -120,18 +135,21 @@ def _consultar_cobrancas(cobranca_id=None, internacao_id=None):
             COALESCE(SUM(r.valor), 0) AS total_recebido,
             COALESCE(SUM(r.multa_juros), 0) AS total_multa_juros,
             MAX(CASE WHEN r.valor > 0 THEN r.data_recebimento END) AS data_pagamento,
-            res.nome AS residente_nome, rp.nome AS responsavel_nome
+            res.nome AS residente_nome, rp.nome AS responsavel_nome,
+            res.id AS residente_id, i.modalidade, cv.nome AS convenio_nome
         FROM cobrancas c
         JOIN internacoes i ON i.id=c.internacao_id
         JOIN residentes res ON res.id=i.residente_id
         JOIN responsaveis rp ON rp.id=i.responsavel_id
+        LEFT JOIN convenios cv ON cv.id=i.convenio_id
         LEFT JOIN recebimentos_liquidos r
             ON r.cobranca_id = c.id
         {where}
         GROUP BY c.id
-        ORDER BY c.internacao_id, c.numero_parcela
+        ORDER BY c.data_vencimento, c.id
+        {paginacao}
         """,
-        parametros,
+        parametros_consulta,
     ).fetchall()
 
     conexao.close()
@@ -152,6 +170,9 @@ def _consultar_cobrancas(cobranca_id=None, internacao_id=None):
             "data_pagamento": cobranca[10],
             "residente_nome": cobranca[11],
             "responsavel_nome": cobranca[12],
+            "residente_id": cobranca[13],
+            "modalidade": cobranca[14],
+            "convenio_nome": cobranca[15],
         }
         for cobranca in cobrancas
     ]
@@ -200,3 +221,45 @@ def listar_mensalidades(data_referencia=None):
     finally:
         conexao.close()
     return [{**mensalidade, **residentes.get(mensalidade["internacao_id"], {})} for mensalidade in mensalidades]
+
+
+def listar_cobrancas_paginadas(data_referencia=None, tipo=None, busca=None, pagina=1, tamanho=50):
+    """Retorna somente a página solicitada, preservando o formato consolidado."""
+    try:
+        pagina, tamanho = int(pagina), int(tamanho)
+    except (TypeError, ValueError) as erro:
+        raise ValueError("Paginação inválida.") from erro
+    if pagina < 1 or not 10 <= tamanho <= 100:
+        raise ValueError("Paginação inválida.")
+    busca = (busca or "").strip()
+
+    conexao = conectar()
+    try:
+        filtro_tipo = " WHERE c.tipo=?" if tipo else ""
+        params_tipo = [tipo] if tipo else []
+        total_registros = conexao.execute(
+            f"SELECT COUNT(*) FROM cobrancas c{filtro_tipo}", params_tipo
+        ).fetchone()[0]
+        filtro_busca = (" AND" if filtro_tipo else " WHERE") + \
+            " (res.nome LIKE ? OR rp.nome LIKE ?)" if busca else ""
+        params_filtro = [*params_tipo]
+        if busca:
+            termo = f"%{busca}%"
+            params_filtro.extend((termo, termo))
+        total_filtrado = conexao.execute(
+            f"""SELECT COUNT(*) FROM cobrancas c
+                JOIN internacoes i ON i.id=c.internacao_id
+                JOIN residentes res ON res.id=i.residente_id
+                JOIN responsaveis rp ON rp.id=i.responsavel_id
+                {filtro_tipo}{filtro_busca}""", params_filtro,
+        ).fetchone()[0]
+    finally:
+        conexao.close()
+
+    linhas = [consolidar_cobranca(item, data_referencia) for item in _consultar_cobrancas(
+        tipo=tipo, busca=busca, limite=tamanho, deslocamento=(pagina - 1) * tamanho,
+    )]
+    return {
+        "linhas": linhas, "pagina": pagina, "tamanho": tamanho,
+        "total_registros": total_registros, "total_filtrado": total_filtrado,
+    }

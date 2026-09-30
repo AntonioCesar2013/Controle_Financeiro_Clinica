@@ -201,6 +201,41 @@ def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None, limite=N
     return ordenadas[-limite:] if limite else ordenadas
 
 
+def contar_movimentacoes(data_inicio=None, data_fim=None):
+    data_inicio, data_fim = _periodo_validado(data_inicio, data_fim)
+    conn = conectar()
+    try:
+        return conn.execute("""SELECT
+            (SELECT COUNT(*) FROM recebimentos r WHERE (? IS NULL OR r.data_recebimento>=?) AND (? IS NULL OR r.data_recebimento<=?)
+             AND NOT EXISTS (SELECT 1 FROM conciliacoes_vinculos v WHERE v.recebimento_id=r.id)) +
+            (SELECT COUNT(*) FROM entradas_bancarias eb WHERE (? IS NULL OR eb.data_entrada>=?) AND (? IS NULL OR eb.data_entrada<=?)
+             AND NOT EXISTS (SELECT 1 FROM conciliacoes_bancarias cb WHERE cb.entrada_id=eb.id AND cb.desfeita_em IS NULL AND cb.destino='CARTEIRA')) +
+            (SELECT COUNT(*) FROM pagamentos_saida ps WHERE (? IS NULL OR ps.data_pagamento>=?) AND (? IS NULL OR ps.data_pagamento<=?)) +
+            (SELECT COUNT(*) FROM devolucoes_recebimentos d WHERE d.estornada=0 AND (? IS NULL OR d.data_devolucao>=?) AND (? IS NULL OR d.data_devolucao<=?))""",
+            (data_inicio, data_inicio, data_fim, data_fim) * 4).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def listar_movimentacoes_paginadas(data_inicio=None, data_fim=None, pagina=1, tamanho=50):
+    try:
+        pagina, tamanho = int(pagina), int(tamanho)
+    except (TypeError, ValueError) as erro:
+        raise ValueError("Paginação inválida.") from erro
+    if pagina < 1 or not 10 <= tamanho <= 100:
+        raise ValueError("Paginação inválida.")
+    total = contar_movimentacoes(data_inicio, data_fim)
+    # Cada origem é limitada no SQL; a mesclagem mantém somente o necessário
+    # para alcançar a página solicitada.
+    ate = pagina * tamanho
+    movimentos = listar_movimentacoes(data_inicio, data_fim, limite=ate)
+    fim = len(movimentos) - (pagina - 1) * tamanho
+    inicio = max(0, fim - tamanho)
+    linhas = movimentos[inicio:fim] if fim > 0 else []
+    return {"linhas": linhas, "pagina": pagina, "tamanho": tamanho,
+            "total_registros": total, "total_filtrado": total}
+
+
 def _resumo(data_inicio=None, data_fim=None, incluir_movimentacoes=False):
     data_inicio, data_fim = _periodo_validado(data_inicio, data_fim)
     conexao = conectar()
@@ -266,9 +301,14 @@ def resumo_caixa(data_inicio=None, data_fim=None):
     return _resumo(data_inicio, data_fim)
 
 
-def resumo_com_movimentacoes(data_inicio=None, data_fim=None):
+def resumo_com_movimentacoes(data_inicio=None, data_fim=None, pagina=None, tamanho=50):
     """Obtém totais e detalhes na mesma leitura do banco."""
-    return _resumo(data_inicio, data_fim, incluir_movimentacoes=True)
+    if pagina is None:
+        return _resumo(data_inicio, data_fim, incluir_movimentacoes=True)
+    resumo = _resumo(data_inicio, data_fim)
+    resumo["movimentacoes"] = listar_movimentacoes_paginadas(
+        data_inicio, data_fim, pagina, tamanho)
+    return resumo
 
 
 def resumo_diario(data):

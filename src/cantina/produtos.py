@@ -623,3 +623,31 @@ def listar_movimentacoes_estoque(item_id):
         )]
     finally:
         conexao.close()
+
+
+def historico_item_paginado(item_id, pagina=1, tamanho=50):
+    try:
+        pagina, tamanho = int(pagina), int(tamanho)
+    except (TypeError, ValueError) as erro:
+        raise ValueError("Paginação inválida.") from erro
+    if pagina < 1 or not 10 <= tamanho <= 100:
+        raise ValueError("Paginação inválida.")
+    conexao = conectar()
+    conexao.row_factory = sqlite3.Row
+    try:
+        total = conexao.execute(
+            "SELECT COUNT(*) FROM movimentacoes_estoque WHERE item_id=?", (item_id,)
+        ).fetchone()[0]
+        estoque = [dict(linha) for linha in conexao.execute(
+            """SELECT id,item_id,quantidade_anterior,quantidade_movimentada,
+                      quantidade_atual,motivo,data_movimentacao,tipo,venda_id,
+                      custo_unitario,fornecedor,documento,lote,data_validade
+               FROM movimentacoes_estoque WHERE item_id=?
+               ORDER BY data_movimentacao DESC,id DESC LIMIT ? OFFSET ?""",
+            (item_id, tamanho, (pagina - 1) * tamanho),
+        )]
+    finally:
+        conexao.close()
+    return {"precos": listar_valores_item(item_id, apenas_ativos=False), "estoque": estoque,
+            "paginacao": {"pagina": pagina, "tamanho": tamanho,
+                           "total_registros": total, "total_filtrado": total}}

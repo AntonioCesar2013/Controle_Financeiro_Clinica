@@ -1,4 +1,5 @@
 """Inicialização e liberação de recursos sem abrir a janela nem o banco real."""
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +14,59 @@ from src.interface import servidor
 
 
 class InicializacaoTests(unittest.TestCase):
+    def test_servidor_limita_threads_residentes(self):
+        self.assertEqual(servidor.ServidorClinica.MAXIMO_REQUISICOES_SIMULTANEAS, 8)
+        self.assertTrue(servidor.ServidorClinica.daemon_threads)
+        self.assertFalse(servidor.ServidorClinica.block_on_close)
+
+    def tearDown(self):
+        with servidor.LOCK_SESSOES:
+            servidor.SESSOES.clear()
+
+    def test_sessoes_expiram_e_possuem_limite_de_memoria(self):
+        with servidor.LOCK_SESSOES:
+            for indice in range(servidor.SESSOES_LIMITE + 5):
+                servidor.SESSOES[str(indice)] = {
+                    'colaborador': {'id': indice}, 'ultimo_acesso': float(indice),
+                }
+            servidor._limpar_sessoes(servidor.SESSAO_TEMPO_LIMITE + servidor.SESSOES_LIMITE + 4)
+            self.assertLessEqual(len(servidor.SESSOES), servidor.SESSOES_LIMITE)
+
+    def test_consulta_de_sessao_renova_ultimo_acesso(self):
+        token = 'token-teste'
+        with servidor.LOCK_SESSOES:
+            servidor.SESSOES[token] = {'colaborador': {'id': 7}, 'ultimo_acesso': 1.0}
+        requisicao = object.__new__(servidor.Requisicao)
+        requisicao.headers = {'Cookie': f'sessao={token}'}
+        with patch.object(servidor.time, 'monotonic', return_value=2.0):
+            self.assertEqual(requisicao._sessao(), {'id': 7})
+        self.assertEqual(servidor.SESSOES[token]['ultimo_acesso'], 2.0)
+
+    def test_inicializador_nao_mantem_powershell_residente(self):
+        script = (Path(__file__).resolve().parents[1] / 'iniciar.ps1').read_text(encoding='utf-8')
+        linha_processo = next(linha for linha in script.splitlines() if '$processo = Start-Process' in linha)
+        self.assertNotIn('-Wait', linha_processo)
+        self.assertIn('WaitForExit(5000)', script)
+        self.assertIn('if (-not $encerrouNaPartida)', script)
+
+    def test_webview2_usa_perfil_economico_sem_sobrescrever_configuracao_externa(self):
+        with patch.dict(os.environ, {}, clear=True):
+            main.configurar_webview2_economico()
+            argumentos = os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS']
+            self.assertIn('--renderer-process-limit=1', argumentos)
+            self.assertIn('--disable-background-networking', argumentos)
+
+        with patch.dict(os.environ, {'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS': '--opcao-personalizada'}, clear=True):
+            main.configurar_webview2_economico()
+            self.assertEqual(os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'], '--opcao-personalizada')
+
+    def test_segunda_instancia_retorna_codigo_especifico(self):
+        with patch.dict('sys.modules', webview=Mock()), patch.object(
+            main, 'criar_servidor', side_effect=BancoEmUsoError('em uso')
+        ), self.assertRaises(SystemExit) as caught:
+            main.main()
+        self.assertEqual(caught.exception.code, 2)
+
     def test_dependencia_backup_ausente_orienta_instalacao(self):
         erro = ModuleNotFoundError("ausente", name="platformdirs")
         with patch.dict('sys.modules', webview=Mock()), patch.object(

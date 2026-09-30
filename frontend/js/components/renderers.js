@@ -16,7 +16,11 @@ export function renderActionTable(rows, columns, actions, options = {}) {
     const header = `${columns.map(([label, key]) => `<th${cellAttributes(key)}>${label}</th>`).join("")}${selectable ? "" : '<th data-column-key="acoes">Ações</th>'}`;
     const body = rows.map((row) => {
         const cells = columns.map(([, key, formatter]) => `<td${cellAttributes(key)}>${renderCell(row, key, formatter, statusColumn?.[1] === key)}</td>`).join("");
-        const attributes = `data-search="${escapeHtml(Object.values(row).filter(v => typeof v !== "object").join(" "))}" data-status="${escapeHtml(status(row))}" data-date="${escapeHtml(dateColumn ? row[dateColumn[1]] : "")}"`;
+        // Indexe somente as colunas visíveis. Copiar o objeto inteiro para cada
+        // atributo duplicava no DOM dados financeiros que nem participavam da busca.
+        const searchKeys = options.searchKeys || columns.map(([, key]) => key);
+        const searchText = searchKeys.map(key => row[key]).filter(v => v !== null && v !== undefined).join(" ");
+        const attributes = `data-search="${escapeHtml(searchText)}" data-status="${escapeHtml(status(row))}" data-date="${escapeHtml(dateColumn ? row[dateColumn[1]] : "")}"`;
         if (!selectable) return `<tr ${attributes}>${cells}<td data-column-key="acoes"><div class="report-actions">${actions(row)}</div></td></tr>`;
         const selection = options.selectionData?.(row) || {};
         const capabilities = Array.isArray(selection.capabilities)
@@ -38,7 +42,7 @@ function renderCell(row, key, formatter, isStatus = false) {
     const safe = escapeHtml(value);
     if (!isStatus) return safe;
     const normalized = String(value).toLocaleUpperCase("pt-BR");
-    const tone = /VENCID|CANCEL|ESTORN|INATIV|DIVERG|REVISAR/.test(normalized) ? "danger"
+    const tone = /ATRASO|VENCID|CANCEL|ESTORN|INATIV|DIVERG|REVISAR/.test(normalized) ? "danger"
         : /PENDENT|ABERTA|A VENCER|PARCIAL|AGENDADA/.test(normalized) ? "warning"
         : /PAGA|ATIV|CONFERIDA|FECHADO|EFETIV/.test(normalized) ? "success" : "neutral";
     return `<span class="status status--${tone}">${safe}</span>`;

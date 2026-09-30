@@ -15,7 +15,11 @@ def rotas_get(query):
         "/api/colaboradores": listar_colaboradores,
         "/api/sincronizacao/status": sincronizacao_nuvem.obter_status,
         "/api/relatorios": lambda: relatorios.gerar(
-            _parametro(query, "tipo", "financeiro"), inicio, fim
+            _parametro(query, "tipo", "financeiro"), inicio, fim,
+            _parametro(query, "pagina", 1), _parametro(query, "tamanho", 50),
+            _parametro(query, "completo") == "1",
         ),
-        "/api/auditoria": lambda: auditoria.listar(_parametro(query, "limite", 500)),
+        "/api/auditoria": lambda: auditoria.listar_paginado(
+            _parametro(query, "pagina", 1), _parametro(query, "tamanho", 50)
+        ) if _parametro(query, "pagina") else auditoria.listar(_parametro(query, "limite", 500)),
     }

@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import test_regressoes as base_tests
 from src.financeiro import cobrancas, devolucoes, recebimentos
+from src.financeiro import contas_receber
 from src.financeiro.estornos import historico, historico_ajustes
 from src.interface.extrato_residente import consultar
 from src.interface.rotas.financeiro import rotas_get
@@ -116,6 +117,24 @@ class ContasReceberCorrigidas(unittest.TestCase):
         self.assertEqual(extrato['resumo']['devolvido_periodo'], 300)
         self.assertEqual([r['estornada'] for r in extrato['devolucoes']], [1, 0])
         self.assertEqual(extrato['devolucoes'][0]['motivo_estorno'], 'Registro equivocado')
+
+    def test_paginacao_de_contas_e_mensalidades(self):
+        primeira = contas_receber.listar_cobrancas_paginadas(
+            data_referencia=self.f.hoje, pagina=1, tamanho=10,
+        )
+        self.assertEqual(len(primeira['linhas']), min(10, len(self.ids)))
+        self.assertEqual(primeira['total_registros'], len(self.ids))
+        segunda = contas_receber.listar_cobrancas_paginadas(
+            data_referencia=self.f.hoje, pagina=2, tamanho=10,
+        )
+        self.assertFalse({x['id'] for x in primeira['linhas']} & {x['id'] for x in segunda['linhas']})
+        mensalidades = contas_receber.listar_cobrancas_paginadas(
+            data_referencia=self.f.hoje, tipo='MENSALIDADE', pagina=1, tamanho=10,
+        )
+        self.assertTrue(all(x['tipo'] == 'MENSALIDADE' for x in mensalidades['linhas']))
+        self.assertTrue(all('modalidade' in x for x in mensalidades['linhas']))
+        with self.assertRaises(ValueError):
+            contas_receber.listar_cobrancas_paginadas(pagina=0, tamanho=10)
 
 
 if __name__ == '__main__':

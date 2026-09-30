@@ -536,7 +536,13 @@ def estornar_compra(venda_id, motivo=None):
         conn.close()
 
 
-def consultar_cantina():
+def consultar_cantina(pagina=1, tamanho=50):
+    try:
+        pagina, tamanho = int(pagina), int(tamanho)
+    except (TypeError, ValueError) as erro:
+        raise ValueError("Paginação inválida.") from erro
+    if pagina < 1 or not 10 <= tamanho <= 100:
+        raise ValueError("Paginação inválida.")
     sincronizar_status_residentes()
     conn = conectar()
     conn.row_factory = sqlite3.Row
@@ -555,6 +561,7 @@ def consultar_cantina():
                    ORDER BY iv2.data_inicio_valor DESC, iv2.id DESC LIMIT 1)
                WHERE i.ativo=1 AND (i.estoque_atual>0 OR UPPER(i.categoria) IN ('SERVIÇO','SERVIÇOS','SERVICO','SERVICOS')) ORDER BY i.nome"""
         )]
+        total_vendas = conn.execute("SELECT COUNT(*) FROM vendas_cantina").fetchone()[0]
         vendas = [dict(x) for x in conn.execute(
             """SELECT v.id,v.data_movimentacao,r.nome AS residente_nome,
                       v.valor_total,v.status,COUNT(vi.id) AS produtos,
@@ -562,15 +569,24 @@ def consultar_cantina():
                FROM vendas_cantina v JOIN carteiras c ON c.id=v.carteira_id
                JOIN residentes r ON r.id=c.residente_id
                LEFT JOIN vendas_cantina_itens_cantina vi ON vi.venda_id=v.id
-               GROUP BY v.id ORDER BY v.data_movimentacao DESC,v.id DESC LIMIT 100"""
+               GROUP BY v.id ORDER BY v.data_movimentacao DESC,v.id DESC LIMIT ? OFFSET ?""",
+            (tamanho, (pagina - 1) * tamanho),
         )]
-        return {"carteiras": carteiras, "itens": itens, "vendas": vendas}
+        return {"carteiras": carteiras, "itens": itens, "vendas": vendas,
+                "paginacao_vendas": {"pagina": pagina, "tamanho": tamanho,
+                    "total_registros": total_vendas, "total_filtrado": total_vendas}}
     finally:
         conn.close()
 
 
-def consultar_carteira(carteira_id):
+def consultar_carteira(carteira_id, pagina=1, tamanho=50):
     """Retorna saldo e histórico de compras da carteira selecionada."""
+    try:
+        pagina, tamanho = int(pagina), int(tamanho)
+    except (TypeError, ValueError) as erro:
+        raise ValueError("Paginação inválida.") from erro
+    if pagina < 1 or not 10 <= tamanho <= 100:
+        raise ValueError("Paginação inválida.")
     conn = conectar()
     conn.row_factory = sqlite3.Row
     try:
@@ -582,28 +598,25 @@ def consultar_carteira(carteira_id):
         ).fetchone()
         if not carteira:
             return {"sucesso": False, "erro": "Carteira não encontrada."}
+        total = conn.execute(
+            "SELECT COUNT(*) FROM movimentacoes_carteira WHERE carteira_id=?", (carteira_id,)
+        ).fetchone()[0]
         movimentos = [dict(x) for x in conn.execute(
             """SELECT m.id,m.tipo,m.data_movimentacao,m.valor_total,m.estornada,
-                      m.estornada_em,m.motivo_estorno,m.motivo,m.documento,m.forma_pagamento,i.nome AS item_nome,m.quantidade
+                      m.estornada_em,m.motivo_estorno,m.motivo,m.documento,m.forma_pagamento,
+                      i.nome AS item_nome,m.quantidade,m.venda_id,iv.valor AS valor_unitario
                FROM movimentacoes_carteira m
                LEFT JOIN itens_cantina i ON i.id=m.item_id
+               LEFT JOIN itens_cantina_valores iv ON iv.id=m.item_valor_id
                WHERE m.carteira_id=?
-               ORDER BY m.data_movimentacao DESC,m.id DESC""",
-            (carteira_id,),
+               ORDER BY m.data_movimentacao DESC,m.id DESC LIMIT ? OFFSET ?""",
+            (carteira_id, tamanho, (pagina - 1) * tamanho),
         )]
-        compras = [dict(x) for x in conn.execute(
-            """SELECT m.id, m.data_movimentacao, i.nome AS item_nome,
-                      m.quantidade, iv.valor AS valor_unitario, m.valor_total,
-                      m.estornada,m.estornada_em,m.motivo_estorno,m.venda_id
-               FROM movimentacoes_carteira m
-               JOIN itens_cantina i ON i.id=m.item_id
-               JOIN itens_cantina_valores iv ON iv.id=m.item_valor_id
-               WHERE m.carteira_id=? AND m.tipo='COMPRA_CANTINA'
-               ORDER BY m.data_movimentacao DESC, m.id DESC""",
-            (carteira_id,),
-        )]
+        compras = [movimento for movimento in movimentos if movimento["tipo"] == "COMPRA_CANTINA"]
         creditos = [movimento for movimento in movimentos if movimento["tipo"] == "CREDITO"]
         return {"sucesso": True, "carteira": dict(carteira), "movimentacoes": movimentos,
-                "creditos": creditos, "compras": compras}
+                "creditos": creditos, "compras": compras,
+                "paginacao": {"pagina": pagina, "tamanho": tamanho,
+                               "total_registros": total, "total_filtrado": total}}
     finally:
         conn.close()

@@ -30,6 +30,16 @@ def _abrir():
     return conn
 
 
+def _pagina(pagina, tamanho=20):
+    try:
+        pagina, tamanho = int(pagina), int(tamanho)
+    except (TypeError, ValueError) as erro:
+        raise ValueError('Paginação inválida.') from erro
+    if pagina < 1 or not 5 <= tamanho <= 50:
+        raise ValueError('Paginação inválida.')
+    return pagina, tamanho
+
+
 def _posicao(conn):
     receber = [dict(r) for r in conn.execute('''
         SELECT c.id,r.nome || ' — parcela ' || c.numero_parcela AS nome,
@@ -57,14 +67,20 @@ def _posicao(conn):
                        for tipo in ('RECEBER','PAGAR','CARTEIRA')}}
 
 
-def saldos():
+def saldos(pagina=1, tamanho=20):
+    pagina, tamanho = _pagina(pagina, tamanho)
     with closing(_abrir()) as conn:
         conn.execute('BEGIN')
         dados = _posicao(conn)
-        historico = [dict(r) for r in conn.execute('SELECT * FROM conferencias_saldos ORDER BY id DESC')]
+        total = conn.execute('SELECT COUNT(*) FROM conferencias_saldos').fetchone()[0]
+        historico = [dict(r) for r in conn.execute(
+            'SELECT * FROM conferencias_saldos ORDER BY id DESC LIMIT ? OFFSET ?',
+            (tamanho, (pagina - 1) * tamanho))]
         for r in historico:
             r['dados'] = json.loads(r['dados'])
-        return {**dados, 'assinatura': assinatura(dados), 'historico': historico}
+        return {**dados, 'assinatura': assinatura(dados), 'historico': historico,
+                'paginacao': {'pagina': pagina, 'tamanho': tamanho,
+                              'total_registros': total, 'total_filtrado': total}}
 
 
 def conferir_saldos(hash_esperado, valores, responsavel, observacao):
@@ -119,16 +135,22 @@ def _mes(conn, competencia):
     return dados
 
 
-def mensal(competencia):
+def mensal(competencia, pagina=1, tamanho=20):
+    pagina, tamanho = _pagina(pagina, tamanho)
     with closing(_abrir()) as conn:
         conn.execute('BEGIN')
         dados = _mes(conn, competencia)
         atual = assinatura(dados)
-        historico = [dict(r) for r in conn.execute('SELECT * FROM fechamentos_mensais WHERE competencia=? ORDER BY revisao DESC', (competencia,))]
+        total = conn.execute('SELECT COUNT(*) FROM fechamentos_mensais WHERE competencia=?', (competencia,)).fetchone()[0]
+        historico = [dict(r) for r in conn.execute(
+            'SELECT * FROM fechamentos_mensais WHERE competencia=? ORDER BY revisao DESC LIMIT ? OFFSET ?',
+            (competencia, tamanho, (pagina - 1) * tamanho))]
         for r in historico:
             r['dados'] = json.loads(r['dados'])
             r['status'] = 'REABERTO' if r['reaberto_em'] else ('FECHADO' if r['assinatura']==atual else 'REVISAR')
-        return {**dados, 'assinatura': atual, 'historico': historico}
+        return {**dados, 'assinatura': atual, 'historico': historico,
+                'paginacao': {'pagina': pagina, 'tamanho': tamanho,
+                              'total_registros': total, 'total_filtrado': total}}
 
 
 def fechar(competencia, hash_esperado, responsavel, observacao, valores):

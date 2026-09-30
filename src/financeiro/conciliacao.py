@@ -18,21 +18,30 @@ def texto_obrigatorio(valor, nome):
     return valor.strip()
 
 
-def listar(conn):
+def listar(conn, limite=None, deslocamento=0):
+    paginacao = ' LIMIT ? OFFSET ?' if limite is not None else ''
+    parametros = (limite, deslocamento) if limite is not None else ()
     return [dict(r) for r in conn.execute("""
         SELECT eb.*, cb.id AS conciliacao_id, COALESCE(cb.destino,'PENDENTE') AS destino,
                cb.motivo, cb.vinculos_originais
         FROM entradas_bancarias eb LEFT JOIN conciliacoes_bancarias cb
           ON cb.entrada_id=eb.id AND cb.desfeita_em IS NULL
-        ORDER BY eb.data_entrada DESC,eb.id DESC""")]
+        ORDER BY eb.data_entrada DESC,eb.id DESC""" + paginacao, parametros)]
 
 
-def painel():
+def painel(pagina=1, tamanho=50):
+    try:
+        pagina, tamanho = int(pagina), int(tamanho)
+    except (TypeError, ValueError) as erro:
+        raise ValueError('Paginação inválida.') from erro
+    if pagina < 1 or not 10 <= tamanho <= 100:
+        raise ValueError('Paginação inválida.')
     with closing(conectar()) as conn:
         conn.row_factory = sqlite3.Row
         conn.execute('BEGIN')
+        total = conn.execute('SELECT COUNT(*) FROM entradas_bancarias').fetchone()[0]
         return {
-            'entradas': listar(conn),
+            'entradas': listar(conn, tamanho, (pagina - 1) * tamanho),
             'recebimentos': [dict(r) for r in conn.execute("""
                 SELECT r.id,r.valor + COALESCE(r.multa_juros,0) AS valor,
                        r.valor AS valor_principal,r.multa_juros,
@@ -40,16 +49,18 @@ def painel():
                 FROM recebimentos r JOIN cobrancas c ON c.id=r.cobranca_id
                 JOIN internacoes i ON i.id=c.internacao_id JOIN residentes res ON res.id=i.residente_id
                 WHERE NOT EXISTS(SELECT 1 FROM conciliacoes_vinculos v WHERE v.recebimento_id=r.id)
-                ORDER BY r.data_recebimento DESC,r.id DESC""")],
+                ORDER BY r.data_recebimento DESC,r.id DESC LIMIT 100""")],
             'creditos': [dict(r) for r in conn.execute("""
                 SELECT m.id,m.valor_total AS valor,m.data_movimentacao AS data,r.nome
                 FROM movimentacoes_carteira m JOIN carteiras c ON c.id=m.carteira_id
                 JOIN residentes r ON r.id=c.residente_id
                 WHERE m.tipo='CREDITO' AND m.estornada=0
                 AND NOT EXISTS(SELECT 1 FROM conciliacoes_vinculos v WHERE v.movimento_id=m.id)
-                ORDER BY m.data_movimentacao DESC,m.id DESC""")],
+                ORDER BY m.data_movimentacao DESC,m.id DESC LIMIT 100""")],
             'historico': [dict(r) for r in conn.execute(
-                'SELECT * FROM conciliacoes_bancarias ORDER BY id DESC')],
+                'SELECT * FROM conciliacoes_bancarias ORDER BY id DESC LIMIT 100')],
+            'paginacao': {'pagina': pagina, 'tamanho': tamanho,
+                          'total_registros': total, 'total_filtrado': total},
         }
 
 

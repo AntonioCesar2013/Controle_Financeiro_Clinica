@@ -4,6 +4,9 @@ import time
 
 
 class BackupScheduler:
+    ACTIVE_POLL_SECONDS = 5
+    INACTIVE_POLL_SECONDS = 60
+
     def __init__(self, service):
         self.service = service
         self.stop_event = threading.Event()
@@ -19,8 +22,10 @@ class BackupScheduler:
     def _run(self):
         due, previous = 0, None
         while not self.stop_event.is_set():
+            backup_enabled = False
             try:
                 config = self.service.config.load()
+                backup_enabled = config['backup_enabled']
                 signature = (config['backup_enabled'], config['interval_hours'])
                 if signature != previous:
                     interval = config['interval_hours'] * 3600
@@ -35,4 +40,8 @@ class BackupScheduler:
                     due = time.monotonic() + config['interval_hours'] * 3600
             except Exception:
                 self.service._update(scheduler_warning='Agendamento indisponível. Verifique a configuração local.')
-            self.stop_event.wait(5)
+            # Com o backup desligado, evite reler a configuração a cada cinco
+            # segundos durante todo o expediente.
+            wait_seconds = (self.ACTIVE_POLL_SECONDS if backup_enabled
+                            else self.INACTIVE_POLL_SECONDS)
+            self.stop_event.wait(wait_seconds)
