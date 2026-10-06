@@ -2,7 +2,7 @@
 
 export function parametrosContasPagar(estado) {
     return new URLSearchParams({
-        pagina: String(estado.pagina), tamanho: "50",
+        completo: "1",
         busca: estado.busca || "", status: estado.status || "",
         data_inicio: estado.inicio || "", data_fim: estado.fim || "",
         ordem: estado.ordem || "vencimento_asc",

@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import { parametrosContasPagar, despesasElegiveis } from '../frontend/js/components/contas-pagar.js';
 import { readFile } from 'node:fs/promises';
 
-const estado = {pagina: 2, busca: 'Água', status: 'ABERTA', inicio: '2026-02-01', fim: '2026-02-28', ordem: 'vencimento_desc'};
+const estado = {busca: 'Água', status: 'ABERTA', inicio: '2026-02-01', fim: '2026-02-28', ordem: 'vencimento_desc'};
 const parametros = parametrosContasPagar(estado);
 assert.equal(parametros.get('data_inicio'), estado.inicio);
 assert.equal(parametros.get('data_fim'), estado.fim);
 assert.equal(parametros.get('inicio'), null);
-assert.equal(parametros.get('pagina'), '2');
+assert.equal(parametros.get('pagina'), null);
+assert.equal(parametros.get('tamanho'), null);
+assert.equal(parametros.get('completo'), '1');
 assert.equal(parametros.get('status'), 'ABERTA');
 assert.equal(parametros.get('busca'), 'Água');
 assert.equal(parametrosContasPagar({...estado, inicio: '', fim: ''}).get('data_inicio'), '');
@@ -21,8 +23,11 @@ const appSource = await readFile(new URL('../frontend/js/app.js', import.meta.ur
 assert.match(appSource, /Ações da despesa selecionada/);
 assert.match(appSource, /data-kind="expense" data-selection-action="edit" disabled>Editar/);
 assert.match(appSource, /endpoint = "\/api\/despesas\/editar"/);
+assert.doesNotMatch(appSource, /data-action="payables-page"/);
+assert.match(appSource, /data-kind="compra_avista">Compra à vista/);
+assert.match(appSource, /definitions\.compra_avista = \["Nova compra à vista", "\/api\/compras-avista"/);
 console.log('Contas a pagar: contrato de filtros e despesas elegíveis validados.');
 if (process.argv.includes('--query')) {
-    console.log(parametrosContasPagar({pagina: 1, busca: 'agua', status: 'ABERTA',
+    console.log(parametrosContasPagar({busca: 'agua', status: 'ABERTA',
         inicio: '2026-02-01', fim: '2026-02-28', ordem: 'vencimento_asc'}).toString());
 }

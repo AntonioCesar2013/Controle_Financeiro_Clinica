@@ -31,9 +31,12 @@ class ContasPagarCorrigidas(unittest.TestCase):
         cliente = subprocess.run(['node', str(Path(__file__).with_name('contas_pagar.mjs')), '--query'],
                                  check=True, capture_output=True, text=True)
         query = parse_qs(cliente.stdout.splitlines()[-1])
-        query['tamanho'] = ['1']
-        primeira = rotas_get(query)['/api/contas-pagar']()
-        segunda = rotas_get({**query, 'pagina': ['2']})['/api/contas-pagar']()
+        completa = rotas_get(query)['/api/contas-pagar']()
+        self.assertEqual(len(completa['linhas']), 2)
+        self.assertEqual(completa['linhas'][0]['id'], fevereiro)
+        paginada = {**query, 'completo': ['0'], 'pagina': ['1'], 'tamanho': ['1']}
+        primeira = rotas_get(paginada)['/api/contas-pagar']()
+        segunda = rotas_get({**paginada, 'pagina': ['2']})['/api/contas-pagar']()
         self.assertEqual(primeira['linhas'][0]['id'], fevereiro)
         self.assertNotEqual(primeira['linhas'][0]['id'], segunda['linhas'][0]['id'])
         self.assertEqual(primeira['total_filtrado'], 2)
@@ -66,6 +69,45 @@ class ContasPagarCorrigidas(unittest.TestCase):
         )
         self.assertFalse(bloqueada['sucesso'])
         self.assertIn('programação recorrente', bloqueada['erro'])
+
+    def test_compra_avista_cria_conta_paga_e_reverte_falha(self):
+        compra = contas_pagar.registrar_compra_avista(
+            self.did, self.fixture.hoje, 3456, 'DINHEIRO', 'Mercado Central', 'NF-42', 'Materiais',
+        )
+        self.assertTrue(compra['sucesso'], compra)
+        self.assertEqual(compra['status'], 'PAGA')
+        self.assertEqual(
+            self.fixture.sql('SELECT valor,status FROM contas_pagar WHERE id=?', (compra['conta_pagar_id'],))[0],
+            (3456, 'PAGA'),
+        )
+        pagamento = self.fixture.sql(
+            'SELECT valor,forma_pagamento,observacao FROM pagamentos_saida WHERE conta_pagar_id=?',
+            (compra['conta_pagar_id'],),
+        )[0]
+        self.assertEqual(pagamento[:2], (3456, 'DINHEIRO'))
+        self.assertIn('Fornecedor: Mercado Central', pagamento[2])
+        self.assertIn('Documento: NF-42', pagamento[2])
+
+        corrigida = contas_pagar.corrigir_compra_avista(compra['conta_pagar_id'], 'Compra duplicada')
+        self.assertTrue(corrigida['sucesso'], corrigida)
+        self.assertEqual(
+            self.fixture.sql('SELECT status FROM contas_pagar WHERE id=?', (compra['conta_pagar_id'],))[0][0],
+            'CANCELADA',
+        )
+        self.assertEqual(self.fixture.sql(
+            'SELECT COUNT(*) FROM pagamentos_saida WHERE conta_pagar_id=?', (compra['conta_pagar_id'],)
+        )[0][0], 0)
+        self.assertEqual(self.fixture.sql(
+            "SELECT motivo FROM estornos_financeiros WHERE tabela='pagamentos_saida' AND lancamento_id=?",
+            (corrigida['pagamento_id'],),
+        )[0][0], 'Compra duplicada')
+
+        quantidade = self.fixture.sql('SELECT COUNT(*) FROM contas_pagar')[0][0]
+        recusada = contas_pagar.registrar_compra_avista(
+            self.did, '2999-01-01', 1000, 'PIX', observacao='Data futura',
+        )
+        self.assertFalse(recusada['sucesso'])
+        self.assertEqual(self.fixture.sql('SELECT COUNT(*) FROM contas_pagar')[0][0], quantidade)
 
     def test_dispensa_considera_contas_manuais_geradas_e_canceladas(self):
         vencimento = '2026-02-15'

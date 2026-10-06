@@ -85,7 +85,7 @@ SourceFiles0=$pastaBuild\
 Set-Content -LiteralPath $arquivoSed -Value $sed -Encoding ASCII
 & "$env:SystemRoot\System32\iexpress.exe" /N /Q $arquivoSed
 $tamanhoMinimo = (Get-Item -LiteralPath $arquivoZip).Length
-for ($tentativa = 0; $tentativa -lt 120; $tentativa++) {
+for ($tentativa = 0; $tentativa -lt 240; $tentativa++) {
     if ((Test-Path -LiteralPath $saidaTemporaria) -and
         (Get-Item -LiteralPath $saidaTemporaria).Length -gt $tamanhoMinimo) {
         break

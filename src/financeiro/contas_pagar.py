@@ -3,6 +3,7 @@ import unicodedata
 from datetime import date
 
 from src.infraestrutura.banco import conectar
+from src.infraestrutura.transacoes import ATUAL, Transacao
 from src.financeiro.despesas import validar_para_lancamento
 from src.financeiro.moeda import validar_centavos
 
@@ -15,6 +16,112 @@ STATUS_ABERTA = "ABERTA"
 STATUS_PARCIAL = "PARCIAL"
 STATUS_PAGA = "PAGA"
 STATUS_CANCELADA = "CANCELADA"
+
+
+def registrar_compra_avista(despesa_id, data_pagamento, valor, forma_pagamento=None,
+                            fornecedor=None, documento=None, observacao=None):
+    """Cria a conta e seu pagamento integral em uma única transação."""
+    from src.financeiro import pagamentos
+
+    detalhes = []
+    if str(fornecedor or "").strip():
+        detalhes.append(f"Fornecedor: {str(fornecedor).strip()}")
+    if str(documento or "").strip():
+        detalhes.append(f"Documento: {str(documento).strip()}")
+    if str(observacao or "").strip():
+        detalhes.append(str(observacao).strip())
+    texto = " | ".join(detalhes) or None
+
+    def executar():
+        conta = cadastrar_conta(despesa_id, data_pagamento, valor)
+        if not conta.get("sucesso"):
+            return conta
+        pagamento = pagamentos.registrar_pagamento(
+            conta["id"], data_pagamento, valor, forma_pagamento, texto,
+        )
+        if not pagamento.get("sucesso"):
+            return pagamento
+        return {
+            "sucesso": True,
+            "id": pagamento["id"],
+            "conta_pagar_id": conta["id"],
+            "data_pagamento": data_pagamento,
+            "valor": pagamento["valor"],
+            "forma_pagamento": pagamento["forma_pagamento"],
+            "status": pagamento["status"],
+        }
+
+    if ATUAL.get() is not None:
+        return executar()
+
+    conexao = conectar()
+    conexao.execute("BEGIN IMMEDIATE")
+    token = ATUAL.set(Transacao(conexao))
+    try:
+        resultado = executar()
+        if resultado.get("sucesso"):
+            conexao.commit()
+        else:
+            conexao.rollback()
+        return resultado
+    except BaseException:
+        conexao.rollback()
+        raise
+    finally:
+        ATUAL.reset(token)
+        conexao.close()
+
+
+def corrigir_compra_avista(conta_id, motivo):
+    """Estorna o pagamento e cancela a conta, preservando o pagamento no histórico."""
+    from src.financeiro import pagamentos
+
+    motivo = str(motivo or "").strip()
+    if not motivo:
+        return {"sucesso": False, "erro": "Informe o motivo da correção."}
+
+    def executar():
+        conexao = conectar()
+        try:
+            conta = conexao.execute(
+                "SELECT valor,desconto,status FROM contas_pagar WHERE id=?", (conta_id,)
+            ).fetchone()
+            lancamentos = conexao.execute(
+                "SELECT id,valor,desconto FROM pagamentos_saida WHERE conta_pagar_id=? ORDER BY id",
+                (conta_id,),
+            ).fetchall()
+        finally:
+            conexao.close()
+        if not conta:
+            return {"sucesso": False, "erro": "Conta a pagar não encontrada."}
+        if conta[2] != STATUS_PAGA or len(lancamentos) != 1:
+            return {"sucesso": False, "erro": "A correção completa é exclusiva para compras à vista com um único pagamento integral."}
+        if lancamentos[0][1] + lancamentos[0][2] != conta[0]:
+            return {"sucesso": False, "erro": "O pagamento não corresponde ao valor integral da compra."}
+        estorno = pagamentos.excluir_pagamento(lancamentos[0][0], motivo)
+        if not estorno.get("sucesso"):
+            return estorno
+        cancelamento = cancelar_conta(conta_id)
+        if not cancelamento.get("sucesso"):
+            return cancelamento
+        return {"sucesso": True, "id": conta_id, "pagamento_id": lancamentos[0][0],
+                "status": STATUS_CANCELADA}
+
+    if ATUAL.get() is not None:
+        return executar()
+    conexao = conectar()
+    conexao.execute("BEGIN IMMEDIATE")
+    token = ATUAL.set(Transacao(conexao))
+    try:
+        resultado = executar()
+        (conexao.commit if resultado.get("sucesso") else conexao.rollback)()
+        return resultado
+    except BaseException:
+        conexao.rollback()
+        raise
+    finally:
+        ATUAL.reset(token)
+        conexao.close()
 
 
 # ============================================================
@@ -338,7 +445,7 @@ def listar_contas(
 
 
 def listar_contas_paginadas(status=None, data_inicio=None, data_fim=None, busca=None,
-                            pagina=1, tamanho=50, ordem="vencimento_asc"):
+                            pagina=1, tamanho=50, ordem="vencimento_asc", completo=False):
     """Lista contas com filtros aplicados no servidor e totais independentes da página."""
     try:
         pagina = max(1, int(pagina))
@@ -390,8 +497,12 @@ def listar_contas_paginadas(status=None, data_inicio=None, data_fim=None, busca=
         totais = "SELECT COUNT(*),COALESCE(SUM(valor),0),COALESCE(SUM(CASE WHEN status='CANCELADA' THEN 0 ELSE restante END),0) FROM contas"
         geral = conexao.execute(base + " " + totais).fetchone()
         filtrado = conexao.execute(base + " " + totais + where, parametros).fetchone()
-        linhas = conexao.execute(base + f" SELECT * FROM contas{where} ORDER BY {ordens[ordem]} LIMIT ? OFFSET ?",
-                                 (*parametros, tamanho, (pagina - 1) * tamanho)).fetchall()
+        consulta = base + f" SELECT * FROM contas{where} ORDER BY {ordens[ordem]}"
+        argumentos = tuple(parametros)
+        if not completo:
+            consulta += " LIMIT ? OFFSET ?"
+            argumentos += (tamanho, (pagina - 1) * tamanho)
+        linhas = conexao.execute(consulta, argumentos).fetchall()
         return {
             "linhas": [{**dict(linha), "valor_devido": linha["valor"] - linha["desconto"],
                         "total_pago_com_encargos": linha["total_pago"] + linha["total_multa_juros"]}

@@ -56,9 +56,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     let dashboardChartRequest = 0;
     let startupDueAlertShown = false;
     const dashboardChartState = { metric: "daily", type: "bar", start: "", end: "" };
-    const payableState = { pagina: 1, busca: "", status: "", inicio: "", fim: "", ordem: "vencimento_asc" };
-    const receivableState = { pagina: 1 };
-    const monthlyState = { pagina: 1 };
+    const payableState = { busca: "", status: "", inicio: "", fim: "", ordem: "vencimento_asc" };
     const cashState = { pagina: 1 };
     let reportPage = 1;
     let payableSearchTimer;
@@ -164,20 +162,8 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (action === "open-general-menu") openGeneralMenu();
         if (action === "clear-table-filters") clearTableFilters(trigger);
         if (action === "clear-payables-filters") {
-            Object.assign(payableState, { pagina: 1, busca: "", status: "", inicio: "", fim: "", ordem: "vencimento_asc" });
+            Object.assign(payableState, { busca: "", status: "", inicio: "", fim: "", ordem: "vencimento_asc" });
             openMainPanel("contas_pagar");
-        }
-        if (action === "payables-page") {
-            payableState.pagina = Number(trigger.dataset.page);
-            openMainPanel("contas_pagar");
-        }
-        if (action === "receivables-page") {
-            receivableState.pagina = Number(trigger.dataset.page);
-            openMainPanel("contas_receber");
-        }
-        if (action === "monthly-page") {
-            monthlyState.pagina = Number(trigger.dataset.page);
-            openMainPanel("mensalidades");
         }
         if (action === "cash-page") {
             cashState.pagina = Number(trigger.dataset.page);
@@ -214,6 +200,10 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (action === "financial-history") openFinancialHistory(trigger.dataset.kind, trigger.dataset.id);
         if (action === "cancel-internment") runMaintenanceCommand("/api/internacoes/cancelar", { id: trigger.dataset.id, motivo: "Agendamento cancelado pelo operador" }, "Cancelar este agendamento e suas cobranças?", "internacoes");
         if (action === "cancel-payable") runFinancialCommand("/api/contas-pagar/cancelar", { conta_id: trigger.dataset.id }, "Cancelar esta conta?", "contas_pagar");
+        if (action === "correct-cash-purchase") {
+            const motivo = window.prompt("Informe o motivo da correção da compra à vista:");
+            if (motivo?.trim()) runFinancialCommand("/api/compras-avista/corrigir", { conta_id: trigger.dataset.id, motivo: motivo.trim() }, "Estornar o pagamento, retirar a saída do caixa e cancelar esta compra?", "contas_pagar");
+        }
         if (action === "delete-financial-entry") runFinancialCommand(trigger.dataset.kind === "saida" ? "/api/pagamentos-saida/excluir" : "/api/recebimentos/excluir", trigger.dataset.kind === "saida" ? { pagamento_id: trigger.dataset.id } : { recebimento_id: trigger.dataset.id }, "Estornar este lançamento?", trigger.dataset.kind === "saida" ? "contas_pagar" : "contas_receber");
         if (action === "deactivate-expense") runFinancialCommand("/api/despesas/desativar", { id: trigger.dataset.id }, "Inativar esta despesa?", "despesas");
         if (action === "open-wallet-form") openWalletForm(trigger.dataset.kind, trigger.dataset.id, trigger.dataset.value, trigger.dataset.date);
@@ -264,7 +254,6 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (event.target.matches("[data-filter-status], [data-filter-start], [data-filter-end]")) applyTableFilters(event.target);
         if (event.target.matches("[data-payables-filter]")) {
             payableState[event.target.dataset.payablesFilter] = event.target.value;
-            payableState.pagina = 1;
             openMainPanel("contas_pagar");
         }
         if (event.target.matches("#wallet-resident")) refreshWalletDetail(event.target);
@@ -280,7 +269,6 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             const value = event.target.value;
             payableSearchTimer = setTimeout(() => {
                 payableState.busca = value;
-                payableState.pagina = 1;
                 openMainPanel("contas_pagar");
             }, 200);
         }
@@ -757,7 +745,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     async function openFinancialForm(kind, id = "") {
         try {
             const today = localDate();
-            const needsRegistrations = ["despesa", "conta", "editar_setor"].includes(kind);
+            const needsRegistrations = ["despesa", "conta", "compra_avista", "editar_setor"].includes(kind);
             const registrations = needsRegistrations ? (await api("/api/financeiro/cadastros")).dados : null;
             const isReceipt = ["recebimento", "recebimento_mensalidade"].includes(kind);
             const isSettlement = isReceipt || kind === "pagamento";
@@ -790,6 +778,14 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
                     return;
                 }
                 definitions.conta = ["Nova conta a pagar", "/api/contas-pagar", "contas_pagar", `<div class="field"><label for="payable-expense">Despesa</label><select id="payable-expense" name="despesa_id" required>${activeExpenses.map((item) => `<option value="${item.id}">${escapeHtml(item.descricao)} — ${escapeHtml(item.setor_nome)}</option>`).join("")}</select></div><div class="field"><label for="financial-due-date">Vencimento</label><input id="financial-due-date" name="data_vencimento" type="date" value="${today}" required></div>${moneyField("Valor da conta")}`];
+            }
+            if (kind === "compra_avista") {
+                const activeExpenses = despesasElegiveis(registrations);
+                if (!activeExpenses.length) {
+                    showAlert("Cadastro necessário", "Cadastre ou reative uma despesa vinculada a um setor ativo antes de lançar uma compra.");
+                    return;
+                }
+                definitions.compra_avista = ["Nova compra à vista", "/api/compras-avista", "contas_pagar", `<div class="field"><label for="cash-purchase-expense">Despesa</label><select id="cash-purchase-expense" name="despesa_id" required>${activeExpenses.map((item) => `<option value="${item.id}">${escapeHtml(item.descricao)} — ${escapeHtml(item.setor_nome)}</option>`).join("")}</select></div><div class="field"><label for="cash-purchase-date">Data da compra e pagamento</label><input id="cash-purchase-date" name="data_pagamento" type="date" value="${today}" max="${today}" required></div>${moneyField("Valor pago")}<div class="field"><label for="cash-purchase-method">Forma de pagamento</label><select id="cash-purchase-method" name="forma_pagamento" required><option value="PIX">PIX</option><option value="DINHEIRO">Dinheiro</option><option value="CARTAO">Cartão</option><option value="TRANSFERENCIA">Transferência</option><option value="BOLETO">Boleto</option></select></div><div class="field"><label for="cash-purchase-supplier">Fornecedor (opcional)</label><input id="cash-purchase-supplier" name="fornecedor"></div><div class="field"><label for="cash-purchase-document">Nota ou documento (opcional)</label><input id="cash-purchase-document" name="documento"></div><div class="field"><label for="cash-purchase-note">Observação</label><textarea id="cash-purchase-note" name="observacao" rows="3"></textarea></div>`];
             }
             if (kind === "editar_setor") {
                 const collection = registrations.setores;
@@ -1499,8 +1495,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     async function renderReceivables() {
-        const { dados: pagina } = await api(`/api/contas-receber?pagina=${receivableState.pagina}&tamanho=50`);
-        const dados = pagina.linhas || [];
+        const { dados = [] } = await api("/api/contas-receber");
         const table = renderActionTable(dados, [["Residente", "residente_nome"], ["Responsável", "responsavel_nome"], ["Tipo", "tipo", receivableType], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Recebido", "total_recebido_com_encargos", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Pagamento", "status", receivablePayment]], (row) => {
             const open = Number(row.saldo_restante) > 0 && !["PAGA", "DESCONTADA"].includes(row.status);
             return `${open ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento" data-id="${row.id}">Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto" data-id="${row.id}">Desconto</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`;
@@ -1513,9 +1508,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             }),
         });
         const actions = `<div class="selection-actions" aria-label="Ações da conta selecionada"><span class="selection-actions__label">Conta selecionada</span><button class="button" type="button" data-action="open-financial-form" data-kind="recebimento" data-selection-action="receive" disabled>Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto" data-selection-action="discount" disabled>Desconto</button><button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-selection-action="history" disabled>Histórico</button></div>`;
-        const paginas = Math.max(1, Math.ceil(pagina.total_filtrado / pagina.tamanho));
-        const navegacao = paginationControls("receivables-page", pagina, paginas, "conta(s)");
-        return `<section class="selection-scope financial-fixed-header"><div class="toolbar selection-toolbar">${actions}</div>${navegacao}${table}</section>`;
+        return `<section class="selection-scope financial-fixed-header"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 
     function monthlyStatus(row) {
@@ -1524,7 +1517,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         return String(row.data_vencimento) < localDate() ? "VENCIDA" : "A VENCER";
     }
 
-    function monthlyFeesContent(rows, pagina) {
+    function monthlyFeesContent(rows) {
         const table = renderActionTable(rows, [["Residente", "residente_nome"], ["Modalidade", "modalidade", shortInitial], ["Convênio", "convenio_nome"], ["Parcela", "numero_parcela"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor_devido", formatMoney], ["Recebido", "total_recebido_com_encargos", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "status", (_, row) => monthlyStatus(row)]], (row) => `${Number(row.saldo_restante) > 0 && !["PAGA", "DESCONTADA"].includes(monthlyStatus(row)) ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-id="${row.id}">Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto_mensalidade" data-id="${row.id}">Desconto</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`, {
             allStatusesLabel: "Todas as mensalidades",
             statuses: [["A VENCER", "A pagar"], ["PAGA", "Pagas"], ["VENCIDA", "Vencidas"], ["DESCONTADA", "Descontadas"], ["PARCIAL", "Parcialmente pagas"]],
@@ -1536,14 +1529,12 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             }),
         });
         const actions = `<div class="selection-actions" aria-label="Ações da mensalidade selecionada"><span class="selection-actions__label">Mensalidade selecionada</span><button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-selection-action="receive" disabled>Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto_mensalidade" data-selection-action="discount" disabled>Desconto</button><button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-selection-action="history" disabled>Histórico</button></div>`;
-        const paginas = Math.max(1, Math.ceil(pagina.total_filtrado / pagina.tamanho));
-        const navegacao = paginationControls("monthly-page", pagina, paginas, "mensalidade(s)");
-        return `<section class="selection-scope monthly-report financial-fixed-header"><div class="toolbar selection-toolbar">${actions}</div>${navegacao}${table}</section>`;
+        return `<section class="selection-scope monthly-report financial-fixed-header"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 
     async function renderMonthlyFees() {
-        const { dados: pagina } = await api(`/api/mensalidades?pagina=${monthlyState.pagina}&tamanho=50`);
-        return monthlyFeesContent(pagina.linhas || [], pagina);
+        const { dados = [] } = await api("/api/mensalidades");
+        return monthlyFeesContent(dados);
     }
 
     function paginationControls(action, pagina, paginas, label) {
@@ -1562,14 +1553,13 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             selectionData: (row) => ({
                 id: row.id,
                 capabilities: Number(row.restante) > 0 && !["PAGA", "CANCELADA"].includes(row.status)
-                    ? ["pay", "cancel", "history"] : ["history"],
+                    ? ["pay", "cancel", "history"] : ["history", ...(row.status === "PAGA" ? ["correct-cash-purchase"] : [])],
             }),
             filters: false,
         });
-        const actions = `<div class="selection-actions" aria-label="Ações da conta selecionada"><span class="selection-actions__label">Conta selecionada</span><button class="button" type="button" data-action="open-financial-form" data-kind="pagamento" data-selection-action="pay" disabled>Pagar</button><button class="button button--danger" type="button" data-action="cancel-payable" data-selection-action="cancel" disabled>Cancelar</button><button class="button button--secondary" type="button" data-action="financial-history" data-kind="saida" data-selection-action="history" disabled>Histórico</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button" type="button" data-action="open-financial-form" data-kind="conta">Nova conta</button></div>`;
-        const paginas = Math.max(1, Math.ceil(pagina.total_filtrado / pagina.tamanho));
+        const actions = `<div class="selection-actions" aria-label="Ações da conta selecionada"><span class="selection-actions__label">Conta selecionada</span><button class="button" type="button" data-action="open-financial-form" data-kind="pagamento" data-selection-action="pay" disabled>Pagar</button><button class="button button--danger" type="button" data-action="cancel-payable" data-selection-action="cancel" disabled>Cancelar</button><button class="button button--danger" type="button" data-action="correct-cash-purchase" data-selection-action="correct-cash-purchase" disabled>Corrigir compra</button><button class="button button--secondary" type="button" data-action="financial-history" data-kind="saida" data-selection-action="history" disabled>Histórico</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="compra_avista">Compra à vista</button><button class="button" type="button" data-action="open-financial-form" data-kind="conta">Nova conta</button></div>`;
         const filtros = `<div class="table-filters"><label>Buscar<input type="search" data-payables-search value="${escapeHtml(payableState.busca)}" placeholder="Descrição, setor ou natureza"></label><label>Situação<select data-payables-filter="status"><option value="">Todas</option>${["ABERTA","PARCIAL","PAGA","CANCELADA"].map(v => `<option value="${v}"${payableState.status === v ? " selected" : ""}>${v}</option>`).join("")}</select></label><label>Vencimento de<input type="date" data-payables-filter="inicio" value="${escapeHtml(payableState.inicio)}"></label><label>Até<input type="date" data-payables-filter="fim" value="${escapeHtml(payableState.fim)}"></label><label>Ordenar<select data-payables-filter="ordem"><option value="vencimento_asc">Vencimento crescente</option><option value="vencimento_desc"${payableState.ordem === "vencimento_desc" ? " selected" : ""}>Vencimento decrescente</option><option value="descricao_asc"${payableState.ordem === "descricao_asc" ? " selected" : ""}>Descrição A–Z</option></select></label></div>`;
-        const navegacao = `<div class="filterable__meta"><p>${pagina.total_filtrado} de ${pagina.total_registros} conta(s) · Restante filtrado: ${formatMoney(pagina.totais_filtrados.restante)}</p><div class="report-actions"><button class="button button--secondary button--compact" data-action="payables-page" data-page="${pagina.pagina - 1}"${pagina.pagina <= 1 ? " disabled" : ""}>Anterior</button><span>Página ${pagina.pagina} de ${paginas}</span><button class="button button--secondary button--compact" data-action="payables-page" data-page="${pagina.pagina + 1}"${pagina.pagina >= paginas ? " disabled" : ""}>Próxima</button></div></div>`;
+        const navegacao = `<div class="filterable__meta"><p>${pagina.total_filtrado} de ${pagina.total_registros} conta(s) · Restante filtrado: ${formatMoney(pagina.totais_filtrados.restante)}</p></div>`;
         return `<section class="selection-scope financial-fixed-header"><div class="toolbar selection-toolbar">${actions}<button class="button button--secondary button--compact" type="button" data-action="clear-payables-filters">Limpar filtros</button></div>${filtros}${navegacao}${table}</section>`;
     }
 

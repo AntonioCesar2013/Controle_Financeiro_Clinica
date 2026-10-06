@@ -451,6 +451,21 @@ class Requisicao(BaseHTTPRequestHandler):
             except ValueError as erro:
                 resultado = {"sucesso": False, "erro": str(erro)}
             return self._resultado_operacao(resultado)
+        if rota == "/api/compras-avista":
+            try:
+                resultado = contas_pagar.registrar_compra_avista(
+                    dados.get("despesa_id"), dados.get("data_pagamento"),
+                    _centavos(dados.get("valor")), dados.get("forma_pagamento"),
+                    dados.get("fornecedor"), dados.get("documento"), dados.get("observacao"),
+                )
+            except ValueError as erro:
+                resultado = {"sucesso": False, "erro": str(erro)}
+            return self._resultado_operacao(resultado)
+        if rota == "/api/compras-avista/corrigir":
+            return self._resultado_operacao(
+                contas_pagar.corrigir_compra_avista(dados.get("conta_id"), dados.get("motivo")),
+                criado=False,
+            )
         if rota == "/api/pagamentos-saida":
             try:
                 resultado = pagamentos.registrar_pagamento(

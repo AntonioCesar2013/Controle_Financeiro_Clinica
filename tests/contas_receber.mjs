@@ -36,14 +36,13 @@ for (const kind of ['recebimento', 'pagamento']) {
     assert.match(restante.value, /0,01/);
 }
 
-const panelCtx = vm.createContext({ api: async path => ({ dados: { pagina: 1, tamanho: 50, total_filtrado: 2,
-    linhas: path.startsWith('/api/mensalidades')
+const panelCtx = vm.createContext({ api: async path => ({ dados: path.startsWith('/api/mensalidades')
     ? [{ id: 1, status: 'ABERTA', saldo_restante: 10000, data_vencimento: '2026-09-16' },
        { id: 2, status: 'PAGA', saldo_restante: 0, data_vencimento: '2026-09-16' }]
     : [{ id: 1, status: 'ABERTA', saldo_restante: 10000, data_vencimento: '2026-09-16' },
-       { id: 2, status: 'DESCONTADA', saldo_restante: 0, data_vencimento: '2026-09-16' }] } }),
+       { id: 2, status: 'DESCONTADA', saldo_restante: 0, data_vencimento: '2026-09-16' }] }),
     renderActionTable, formatMoney, formatDate, valueOrStatus: valueOrDash, receivableType, receivablePayment, shortInitial,
-    localDate: () => '2026-09-16', receivableState: { pagina: 1 }, monthlyState: { pagina: 1 } });
+    localDate: () => '2026-09-16' });
 vm.runInContext(trecho('    async function renderReceivables()', '    async function renderPayables()'), panelCtx);
 for (const method of ['renderReceivables()', 'renderMonthlyFees()']) {
     const html = await vm.runInContext(method, panelCtx);
@@ -51,6 +50,7 @@ for (const method of ['renderReceivables()', 'renderMonthlyFees()']) {
     assert.match(html, /data-selection-action="discount"/);
     assert(!html.includes('data-kind="desconto" data-id="2"'));
     assert(!html.includes('data-kind="desconto_mensalidade" data-id="2"'));
+    assert.doesNotMatch(html, /Página|Anterior|Próxima|data-page/);
 }
 
 let html;

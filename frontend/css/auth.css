@@ -113,3 +113,7 @@
     font-size: 0.8rem;
     font-weight: 650;
 }
+
+.settlement-form .login-error:empty {
+    display: none;
+}

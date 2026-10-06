@@ -5,6 +5,7 @@ import { renderActionTable } from "../frontend/js/components/renderers.js";
 const base = await readFile(new URL("../frontend/css/base.css", import.meta.url), "utf8");
 const layout = await readFile(new URL("../frontend/css/layout.css", import.meta.url), "utf8");
 const responsive = await readFile(new URL("../frontend/css/responsive.css", import.meta.url), "utf8");
+const auth = await readFile(new URL("../frontend/css/auth.css", import.meta.url), "utf8");
 const tableLayout = await readFile(new URL("../frontend/css/table-layout.css", import.meta.url), "utf8");
 const tableLayoutScript = await readFile(new URL("../frontend/js/components/table-layout.js", import.meta.url), "utf8");
 const app = await readFile(new URL("../frontend/js/app.js", import.meta.url), "utf8");
@@ -28,6 +29,7 @@ assert.match(app, /data-action="clear-payables-filters"/, "contas a pagar deve o
 assert.match(tableLayout, /padding-top:\s*5px/, "painéis financeiros devem iniciar até 5 px abaixo do cabeçalho");
 assert.match(tableLayout, /justify-content:\s*space-between/, "ações e limpeza devem ocupar a mesma linha");
 assert.match(tableLayoutScript, /filters\.after\(toolbar\)/, "as ações devem ficar abaixo dos filtros");
+assert.match(auth, /\.settlement-form\s+\.login-error:empty\s*{[^}]*display:\s*none/s, "o formulário financeiro não deve reservar espaço para erro vazio");
 
 const html = renderActionTable(
     [{ nome: "Conta", status: "VENCIDA", valor: 12550 }],

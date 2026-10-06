@@ -54,7 +54,8 @@ def rotas_get(query):
             status=_parametro(query, "status"), data_inicio=inicio, data_fim=fim,
             busca=_parametro(query, "busca"), pagina=_parametro(query, "pagina", 1),
             tamanho=_parametro(query, "tamanho", 50), ordem=_parametro(query, "ordem", "vencimento_asc"),
-        ) if _parametro(query, "pagina") else contas_pagar.listar_contas(
+            completo=_parametro(query, "completo") == "1",
+        ) if _parametro(query, "pagina") or _parametro(query, "completo") == "1" else contas_pagar.listar_contas(
             status=_parametro(query, "status"), data_inicio=inicio, data_fim=fim
         ),
         "/api/contas-pagar/detalhe": lambda: {
