@@ -6,6 +6,7 @@ const base = await readFile(new URL("../frontend/css/base.css", import.meta.url)
 const layout = await readFile(new URL("../frontend/css/layout.css", import.meta.url), "utf8");
 const responsive = await readFile(new URL("../frontend/css/responsive.css", import.meta.url), "utf8");
 const auth = await readFile(new URL("../frontend/css/auth.css", import.meta.url), "utf8");
+const components = await readFile(new URL("../frontend/css/components.css", import.meta.url), "utf8");
 const tableLayout = await readFile(new URL("../frontend/css/table-layout.css", import.meta.url), "utf8");
 const tableLayoutScript = await readFile(new URL("../frontend/js/components/table-layout.js", import.meta.url), "utf8");
 const app = await readFile(new URL("../frontend/js/app.js", import.meta.url), "utf8");
@@ -26,10 +27,30 @@ assert.match(app, /setDate\(limitDate\.getDate\(\) \+ 5\)/, "o aviso deve consid
 assert.match(app, /Contas que exigem atenção/, "o aviso deve identificar claramente as contas críticas");
 assert.match(app, /organizeTablePanels\(panel\)/, "a organização deve ocorrer depois do carregamento do painel");
 assert.match(app, /data-action="clear-payables-filters"/, "contas a pagar deve oferecer limpeza dos filtros");
+assert.match(app, /\["Tipo", "modalidade", shortInitial\]/, "internações devem exibir o tipo pela inicial");
+assert.match(app, /data-action="open-edit-convenio">Editar convênio/, "internações devem permitir editar convênios existentes");
+assert.match(app, /data-endpoint="\/api\/convenios\/editar"/, "o formulário deve enviar a edição do convênio");
 assert.match(tableLayout, /padding-top:\s*5px/, "painéis financeiros devem iniciar até 5 px abaixo do cabeçalho");
 assert.match(tableLayout, /justify-content:\s*space-between/, "ações e limpeza devem ocupar a mesma linha");
 assert.match(tableLayoutScript, /filters\.after\(toolbar\)/, "as ações devem ficar abaixo dos filtros");
 assert.match(auth, /\.settlement-form\s+\.login-error:empty\s*{[^}]*display:\s*none/s, "o formulário financeiro não deve reservar espaço para erro vazio");
+for (const tone of ["particular", "convenio", "social", "voluntario"]) {
+    assert.match(components, new RegExp(`\\.residence-type--${tone}`), `deve existir a cor do tipo ${tone}`);
+}
+assert.doesNotMatch(components.match(/\.residence-type\s*{[^}]*}/s)?.[0] || "", /background|border-radius|width|height/, "o tipo deve colorir somente a letra");
+assert.match(components, /\.residence-type--voluntario\s*{\s*color:\s*#7e22ce;/, "voluntário deve usar letra roxa");
+
+const typeHtml = renderActionTable(
+    [
+        { modalidade: "PARTICULAR" }, { modalidade: "CONVENIO" },
+        { modalidade: "SOCIAL" }, { modalidade: "VOLUNTARIO" },
+    ],
+    [["Tipo", "modalidade", value => value.slice(0, 1)]],
+    () => "",
+);
+for (const [tone, letter] of [["particular", "P"], ["convenio", "C"], ["social", "S"], ["voluntario", "V"]]) {
+    assert.match(typeHtml, new RegExp(`residence-type--${tone}[^>]*>${letter}<`));
+}
 
 const html = renderActionTable(
     [{ nome: "Conta", status: "VENCIDA", valor: 12550 }],

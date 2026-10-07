@@ -440,6 +440,15 @@ class Requisicao(BaseHTTPRequestHandler):
                 dados.get("natureza", "VARIAVEL"), str(dados.get("recorrente", "0")) in ("1", "true", "True"),
             )
             return self._resultado_operacao(resultado)
+        if rota == "/api/convenios/editar":
+            try:
+                resultado = convenios.editar_convenio(
+                    dados.get("id"), dados.get("nome"),
+                    _centavos(dados.get("valor_diaria")), dados.get("ativo", 1),
+                )
+            except ValueError as erro:
+                resultado = {"sucesso": False, "erro": str(erro)}
+            return self._resultado_operacao(resultado, criado=False)
         if rota == "/api/despesas/editar":
             return self._resultado_operacao(despesas.editar_despesa(
                 dados.get("id"), dados.get("setor_id"), dados.get("descricao"),

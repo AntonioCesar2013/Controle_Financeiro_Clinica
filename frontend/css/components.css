@@ -212,6 +212,16 @@ tbody tr:hover { background: var(--color-action-soft); }
 .status--danger { background: #fff0f2; color: var(--color-danger); }
 .status--neutral { background: #eceef1; color: #525762; }
 
+.residence-type {
+    font-size: .8rem;
+    font-weight: 800;
+}
+.residence-type--particular { color: #15803d; }
+.residence-type--convenio { color: #b77900; }
+.residence-type--social { color: #1d4ed8; }
+.residence-type--voluntario { color: #7e22ce; }
+.residence-type--neutral { color: #525762; }
+
 .placeholder {
     display: grid;
     min-height: 260px;

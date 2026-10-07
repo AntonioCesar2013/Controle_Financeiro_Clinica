@@ -40,6 +40,11 @@ function cellAttributes(key) {
 function renderCell(row, key, formatter, isStatus = false) {
     const value = formatter ? formatter(row[key], row) : valueOrDash(row[key]);
     const safe = escapeHtml(value);
+    if (key === "modalidade") {
+        const type = String(value || "").trim().toLocaleUpperCase("pt-BR");
+        const tone = { P: "particular", C: "convenio", S: "social", V: "voluntario" }[type] || "neutral";
+        return `<span class="residence-type residence-type--${tone}">${safe}</span>`;
+    }
     if (!isStatus) return safe;
     const normalized = String(value).toLocaleUpperCase("pt-BR");
     const tone = /ATRASO|VENCID|CANCEL|ESTORN|INATIV|DIVERG|REVISAR/.test(normalized) ? "danger"

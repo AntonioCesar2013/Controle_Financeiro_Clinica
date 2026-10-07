@@ -42,3 +42,31 @@ def listar_convenios(apenas_ativos=False):
         )]
     finally:
         conexao.close()
+
+
+def editar_convenio(convenio_id, nome, valor_diaria, ativo=1):
+    nome = str(nome or "").strip()
+    try:
+        convenio_id, valor_diaria = int(convenio_id), int(valor_diaria)
+        ativo = normalizar_booleano(ativo, "ativo")
+    except (TypeError, ValueError) as erro:
+        return {"sucesso": False, "erro": str(erro) or "Dados do convênio inválidos."}
+    if not nome:
+        return {"sucesso": False, "erro": "O nome do convênio é obrigatório."}
+    if valor_diaria < 0:
+        return {"sucesso": False, "erro": "O valor da diária não pode ser negativo."}
+    conexao = conectar()
+    try:
+        if not conexao.execute("SELECT 1 FROM convenios WHERE id=?", (convenio_id,)).fetchone():
+            return {"sucesso": False, "erro": "Convênio não encontrado."}
+        conexao.execute(
+            "UPDATE convenios SET nome=?,valor_diaria=?,ativo=? WHERE id=?",
+            (nome, valor_diaria, ativo, convenio_id),
+        )
+        conexao.commit()
+        return {"sucesso": True, "id": convenio_id, "nome": nome,
+                "valor_diaria": valor_diaria, "ativo": ativo}
+    except sqlite3.IntegrityError:
+        return {"sucesso": False, "erro": "Já existe um convênio com esse nome."}
+    finally:
+        conexao.close()

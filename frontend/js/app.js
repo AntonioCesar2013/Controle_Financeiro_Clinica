@@ -183,6 +183,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (action === "open-new-guardian") openGuardianForm();
         if (action === "open-new-internment") openInternmentForm();
         if (action === "open-new-convenio") openConvenioForm();
+        if (action === "open-edit-convenio") openEditConvenioForm();
         if (action === "toggle-password") togglePassword(trigger);
         if (action === "logout") logout();
         if (action === "apply-report") { reportPage = 1; refreshReport(trigger.closest(".panel")); }
@@ -260,6 +261,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (event.target.matches("#canteen-wallet")) refreshCanteenCart();
         if (event.target.matches("#canteen-product-search")) addSearchedCanteenProduct(event.target);
         if (event.target.matches("#internment-modality")) updateInternmentMode(event.target.value);
+        if (event.target.matches("[data-agreement-edit-select]")) populateAgreementEdit(event.target);
     }
 
     function handleInput(event) {
@@ -738,8 +740,28 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     function openConvenioForm() {
-        const body = `<form class="login-form" id="convenio-form"><div class="field"><label for="agreement-name">Nome do convênio</label><input id="agreement-name" name="nome" required></div><div class="field"><label for="agreement-rate">Valor da diária</label><input id="agreement-rate" name="valor_diaria" type="number" min="0" step="0.01" required></div><p class="login-error" data-agreement-error role="alert"></p><button class="button" type="submit">Salvar convênio</button></form>`;
+        const body = `<form class="login-form" id="convenio-form" data-endpoint="/api/convenios"><div class="field"><label for="agreement-name">Nome do convênio</label><input id="agreement-name" name="nome" required></div><div class="field"><label for="agreement-rate">Valor da diária</label><input id="agreement-rate" name="valor_diaria" type="number" min="0" step="0.01" required></div><p class="login-error" data-agreement-error role="alert"></p><button class="button" type="submit">Salvar convênio</button></form>`;
         layers.auxiliary.replaceChildren(createPanel({ title: "Novo convênio", eyebrow: "Internações", body, size: "medium" }));
+    }
+
+    async function openEditConvenioForm() {
+        try {
+            const agreements = (await api("/api/convenios")).dados || [];
+            if (!agreements.length) return showAlert("Convênios", "Nenhum convênio foi cadastrado.");
+            const options = agreements.map((item) => `<option value="${item.id}" data-name="${escapeHtml(item.nome)}" data-rate="${Number(item.valor_diaria) / 100}" data-active="${item.ativo}">${escapeHtml(item.nome)}</option>`).join("");
+            const body = `<form class="login-form" id="convenio-form" data-endpoint="/api/convenios/editar"><div class="field"><label>Convênio<select name="id" data-agreement-edit-select>${options}</select></label></div><div class="field"><label for="agreement-name">Nome do convênio</label><input id="agreement-name" name="nome" required></div><div class="field"><label for="agreement-rate">Valor da diária</label><input id="agreement-rate" name="valor_diaria" type="number" min="0" step="0.01" required></div><div class="field"><label>Situação<select name="ativo"><option value="1">Ativo</option><option value="0">Inativo</option></select></label></div><p class="form-note">A nova diária será usada em novas internações. Valores já registrados permanecem preservados.</p><p class="login-error" data-agreement-error role="alert"></p><button class="button" type="submit">Salvar alterações</button></form>`;
+            layers.auxiliary.replaceChildren(createPanel({ title: "Editar convênio", eyebrow: "Internações", body, size: "medium" }));
+            populateAgreementEdit(layers.auxiliary.querySelector("[data-agreement-edit-select]"));
+        } catch (error) { showAlert("Não foi possível abrir", error.message); }
+    }
+
+    function populateAgreementEdit(select) {
+        const option = select?.selectedOptions?.[0];
+        if (!option) return;
+        const form = select.form;
+        form.elements.nome.value = option.dataset.name;
+        form.elements.valor_diaria.value = Number(option.dataset.rate).toFixed(2);
+        form.elements.ativo.value = option.dataset.active;
     }
 
     async function openFinancialForm(kind, id = "") {
@@ -1316,10 +1338,11 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const data = Object.fromEntries(new FormData(form));
         setFormBusy(form, true);
         try {
-            await api("/api/convenios", { method: "POST", body: data });
+            const editing = form.dataset.endpoint?.endsWith("/editar");
+            await api(form.dataset.endpoint || "/api/convenios", { method: "POST", body: data });
             closeLayer("auxiliary");
             await openMainPanel("internacoes");
-            showAlert("Convênio salvo", "O convênio e o valor da diária foram cadastrados.");
+            showAlert("Convênio salvo", editing ? "As informações do convênio foram atualizadas." : "O convênio e o valor da diária foram cadastrados.");
         } catch (error) { form.querySelector("[data-agreement-error]").textContent = error.message; }
         finally { setFormBusy(form, false); }
     }
@@ -1371,14 +1394,14 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function renderInternments() {
         const { dados } = await api("/api/internacoes");
-        const table = renderActionTable(dados, [["Residente", "residente_nome"], ["Modalidade", "modalidade"], ["Convênio", "convenio_nome"], ["Responsável", "responsavel_nome"], ["Acolhimento", "data_acolhimento", formatDate], ["Período", "periodo_tratamento", (value, row) => row.modalidade === "VOLUNTARIO" ? "Sem prazo" : `${value} meses`], ["Contrato", "valor_contrato", formatMoney], ["Diária", "valor_diaria", (value, row) => row.modalidade === "CONVENIO" ? formatMoney(value) : "—"], ["Status", "status"], ["Encerrada em", "encerrada_em", formatDate]], () => "", {
+        const table = renderActionTable(dados, [["Residente", "residente_nome"], ["Tipo", "modalidade", shortInitial], ["Convênio", "convenio_nome"], ["Responsável", "responsavel_nome"], ["Acolhimento", "data_acolhimento", formatDate], ["Período", "periodo_tratamento", (value, row) => row.modalidade === "VOLUNTARIO" ? "Sem prazo" : `${value} meses`], ["Contrato", "valor_contrato", formatMoney], ["Diária", "valor_diaria", (value, row) => row.modalidade === "CONVENIO" ? formatMoney(value) : "—"], ["Status", "status"], ["Encerrada em", "encerrada_em", formatDate]], () => "", {
             selectableRows: true,
             selectionData: (row) => ({
                 id: row.id,
                 capabilities: [...(["ATIVA", "AGENDADA"].includes(row.status) ? ["edit"] : []), ...(!row.encerrada_em && row.status !== "CANCELADA" && row.modalidade !== "VOLUNTARIO" ? ["extend"] : []), ...(row.status === "AGENDADA" ? ["cancel"] : []), ...(row.status === "ATIVA" && !row.encerrada_em ? ["end"] : [])],
             }),
         });
-        const actions = `<div class="selection-actions" aria-label="Ações da internação selecionada"><span class="selection-actions__label">Internação selecionada</span><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-edit" data-selection-action="edit" disabled>Editar</button><button class="button button--danger" type="button" data-action="cancel-internment" data-selection-action="cancel" disabled>Cancelar agendamento</button><button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-selection-action="end" disabled>Encerrar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-extend" data-selection-action="extend" disabled>Prorrogar</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button" type="button" data-action="open-new-internment">Nova internação</button></div>`;
+        const actions = `<div class="selection-actions" aria-label="Ações da internação selecionada"><span class="selection-actions__label">Internação selecionada</span><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-edit" data-selection-action="edit" disabled>Editar</button><button class="button button--danger" type="button" data-action="cancel-internment" data-selection-action="cancel" disabled>Cancelar agendamento</button><button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-selection-action="end" disabled>Encerrar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-extend" data-selection-action="extend" disabled>Prorrogar</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button button--secondary" type="button" data-action="open-edit-convenio">Editar convênio</button><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button" type="button" data-action="open-new-internment">Nova internação</button></div>`;
         return `<section class="selection-scope internments-report"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 

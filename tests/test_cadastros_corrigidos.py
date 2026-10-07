@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from unittest.mock import patch
 
 import test_regressoes as base_tests
-from src.cadastros import internacoes, residentes, responsaveis, vigencia
+from src.cadastros import convenios, internacoes, residentes, responsaveis, vigencia
 from src.infraestrutura import banco
 from src.interface.servidor import Requisicao
 
@@ -71,6 +71,18 @@ class CadastrosCorrigidos(unittest.TestCase):
             self.assertFalse(resposta['sucesso'])
             self.assertIn('ativo', resposta['erro'])
         self.assertEqual(self.fixture.sql("SELECT COUNT(*) FROM convenios WHERE nome='Não gravar'")[0][0], 0)
+
+    def test_editar_convenio_preserva_diaria_da_internacao(self):
+        criado = convenios.cadastrar_convenio('Saúde A', 10000)
+        rid = residentes.cadastrar_residente('Conveniado', '12345678909', 'Cidade')['id']
+        internacao = internacoes.cadastrar_internacao_com_cobrancas(
+            rid, 1, self.fixture.hoje, 1, 0, 0, 0, 'CONVENIO', criado['id'],
+        )
+        self.assertTrue(internacao['sucesso'], internacao)
+        editado = convenios.editar_convenio(criado['id'], 'Saúde B', 15000, 0)
+        self.assertTrue(editado['sucesso'], editado)
+        self.assertEqual(self.fixture.sql('SELECT nome,valor_diaria,ativo FROM convenios WHERE id=?', (criado['id'],))[0], ('Saúde B', 15000, 0))
+        self.assertEqual(self.fixture.sql('SELECT valor_diaria FROM internacoes WHERE id=?', (internacao['id'],))[0][0], 10000)
 
     def test_reinternacao_na_saida_e_contato_preservado(self):
         rid = residentes.cadastrar_residente('Teste', '23456789012', 'Cidade')['id']
