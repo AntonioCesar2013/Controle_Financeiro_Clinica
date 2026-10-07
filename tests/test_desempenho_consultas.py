@@ -68,8 +68,8 @@ class DesempenhoConsultas(unittest.TestCase):
         segunda = contas_pagar.listar_contas_paginadas(busca="água", pagina=2, tamanho=3)
         self.assertEqual(primeira["total_registros"], 7)
         self.assertEqual(primeira["total_filtrado"], 7)
-        self.assertEqual([r["id"] for r in primeira["linhas"]], [1, 2, 3])
-        self.assertEqual([r["id"] for r in segunda["linhas"]], [4, 5, 6])
+        self.assertEqual([r["id"] for r in primeira["linhas"]], [7, 6, 5])
+        self.assertEqual([r["id"] for r in segunda["linhas"]], [4, 3, 2])
         self.assertEqual(primeira["totais_filtrados"]["valor"], 2800)
 
 

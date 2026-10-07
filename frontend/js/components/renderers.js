@@ -1,8 +1,11 @@
 import { escapeHtml, formatMoney, valueOrDash } from "../utils/formatters.js";
 
-export function renderTable(rows, columns) {
+export function renderTable(rows, columns, options = {}) {
     if (!rows?.length) return emptyState();
-    return `<div class="table-wrap"><table><thead><tr>${columns.map(([label, key]) => `<th${cellAttributes(key)}>${label}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${columns.map(([, key, formatter]) => `<td${cellAttributes(key)}>${renderCell(row, key, formatter)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    return `<div class="table-wrap"><table><thead><tr>${columns.map(([label, key]) => `<th${cellAttributes(key)}>${label}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => {
+        const rowClass = options.rowClass ? ` class="${escapeHtml(options.rowClass(row))}"` : "";
+        return `<tr${rowClass}>${columns.map(([, key, formatter]) => `<td${cellAttributes(key)}>${renderCell(row, key, formatter)}</td>`).join("")}</tr>`;
+    }).join("")}</tbody></table></div>`;
 }
 
 export function renderActionTable(rows, columns, actions, options = {}) {

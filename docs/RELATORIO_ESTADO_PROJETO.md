@@ -23,7 +23,7 @@ Objetivo: permitir que outra IA ou outro desenvolvedor compreenda rapidamente a 
 
 ## 2. Resumo executivo
 
-O sistema está no estágio de **MVP funcional para testes locais ou piloto controlado**. A base principal já existe: cadastros, internações, financeiro, carteiras, Cantina com leitor de código de barras, estoque e relatórios A4.
+O sistema está no estágio de **MVP funcional para testes locais ou piloto controlado**. A base principal já existe: cadastros, internações, financeiro, carteiras, Cantina, estoque e relatórios A4.
 
 Os fluxos mais recentes funcionam nos testes direcionados e as telas principais carregam corretamente. Entretanto, o sistema ainda não deve ser considerado pronto para produção ou para uso simultâneo por vários usuários. Antes disso, é necessário concluir itens de integridade transacional, segurança, conciliação financeira, limpeza da suíte de testes e rotinas de backup.
 
@@ -157,7 +157,7 @@ Pontos onde a exigência de autenticação foi desativada:
 
 A Cantina funciona como um pequeno mercado interno para os residentes:
 
-- Leitura de código de barras por leitor USB/HID, usando o campo de leitura e a tecla Enter.
+- Pesquisa e seleção de produtos pelo nome.
 - Inclusão manual de produto.
 - Carrinho de compra.
 - Leituras repetidas aumentam a quantidade do item.
@@ -169,7 +169,7 @@ A Cantina funciona como um pequeno mercado interno para os residentes:
 
 ### Produtos e estoque
 
-- Nome, código de barras, descrição, categoria e unidade.
+- Nome, descrição, categoria e unidade.
 - Preço de venda com histórico de valores.
 - Estoque atual e estoque mínimo.
 - Status ativo/inativo.

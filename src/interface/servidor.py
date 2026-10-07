@@ -107,6 +107,9 @@ def _limpar_sessoes(agora=None):
             SESSOES.pop(token, None)
 
 
+LIMITE_MOVIMENTACOES_RECENTES = 10
+
+
 def _dashboard(data_inicio=None, data_fim=None):
     from calendar import monthrange
     hoje = date.today()
@@ -123,12 +126,14 @@ def _dashboard(data_inicio=None, data_fim=None):
         for conta in pagar
         if conta["status"] != "CANCELADA"
     )
-    movimentacoes = caixa.listar_movimentacoes(data_inicio, data_fim, limite=10)
+    movimentacoes = caixa.listar_movimentacoes(
+        data_inicio, data_fim, limite=LIMITE_MOVIMENTACOES_RECENTES
+    )
     return {
         **resumo,
         "total_receber": total_receber,
         "total_pagar": total_pagar,
-        "movimentacoes_recentes": list(reversed(movimentacoes[-10:])),
+        "movimentacoes_recentes": list(reversed(movimentacoes)),
     }
 
 
@@ -368,8 +373,7 @@ class Requisicao(BaseHTTPRequestHandler):
         if rota == "/api/itens":
             resultado = itens.cadastrar_produto(
                 dados.get("nome"), dados.get("valor"), dados.get("estoque_inicial", 0),
-                dados.get("estoque_minimo", 0), dados.get("codigo_barras"),
-                dados.get("descricao"), dados.get("categoria"),
+                dados.get("estoque_minimo", 0), dados.get("descricao"), dados.get("categoria"),
                 dados.get("unidade_medida", "UN"), dados.get("ativo", 1),
                 dados.get("data_inicio_valor"),
             )
@@ -406,7 +410,7 @@ class Requisicao(BaseHTTPRequestHandler):
             return self._resultado_operacao(alterar_responsavel_principal(dados.get("id"), dados.get("responsavel_id")), criado=False)
         if rota == "/api/itens/editar":
             return self._resultado_operacao(itens.editar_produto(
-                dados.get("id"), dados.get("nome"), dados.get("codigo_barras"), dados.get("descricao"),
+                dados.get("id"), dados.get("nome"), dados.get("descricao"),
                 dados.get("categoria"), dados.get("unidade_medida", "UN"), dados.get("estoque_minimo", 0), dados.get("ativo", 1),
             ), criado=False)
         if rota == "/api/itens/estoque":
@@ -493,6 +497,15 @@ class Requisicao(BaseHTTPRequestHandler):
                     _centavos(dados.get("valor")), dados.get("forma_pagamento"),
                     dados.get("observacao"), _centavos(dados.get("desconto") or 0),
                     _centavos(dados.get("multa_juros") or 0),
+                )
+            except (TypeError, ValueError) as erro:
+                resultado = {"sucesso": False, "erro": str(erro)}
+            return self._resultado_operacao(resultado)
+        if rota == "/api/contas-receber/avulsa":
+            try:
+                resultado = contas_receber.cadastrar_conta_avulsa(
+                    dados.get("descricao"), dados.get("data_vencimento"),
+                    _centavos(dados.get("valor")),
                 )
             except (TypeError, ValueError) as erro:
                 resultado = {"sucesso": False, "erro": str(erro)}

@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { renderActionTable } from "../frontend/js/components/renderers.js";
+import { renderActionTable, renderTable } from "../frontend/js/components/renderers.js";
 
 const base = await readFile(new URL("../frontend/css/base.css", import.meta.url), "utf8");
 const layout = await readFile(new URL("../frontend/css/layout.css", import.meta.url), "utf8");
 const responsive = await readFile(new URL("../frontend/css/responsive.css", import.meta.url), "utf8");
 const auth = await readFile(new URL("../frontend/css/auth.css", import.meta.url), "utf8");
 const components = await readFile(new URL("../frontend/css/components.css", import.meta.url), "utf8");
+const modules = await readFile(new URL("../frontend/css/modules.css", import.meta.url), "utf8");
 const tableLayout = await readFile(new URL("../frontend/css/table-layout.css", import.meta.url), "utf8");
 const tableLayoutScript = await readFile(new URL("../frontend/js/components/table-layout.js", import.meta.url), "utf8");
 const app = await readFile(new URL("../frontend/js/app.js", import.meta.url), "utf8");
@@ -27,8 +28,29 @@ assert.match(app, /setDate\(limitDate\.getDate\(\) \+ 5\)/, "o aviso deve consid
 assert.match(app, /Contas que exigem atenção/, "o aviso deve identificar claramente as contas críticas");
 assert.match(app, /organizeTablePanels\(panel\)/, "a organização deve ocorrer depois do carregamento do painel");
 assert.match(app, /data-action="clear-payables-filters"/, "contas a pagar deve oferecer limpeza dos filtros");
+assert.match(app, /data-cash-filter="inicio"/, "fluxo de caixa deve filtrar pela data inicial");
+assert.match(app, /data-cash-filter="fim"/, "fluxo de caixa deve filtrar pela data final");
+assert.match(app, /metric\("Resultado", dados\.resultado, "info"\)/, "resultado do caixa deve usar sempre o tom azul");
+assert.match(app, /paginationControls\("cash-page"[^\n]+false\)/, "fluxo de caixa não deve exibir o contador de movimentações");
+assert.match(modules, /\.cash-flow-row--in td\s*{\s*color:\s*var\(--color-success\)/, "entradas do caixa devem usar texto verde");
+assert.match(modules, /\.cash-flow-row--out td\s*{\s*color:\s*var\(--color-danger\)/, "saídas do caixa devem usar texto vermelho");
+const removedReaderTerms = new RegExp(["c[oó]digo", " de ", "barras|codigo_", "barras|canteen-", "sc", "an|canteen-bar", "code"].join(""), "i");
+assert.doesNotMatch(app, removedReaderTerms, "a interface não deve manter referências ao leitor excluído");
+assert.match(app, /placeholder="Digite o nome do produto"/, "a Cantina deve pesquisar produtos somente pelo nome");
+assert.match(app, /<select id="canteen-product">\$\{productOptions\}<\/select>/, "produtos da Cantina devem abrir em uma lista como os residentes");
+assert.match(app, /data-action="open-canteen-product-search"/, "produtos da Cantina devem possuir botão de pesquisa");
+assert.match(app, /data-action="select-canteen-product"/, "a pesquisa deve permitir escolher um produto da lista");
+assert.match(app, /id="product-price"[^>]*type="text"[^>]*data-mask="currency"[^>]*value="R\$ 0,00"/, "preço do produto deve iniciar com máscara financeira sem setas numéricas");
+assert.match(app, /data\.valor = currencyValue\(data\.valor\)\.toFixed\(2\)/, "preço mascarado do produto deve ser enviado com os centavos corretos");
+assert.match(app, /class="product-form-grid"[\s\S]*product-unit[\s\S]*product-price[\s\S]*product-price-date[\s\S]*product-stock[\s\S]*product-minimum[\s\S]*product-status/, "cadastro de produto deve agrupar os seis campos em uma grade");
+assert.match(modules, /\.product-form-grid\s*{[^}]*grid-template-columns:\s*repeat\(3,/s, "cadastro de produto deve exibir três campos por linha");
 assert.match(app, /\["Tipo", "modalidade", shortInitial\]/, "internações devem exibir o tipo pela inicial");
+assert.match(app, /<label for="internment-modality">Tipo de residência<\/label>/, "formulários de internação devem usar a nomenclatura Tipo");
+assert.doesNotMatch(app, />Modalidade(?: de residência)?</, "a interface não deve exibir a nomenclatura antiga");
 assert.match(app, /data-action="open-edit-convenio">Editar convênio/, "internações devem permitir editar convênios existentes");
+assert.match(app, /class="selection-actions internment-actions"/, "ações de internação devem ter layout compacto próprio");
+assert.doesNotMatch(app, /<span class="selection-actions__label">Internação selecionada<\/span>/, "a barra não deve ocupar espaço com a indicação de seleção");
+assert.match(modules, /\.selection-scope \.selection-actions\.internment-actions\s*\{[^}]*flex-wrap:\s*nowrap/s, "ações de internação devem permanecer em uma linha");
 assert.match(app, /data-endpoint="\/api\/convenios\/editar"/, "o formulário deve enviar a edição do convênio");
 assert.match(tableLayout, /padding-top:\s*5px/, "painéis financeiros devem iniciar até 5 px abaixo do cabeçalho");
 assert.match(tableLayout, /justify-content:\s*space-between/, "ações e limpeza devem ocupar a mesma linha");
@@ -71,5 +93,13 @@ const selectable = renderActionTable(
 assert.match(selectable, /data-action="select-report-row"/);
 assert.match(selectable, /data-capabilities="pay history"/);
 assert.doesNotMatch(selectable, /<th>Ações<\/th>/);
+
+const cashRows = renderTable(
+    [{ tipo: "ENTRADA", valor: 100 }, { tipo: "SAIDA", valor: 50 }],
+    [["Tipo", "tipo"], ["Valor", "valor"]],
+    { rowClass: row => `cash-flow-row--${row.tipo === "SAIDA" ? "out" : "in"}` },
+);
+assert.match(cashRows, /<tr class="cash-flow-row--in">/);
+assert.match(cashRows, /<tr class="cash-flow-row--out">/);
 
 console.log("Layout fluido, status, valores e controles das tabelas validados.");

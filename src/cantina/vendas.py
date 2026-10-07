@@ -334,37 +334,6 @@ def registrar_venda(carteira_id, item_id, quantidade=1, data_movimentacao=None):
         conn.close()
 
 
-def buscar_produto_codigo(codigo_barras, data_referencia=None):
-    codigo_barras = str(codigo_barras or "").strip()
-    data_referencia = data_referencia or date.today().isoformat()
-    if not codigo_barras:
-        return {"sucesso": False, "erro": "Leia ou informe um código de barras."}
-    conn = conectar()
-    conn.row_factory = sqlite3.Row
-    try:
-        produto = conn.execute(
-            """SELECT i.id,i.nome,i.codigo_barras,i.categoria,i.unidade_medida,
-                      i.estoque_atual,i.ativo,iv.id AS item_valor_id,iv.valor
-               FROM itens_cantina i LEFT JOIN itens_cantina_valores iv ON iv.id=(
-                   SELECT iv2.id FROM itens_cantina_valores iv2 WHERE iv2.item_id=i.id
-                   AND iv2.ativo=1 AND iv2.data_inicio_valor<=?
-                   ORDER BY iv2.data_inicio_valor DESC,iv2.id DESC LIMIT 1)
-               WHERE i.codigo_barras=?""",
-            (data_referencia, codigo_barras),
-        ).fetchone()
-        if not produto:
-            return {"sucesso": False, "erro": "Código de barras não cadastrado."}
-        if not produto["ativo"]:
-            return {"sucesso": False, "erro": "O produto está inativo."}
-        if produto["item_valor_id"] is None:
-            return {"sucesso": False, "erro": "O produto não possui preço vigente."}
-        if not _eh_servico(produto["categoria"]) and produto["estoque_atual"] <= 0:
-            return {"sucesso": False, "erro": "O produto está sem estoque."}
-        return {"sucesso": True, **dict(produto)}
-    finally:
-        conn.close()
-
-
 def registrar_compra(carteira_id, produtos, data_movimentacao=None):
     sincronizar_status_residentes()
     data_movimentacao = data_movimentacao or date.today().isoformat()
@@ -553,7 +522,7 @@ def consultar_cantina(pagina=1, tamanho=50):
                WHERE c.ativo=1 AND r.ativo=1 ORDER BY r.nome"""
         )]
         itens = [dict(x) for x in conn.execute(
-            """SELECT i.id, i.nome, i.codigo_barras, i.categoria, i.unidade_medida, i.estoque_atual,
+            """SELECT i.id, i.nome, i.categoria, i.unidade_medida, i.estoque_atual,
                       iv.id AS item_valor_id, iv.valor
                FROM itens_cantina i JOIN itens_cantina_valores iv ON iv.id=(
                    SELECT iv2.id FROM itens_cantina_valores iv2 WHERE iv2.item_id=i.id

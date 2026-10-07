@@ -95,13 +95,13 @@ def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None, limite=N
                 r.forma_recebimento AS forma_pagamento,
                 r.observacao,
                 r.cobranca_id AS origem_id,
-                res.nome AS residente_nome,
+                COALESCE(res.nome, c.descricao) AS residente_nome,
                 c.tipo AS cobranca_tipo,
                 c.numero_parcela AS numero_parcela
             FROM recebimentos r
             INNER JOIN cobrancas c ON c.id = r.cobranca_id
-            INNER JOIN internacoes i ON i.id = c.internacao_id
-            INNER JOIN residentes res ON res.id = i.residente_id
+            LEFT JOIN internacoes i ON i.id = c.internacao_id
+            LEFT JOIN residentes res ON res.id = i.residente_id
             {where_entrada}{ordem_limite('r.data_recebimento', 'r.id')}
             """,
             [*parametros_entrada, *([limite] if limite else [])],
@@ -137,10 +137,10 @@ def listar_movimentacoes(data_inicio=None, data_fim=None, conexao=None, limite=N
             """,
             [*parametros_saida, *([limite] if limite else [])],
         ).fetchall()
-        devolucoes = conexao.execute(f'''SELECT d.*,r.cobranca_id,res.nome AS residente_nome
+        devolucoes = conexao.execute(f'''SELECT d.*,r.cobranca_id,COALESCE(res.nome,c.descricao) AS residente_nome
             FROM devolucoes_recebimentos d JOIN recebimentos r ON r.id=d.recebimento_id
-            JOIN cobrancas c ON c.id=r.cobranca_id JOIN internacoes i ON i.id=c.internacao_id
-            JOIN residentes res ON res.id=i.residente_id
+            JOIN cobrancas c ON c.id=r.cobranca_id LEFT JOIN internacoes i ON i.id=c.internacao_id
+            LEFT JOIN residentes res ON res.id=i.residente_id
             WHERE d.estornada=0 AND (? IS NULL OR d.data_devolucao>=?) AND (? IS NULL OR d.data_devolucao<=?)
             {ordem_limite('d.data_devolucao', 'd.id')}''',
             (data_inicio, data_inicio, data_fim, data_fim, *([limite] if limite else []))).fetchall()

@@ -56,8 +56,8 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     let dashboardChartRequest = 0;
     let startupDueAlertShown = false;
     const dashboardChartState = { metric: "daily", type: "bar", start: "", end: "" };
-    const payableState = { busca: "", status: "", inicio: "", fim: "", ordem: "vencimento_asc" };
-    const cashState = { pagina: 1 };
+    const payableState = { busca: "", status: "", inicio: "", fim: "", ordem: "vencimento_desc" };
+    const cashState = { pagina: 1, inicio: "", fim: "" };
     let reportPage = 1;
     let payableSearchTimer;
 
@@ -162,7 +162,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (action === "open-general-menu") openGeneralMenu();
         if (action === "clear-table-filters") clearTableFilters(trigger);
         if (action === "clear-payables-filters") {
-            Object.assign(payableState, { busca: "", status: "", inicio: "", fim: "", ordem: "vencimento_asc" });
+            Object.assign(payableState, { busca: "", status: "", inicio: "", fim: "", ordem: "vencimento_desc" });
             openMainPanel("contas_pagar");
         }
         if (action === "cash-page") {
@@ -222,6 +222,8 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (action === "canteen-cart-clear") clearCanteenCart();
         if (action === "open-canteen-resident-search") openCanteenResidentSearch();
         if (action === "select-canteen-resident") selectCanteenResident(trigger.dataset.id);
+        if (action === "open-canteen-product-search") openCanteenProductSearch();
+        if (action === "select-canteen-product") selectCanteenProduct(trigger.dataset.id);
         if (action === "cloud-publish") runCloudCommand("/api/sincronizacao/publicar", "Publicar a versão atual na pasta do Google Drive?");
         if (action === "cloud-update") runCloudCommand("/api/sincronizacao/atualizar", "Atualizar a cópia local com a versão mais recente?");
         if (action === "canteen-sale-reversal") runMaintenanceCommand("/api/cantina/vendas/estornar", { venda_id: trigger.dataset.id, motivo: "Venda estornada no caixa" }, "Estornar o cupom inteiro? O saldo e o estoque serão devolvidos.", "cantina");
@@ -237,7 +239,6 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (event.target.matches("#resident-form")) return submitResident(event.target);
         if (event.target.matches("#collaborator-form")) return submitCollaborator(event.target);
         if (event.target.matches("#canteen-sale-form")) return submitCanteenSale(event.target);
-        if (event.target.matches("#canteen-scan-form")) return scanCanteenCode(event.target);
         if (event.target.matches("#canteen-checkout-form")) return submitCanteenCheckout(event.target);
         if (event.target.matches("#product-form")) return submitProduct(event.target);
         if (event.target.matches("#guardian-form")) return submitGuardian(event.target);
@@ -257,9 +258,14 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             payableState[event.target.dataset.payablesFilter] = event.target.value;
             openMainPanel("contas_pagar");
         }
+        if (event.target.matches("[data-cash-filter]")) {
+            cashState[event.target.dataset.cashFilter] = event.target.value;
+            cashState.pagina = 1;
+            openMainPanel("caixa");
+        }
         if (event.target.matches("#wallet-resident")) refreshWalletDetail(event.target);
         if (event.target.matches("#canteen-wallet")) refreshCanteenCart();
-        if (event.target.matches("#canteen-product-search")) addSearchedCanteenProduct(event.target);
+        if (event.target.matches("#canteen-product")) selectCanteenProduct(event.target.value, false);
         if (event.target.matches("#internment-modality")) updateInternmentMode(event.target.value);
         if (event.target.matches("[data-agreement-edit-select]")) populateAgreementEdit(event.target);
     }
@@ -278,6 +284,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (event.target.matches("#internment-period, #internment-welcome, #internment-monthly")) updateContractTotal();
         if (event.target.matches("input[data-mask]")) applyInputMask(event.target);
         if (event.target.matches("#canteen-resident-lookup")) renderCanteenResidentResults(event.target.value);
+        if (event.target.matches("#canteen-product-lookup")) renderCanteenProductResults(event.target.value);
         if (event.target.matches(".settlement-form [name=valor], .settlement-form [name=desconto]")) updateSettlementRemaining(event.target.form);
     }
 
@@ -285,11 +292,6 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (event.target.matches('[data-action="select-report-row"]') && ["Enter", " "].includes(event.key)) {
             event.preventDefault();
             selectReportRow(event.target);
-            return;
-        }
-        if (event.target.matches("#canteen-product-search") && event.key === "Enter") {
-            event.preventDefault();
-            addSearchedCanteenProduct(event.target);
             return;
         }
         if (layers.auth.children.length || event.key !== "Escape") return;
@@ -663,15 +665,16 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const today = localDate();
         const body = `<form class="login-form" id="product-form">
             <div class="field"><label for="product-name">Nome do produto</label><input id="product-name" name="nome" required></div>
-            <div class="field"><label for="product-barcode">Código de barras</label><input id="product-barcode" name="codigo_barras" inputmode="numeric"></div>
             <div class="field"><label for="product-category">Categoria</label><input id="product-category" name="categoria" list="product-categories" placeholder="Ex.: Bebidas, doces, higiene ou Serviços"><datalist id="product-categories"><option value="Bebidas"></option><option value="Doces"></option><option value="Higiene"></option><option value="Serviços"></option></datalist></div>
             <div class="field"><label for="product-description">Descrição</label><textarea id="product-description" name="descricao" rows="3"></textarea></div>
-            <div class="field"><label for="product-unit">Unidade</label><select id="product-unit" name="unidade_medida" required><option value="UN">Unidade</option><option value="PCT">Pacote</option><option value="CX">Caixa</option><option value="KG">Quilograma</option><option value="L">Litro</option></select></div>
-            <div class="field"><label for="product-price">Preço de venda</label><input id="product-price" name="valor" type="number" min="0.01" step="0.01" required></div>
-            <div class="field"><label for="product-price-date">Preço válido desde</label><input id="product-price-date" name="data_inicio_valor" type="date" value="${today}" required></div>
-            <div class="field"><label for="product-stock">Estoque inicial</label><input id="product-stock" name="estoque_inicial" type="number" min="0" step="1" value="0" required></div>
-            <div class="field"><label for="product-minimum">Estoque mínimo</label><input id="product-minimum" name="estoque_minimo" type="number" min="0" step="1" value="0" required></div>
-            <div class="field"><label for="product-status">Status</label><select id="product-status" name="ativo"><option value="1">Ativo</option><option value="0">Inativo</option></select></div>
+            <div class="product-form-grid">
+                <div class="field"><label for="product-unit">Unidade</label><select id="product-unit" name="unidade_medida" required><option value="UN">Unidade</option><option value="PCT">Pacote</option><option value="CX">Caixa</option><option value="KG">Quilograma</option><option value="L">Litro</option></select></div>
+                <div class="field"><label for="product-price">Preço de venda</label><input id="product-price" name="valor" type="text" inputmode="numeric" data-mask="currency" value="R$ 0,00" required></div>
+                <div class="field"><label for="product-price-date">Preço válido desde</label><input id="product-price-date" name="data_inicio_valor" type="date" value="${today}" required></div>
+                <div class="field"><label for="product-stock">Estoque inicial</label><input id="product-stock" name="estoque_inicial" type="number" min="0" step="1" value="0" required></div>
+                <div class="field"><label for="product-minimum">Estoque mínimo</label><input id="product-minimum" name="estoque_minimo" type="number" min="0" step="1" value="0" required></div>
+                <div class="field"><label for="product-status">Status</label><select id="product-status" name="ativo"><option value="1">Ativo</option><option value="0">Inativo</option></select></div>
+            </div>
             <p class="login-error" data-product-error role="alert"></p><button class="button" type="submit">Salvar produto</button>
         </form>`;
         layers.auxiliary.replaceChildren(createPanel({ title: "Novo produto", eyebrow: "Cantina", body, size: "medium" }));
@@ -710,7 +713,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             const today = localDate();
             const mode = internment?.modalidade || "PARTICULAR";
             const money = value => escapeHtml(formatMoney(Number(value || 0)));
-            const body = `<form class="login-form" id="internment-form">${id ? `<input type="hidden" name="id" value="${escapeHtml(id)}">` : ""}${internmentSearchField('resident', 'Residente', 'residente_id', residentOptions)}${internmentSearchField('guardian', 'Responsável', 'responsavel_id', guardianOptions)}<div class="internment-form__row"><div class="field"><label for="internment-modality">Modalidade de residência</label><select id="internment-modality" name="modalidade" required><option value="PARTICULAR"${selected("PARTICULAR", mode)}>Particular</option><option value="SOCIAL"${selected("SOCIAL", mode)}>Social</option><option value="CONVENIO"${selected("CONVENIO", mode)}>Convênio</option><option value="VOLUNTARIO"${selected("VOLUNTARIO", mode)}>Voluntário</option></select></div><div class="field"><label for="internment-date">Data de acolhimento</label><input id="internment-date" name="data_acolhimento" type="date" value="${escapeHtml(internment?.data_acolhimento || today)}" required></div><div class="field" data-period-field><label for="internment-period">Período de tratamento (meses)</label><input id="internment-period" name="periodo_tratamento" inputmode="numeric" type="number" min="1" step="1" value="${escapeHtml(internment?.periodo_tratamento || "")}" required></div></div><div class="field" data-agreement-field hidden><label for="internment-agreement">Convênio</label><select id="internment-agreement" name="convenio_id"><option value="">Selecione</option>${agreementOptions}</select><small>O valor é calculado pela diária e pelos dias de tratamento em cada mês.</small></div><div class="internment-form__row" data-particular-fields><div class="field"><label for="internment-contract">Valor do contrato</label><input id="internment-contract" name="valor_contrato" readonly title="Acolhimento + mensalidades do período" type="text" inputmode="numeric" data-mask="currency" value="${money(internment?.valor_contrato)}" required></div><div class="field"><label for="internment-welcome">Valor do acolhimento</label><input id="internment-welcome" name="valor_acolhimento" type="text" inputmode="numeric" data-mask="currency" value="${money(internment?.valor_acolhimento)}" required></div><div class="field"><label for="internment-monthly">Mensalidade</label><input id="internment-monthly" name="valor_mensalidade" type="text" inputmode="numeric" data-mask="currency" value="${money(internment?.valor_mensalidade)}" required></div></div><div class="field" data-volunteer-field hidden><label for="internment-services">Serviços prestados à clínica</label><textarea id="internment-services" name="servicos_voluntario" rows="4" placeholder="Descreva as atividades combinadas">${escapeHtml(internment?.servicos_voluntario || "")}</textarea></div>${id ? '<p class="form-note">Alterações contratuais recalculam as cobranças quando ainda não existe histórico financeiro.</p>' : ""}<p class="form-note" data-internment-note></p><p class="login-error" data-internment-error role="alert"></p><button class="button" type="submit">${id ? "Salvar alterações" : "Salvar internação"}</button></form>`;
+            const body = `<form class="login-form" id="internment-form">${id ? `<input type="hidden" name="id" value="${escapeHtml(id)}">` : ""}${internmentSearchField('resident', 'Residente', 'residente_id', residentOptions)}${internmentSearchField('guardian', 'Responsável', 'responsavel_id', guardianOptions)}<div class="internment-form__row"><div class="field"><label for="internment-modality">Tipo de residência</label><select id="internment-modality" name="modalidade" required><option value="PARTICULAR"${selected("PARTICULAR", mode)}>Particular</option><option value="SOCIAL"${selected("SOCIAL", mode)}>Social</option><option value="CONVENIO"${selected("CONVENIO", mode)}>Convênio</option><option value="VOLUNTARIO"${selected("VOLUNTARIO", mode)}>Voluntário</option></select></div><div class="field"><label for="internment-date">Data de acolhimento</label><input id="internment-date" name="data_acolhimento" type="date" value="${escapeHtml(internment?.data_acolhimento || today)}" required></div><div class="field" data-period-field><label for="internment-period">Período de tratamento (meses)</label><input id="internment-period" name="periodo_tratamento" inputmode="numeric" type="number" min="1" step="1" value="${escapeHtml(internment?.periodo_tratamento || "")}" required></div></div><div class="field" data-agreement-field hidden><label for="internment-agreement">Convênio</label><select id="internment-agreement" name="convenio_id"><option value="">Selecione</option>${agreementOptions}</select><small>O valor é calculado pela diária e pelos dias de tratamento em cada mês.</small></div><div class="internment-form__row" data-particular-fields><div class="field"><label for="internment-contract">Valor do contrato</label><input id="internment-contract" name="valor_contrato" readonly title="Acolhimento + mensalidades do período" type="text" inputmode="numeric" data-mask="currency" value="${money(internment?.valor_contrato)}" required></div><div class="field"><label for="internment-welcome">Valor do acolhimento</label><input id="internment-welcome" name="valor_acolhimento" type="text" inputmode="numeric" data-mask="currency" value="${money(internment?.valor_acolhimento)}" required></div><div class="field"><label for="internment-monthly">Mensalidade</label><input id="internment-monthly" name="valor_mensalidade" type="text" inputmode="numeric" data-mask="currency" value="${money(internment?.valor_mensalidade)}" required></div></div><div class="field" data-volunteer-field hidden><label for="internment-services">Serviços prestados à clínica</label><textarea id="internment-services" name="servicos_voluntario" rows="4" placeholder="Descreva as atividades combinadas">${escapeHtml(internment?.servicos_voluntario || "")}</textarea></div>${id ? '<p class="form-note">Alterações contratuais recalculam as cobranças quando ainda não existe histórico financeiro.</p>' : ""}<p class="form-note" data-internment-note></p><p class="login-error" data-internment-error role="alert"></p><button class="button" type="submit">${id ? "Salvar alterações" : "Salvar internação"}</button></form>`;
             layers.auxiliary.replaceChildren(createPanel({ title: id ? "Editar internação" : "Nova internação", eyebrow: "Acolhimento e contrato", body, size: "medium" }));
             bindInternmentSearch(document.querySelector("#internment-form"), residents, guardians, internments);
             updateInternmentMode(mode);
@@ -783,6 +786,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
                 recebimento_mensalidade: kind === "recebimento_mensalidade" ? ["Registrar recebimento", "/api/recebimentos", "mensalidades", settlementFields(id, today, settlement, true)] : null,
                 desconto: isDiscount ? ["Aplicar desconto", "/api/cobrancas/desconto", "contas_receber", discountFields] : null,
                 desconto_mensalidade: isDiscount ? ["Aplicar desconto", "/api/cobrancas/desconto", "mensalidades", discountFields] : null,
+                conta_receber_avulsa: ["Nova conta a receber", "/api/contas-receber/avulsa", "contas_receber", `<div class="field"><label for="receivable-description">Origem ou descrição</label><input id="receivable-description" name="descricao" placeholder="Ex.: serviço prestado" required></div><div class="field"><label for="receivable-due-date">Vencimento</label><input id="receivable-due-date" name="data_vencimento" type="date" value="${today}" required></div>${moneyField("Valor a receber")}`],
             };
 
             if (kind === "despesa") {
@@ -992,7 +996,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             } else if (kind === "product") {
                 const item = (await api("/api/itens")).dados.find((row) => String(row.id) === String(id));
                 title = "Editar produto"; endpoint = "/api/itens/editar"; refresh = "itens";
-                fields = `<input type="hidden" name="id" value="${item.id}"><div class="field"><label>Nome</label><input name="nome" value="${escapeHtml(item.nome)}" required></div><div class="field"><label>Código de barras</label><input name="codigo_barras" value="${escapeHtml(item.codigo_barras || "")}"></div><div class="field"><label>Categoria</label><input name="categoria" value="${escapeHtml(item.categoria || "")}"></div><div class="field"><label>Descrição</label><textarea name="descricao" rows="3">${escapeHtml(item.descricao || "")}</textarea></div><div class="field"><label>Unidade</label><input name="unidade_medida" value="${escapeHtml(item.unidade_medida)}" required></div><div class="field"><label>Estoque mínimo</label><input name="estoque_minimo" type="number" min="0" value="${item.estoque_minimo}" required></div>${activeSelect(item.ativo)}`;
+                fields = `<input type="hidden" name="id" value="${item.id}"><div class="field"><label>Nome</label><input name="nome" value="${escapeHtml(item.nome)}" required></div><div class="field"><label>Categoria</label><input name="categoria" value="${escapeHtml(item.categoria || "")}"></div><div class="field"><label>Descrição</label><textarea name="descricao" rows="3">${escapeHtml(item.descricao || "")}</textarea></div><div class="field"><label>Unidade</label><input name="unidade_medida" value="${escapeHtml(item.unidade_medida)}" required></div><div class="field"><label>Estoque mínimo</label><input name="estoque_minimo" type="number" min="0" value="${item.estoque_minimo}" required></div>${activeSelect(item.ativo)}`;
             } else if (kind === "product-stock") {
                 title = "Movimentar estoque"; endpoint = "/api/itens/estoque"; refresh = "itens";
                 fields = `<input type="hidden" name="item_id" value="${escapeHtml(id)}"><div class="field"><label>Operação</label><select name="tipo" required><option value="ENTRADA">Entrada — acrescentar</option><option value="SAIDA">Saída — retirar</option></select></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" step="1" required></div><div class="field"><label>Data da movimentação</label><input name="data_movimentacao" type="date" value="${today}" max="${today}" required></div><div class="field"><label>Motivo</label><input name="motivo" placeholder="Ex.: compra, perda, consumo interno" required></div><div class="field"><label>Custo unitário (opcional)</label><input name="custo_unitario" type="number" min="0" step="0.01"></div><div class="field"><label>Fornecedor (opcional)</label><input name="fornecedor"></div><div class="field"><label>Nota ou documento (opcional)</label><input name="documento"></div><div class="field"><label>Lote (opcional)</label><input name="lote"></div><div class="field"><label>Validade (opcional)</label><input name="data_validade" type="date"></div>`;
@@ -1136,40 +1140,6 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         finally { setFormBusy(form, false); }
     }
 
-    async function scanCanteenCode(form) {
-        const input = form.elements.codigo_barras;
-        const errorElement = form.querySelector("[data-canteen-scan-error]");
-        const code = input.value.trim();
-        if (!code) return;
-        setFormBusy(form, true);
-        try {
-            const saleDate = document.querySelector("#canteen-sale-date")?.value || localDate();
-            const { dados: product } = await api(`/api/cantina/produto?codigo=${encodeURIComponent(code)}&data=${encodeURIComponent(saleDate)}`);
-            if (!product?.sucesso) throw new Error(product?.erro || "Produto não encontrado.");
-            addProductToCanteen(product);
-            input.value = "";
-            errorElement.textContent = "";
-        } catch (error) { errorElement.textContent = error.message; }
-        finally {
-            setFormBusy(form, false);
-            requestAnimationFrame(() => input.focus());
-        }
-    }
-
-    function addSearchedCanteenProduct(input) {
-        const search = input.value.trim().toLocaleLowerCase("pt-BR");
-        if (!search) return;
-        const product = canteenState.products.find((item) => {
-            const name = String(item.nome || "").toLocaleLowerCase("pt-BR");
-            const barcode = String(item.codigo_barras || "").toLocaleLowerCase("pt-BR");
-            return search === name || search === barcode || search === `${name} — ${barcode || "sem código"}`;
-        });
-        if (!product) return;
-        addProductToCanteen(product);
-        input.value = "";
-        input.focus();
-    }
-
     function isCanteenService(product) {
         return ["SERVICO", "SERVICOS"].includes(String(product?.categoria || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase());
     }
@@ -1197,6 +1167,33 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         select.value = String(walletId);
         closeLayer("auxiliary");
         refreshCanteenCart();
+    }
+
+    function openCanteenProductSearch() {
+        const body = `<div class="field"><label for="canteen-product-lookup">Pesquisar produto</label><input id="canteen-product-lookup" type="search" autocomplete="off" placeholder="Digite o nome do produto" autofocus></div><div class="resident-search-results" data-canteen-product-results></div>`;
+        layers.auxiliary.replaceChildren(createPanel({ id: "canteen-product-search", title: "Pesquisar produto", eyebrow: "Cantina", body, size: "medium" }));
+        renderCanteenProductResults("");
+        setTimeout(() => document.querySelector("#canteen-product-lookup")?.focus(), 0);
+    }
+
+    function renderCanteenProductResults(value) {
+        const target = document.querySelector("[data-canteen-product-results]");
+        if (!target) return;
+        const search = normalizeSearch(value);
+        const products = canteenState.products.filter((product) => normalizeSearch(product.nome).includes(search));
+        target.innerHTML = products.length
+            ? products.map((product) => `<button class="resident-search-result" type="button" data-action="select-canteen-product" data-id="${product.id}"><strong>${escapeHtml(product.nome)}</strong><span>${escapeHtml(formatMoney(product.valor))} · ${isCanteenService(product) ? "Serviço" : `Estoque ${product.estoque_atual}`}</span></button>`).join("")
+            : emptyState("Produto não encontrado", "Revise o nome informado.");
+    }
+
+    function selectCanteenProduct(productId, closeSearch = true) {
+        if (!productId) return;
+        const product = canteenState.products.find((item) => String(item.id) === String(productId));
+        if (!product) return;
+        addProductToCanteen(product);
+        const select = document.querySelector("#canteen-product");
+        if (select) select.value = "";
+        if (closeSearch) closeLayer("auxiliary");
     }
 
     function addProductToCanteen(product) {
@@ -1243,7 +1240,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const balance = Number(wallet?.saldo || 0);
         const remaining = balance - total;
         const rows = items.map((item) => `<tr><td>${escapeHtml(item.nome)}</td><td>${escapeHtml(formatMoney(item.valor))}</td><td><div class="canteen-quantity"><button type="button" data-action="canteen-cart-change" data-id="${item.id}" data-delta="-1">−</button><strong>${item.quantity}</strong><button type="button" data-action="canteen-cart-change" data-id="${item.id}" data-delta="1">+</button></div></td><td>${escapeHtml(formatMoney(Number(item.valor) * item.quantity))}</td><td><button class="button button--danger" type="button" data-action="canteen-cart-remove" data-id="${item.id}">Remover</button></td></tr>`).join("");
-        target.innerHTML = items.length ? `<div class="table-wrap"><table class="canteen-cart-table"><thead><tr><th>Produto</th><th>Unitário</th><th>Qtd.</th><th>Subtotal</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : emptyState("Carrinho vazio", "Leia um código de barras ou escolha um produto.");
+        target.innerHTML = items.length ? `<div class="table-wrap"><table class="canteen-cart-table"><thead><tr><th>Produto</th><th>Unitário</th><th>Qtd.</th><th>Subtotal</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : emptyState("Carrinho vazio", "Escolha um produto.");
         const totalElement = document.querySelector("[data-canteen-total]");
         const balanceElement = document.querySelector("[data-canteen-balance]");
         const remainingElement = document.querySelector("[data-canteen-remaining]");
@@ -1289,6 +1286,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function submitProduct(form) {
         const data = Object.fromEntries(new FormData(form));
+        data.valor = currencyValue(data.valor).toFixed(2);
         setFormBusy(form, true);
         try {
             await api("/api/itens", { method: "POST", body: data });
@@ -1352,7 +1350,8 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     function dashboardRecent(dados) {
-        return `${renderTable(dados.movimentacoes_recentes, [["Data", "data", formatDate], ["Descrição", "descricao"], ["Tipo", "tipo"], ["Forma", "forma_pagamento"], ["Valor", "valor", formatMoney]])}`;
+        const ultimasMovimentacoes = (dados.movimentacoes_recentes || []).slice(0, 10);
+        return `${renderTable(ultimasMovimentacoes, [["Data", "data", formatDate], ["Descrição", "descricao"], ["Tipo", "tipo"], ["Forma", "forma_pagamento"], ["Valor", "valor", formatMoney]])}`;
     }
 
     async function renderDashboard() {
@@ -1401,7 +1400,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
                 capabilities: [...(["ATIVA", "AGENDADA"].includes(row.status) ? ["edit"] : []), ...(!row.encerrada_em && row.status !== "CANCELADA" && row.modalidade !== "VOLUNTARIO" ? ["extend"] : []), ...(row.status === "AGENDADA" ? ["cancel"] : []), ...(row.status === "ATIVA" && !row.encerrada_em ? ["end"] : [])],
             }),
         });
-        const actions = `<div class="selection-actions" aria-label="Ações da internação selecionada"><span class="selection-actions__label">Internação selecionada</span><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-edit" data-selection-action="edit" disabled>Editar</button><button class="button button--danger" type="button" data-action="cancel-internment" data-selection-action="cancel" disabled>Cancelar agendamento</button><button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-selection-action="end" disabled>Encerrar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-extend" data-selection-action="extend" disabled>Prorrogar</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button button--secondary" type="button" data-action="open-edit-convenio">Editar convênio</button><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button" type="button" data-action="open-new-internment">Nova internação</button></div>`;
+        const actions = `<div class="selection-actions internment-actions" aria-label="Ações da internação selecionada"><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-edit" data-selection-action="edit" disabled>Editar</button><button class="button button--danger" type="button" data-action="cancel-internment" data-selection-action="cancel" disabled>Cancelar agendamento</button><button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-selection-action="end" disabled>Encerrar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-extend" data-selection-action="extend" disabled>Prorrogar</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button button--secondary" type="button" data-action="open-edit-convenio">Editar convênio</button><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button" type="button" data-action="open-new-internment">Nova internação</button></div>`;
         return `<section class="selection-scope internments-report"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 
@@ -1489,13 +1488,12 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const selectedBalance = selectedWallet ? formatMoney(selectedWallet.saldo) : "—";
         const balanceClass = selectedWallet ? (Number(selectedWallet.saldo) > 0 ? "amount--positive" : "amount--negative") : "";
         const walletOptions = `<option value=""${selectedWallet ? "" : " selected"}>Selecione um residente</option>` + wallets.map((wallet) => `<option value="${wallet.id}"${String(wallet.id) === selectedCanteenWalletId ? " selected" : ""}>${escapeHtml(wallet.residente_nome)}</option>`).join("");
-        const productSearchOptions = products.map((product) => `<option value="${escapeHtml(product.nome)} — ${escapeHtml(product.codigo_barras || "sem código")}">${escapeHtml(formatMoney(product.valor))} — ${isCanteenService(product) ? "serviço sem estoque" : `estoque ${product.estoque_atual}`}</option>`).join("");
+        const productOptions = `<option value="">Selecione um produto</option>` + products.map((product) => `<option value="${product.id}">${escapeHtml(product.nome)}</option>`).join("");
         const customer = `<section class="canteen-customer"><div class="field"><label for="canteen-wallet">Residente</label><select id="canteen-wallet" name="carteira_id" form="canteen-checkout-form" required>${walletOptions}</select></div><button class="canteen-resident-search-button" type="button" data-action="open-canteen-resident-search" aria-label="Pesquisar residente" title="Pesquisar residente">🔍</button><div class="canteen-balance"><span>Saldo da carteira</span><strong data-canteen-balance class="${balanceClass}">${selectedBalance}</strong></div></section>`;
-        const scanner = `<section class="canteen-scanner"><h3>Leitor de código de barras</h3><form id="canteen-scan-form"><div class="field"><label for="canteen-barcode">Código</label><input id="canteen-barcode" name="codigo_barras" autocomplete="off" inputmode="numeric" placeholder="Leia o código e pressione Enter" autofocus required></div><p class="login-error" data-canteen-scan-error role="alert"></p><button class="button" type="submit">Adicionar código</button></form></section>`;
-        const productSearch = `<section class="canteen-product-search"><h3>Pesquisa manual do produto</h3><div class="field"><label for="canteen-product-search">Produto</label><input id="canteen-product-search" type="search" list="canteen-product-options" autocomplete="off" placeholder="Nome ou código de barras"><datalist id="canteen-product-options">${productSearchOptions}</datalist></div><small>Selecione uma sugestão ou pressione Enter para adicionar ao cupom.</small></section>`;
-        const checkout = `<form class="canteen-checkout" id="canteen-checkout-form"><div class="canteen-checkout__details"><h3>Carrinho de compras</h3><div class="field"><label for="canteen-sale-date">Data</label><input id="canteen-sale-date" name="data_movimentacao" type="date" value="${localDate()}" required></div></div><div data-canteen-cart>${emptyState("Carrinho vazio", "Leia um código de barras ou pesquise um produto.")}</div><div class="canteen-totals"><article><span>Total</span><strong data-canteen-total>${formatMoney(0)}</strong></article><article><span>Saldo após compra</span><strong data-canteen-remaining>${selectedBalance}</strong></article></div><p class="login-error" data-canteen-error role="alert"></p><div class="report-actions"><button class="button button--secondary" type="button" data-action="canteen-cart-clear">Limpar</button><button class="button" id="canteen-checkout-button" type="submit" disabled>Finalizar compra</button></div></form>`;
-        setTimeout(() => { refreshCanteenCart(); document.querySelector("#canteen-barcode")?.focus(); }, 0);
-        return `${customer}<div class="canteen-entry">${scanner}${productSearch}</div>${checkout}`;
+        const productSearch = `<section class="canteen-product-selector"><div class="field"><label for="canteen-product">Produto</label><select id="canteen-product">${productOptions}</select></div><button class="canteen-resident-search-button" type="button" data-action="open-canteen-product-search" aria-label="Pesquisar produto" title="Pesquisar produto">🔍</button></section>`;
+        const checkout = `<form class="canteen-checkout" id="canteen-checkout-form"><div class="canteen-checkout__details"><h3>Carrinho de compras</h3><div class="field"><label for="canteen-sale-date">Data</label><input id="canteen-sale-date" name="data_movimentacao" type="date" value="${localDate()}" required></div></div><div data-canteen-cart>${emptyState("Carrinho vazio", "Pesquise e escolha um produto.")}</div><div class="canteen-totals"><article><span>Total</span><strong data-canteen-total>${formatMoney(0)}</strong></article><article><span>Saldo após compra</span><strong data-canteen-remaining>${selectedBalance}</strong></article></div><p class="login-error" data-canteen-error role="alert"></p><div class="report-actions"><button class="button button--secondary" type="button" data-action="canteen-cart-clear">Limpar</button><button class="button" id="canteen-checkout-button" type="submit" disabled>Finalizar compra</button></div></form>`;
+        setTimeout(() => refreshCanteenCart(), 0);
+        return `${customer}${productSearch}${checkout}`;
     }
 
     async function renderProducts() {
@@ -1504,7 +1502,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const low = dados.filter((row) => Number(row.ativo) === 1 && !isCanteenService(row) && ["REPOR", "SEM ESTOQUE"].includes(row.situacao_estoque)).length;
         const units = dados.reduce((total, row) => total + Number(row.estoque_atual || 0), 0);
         const summary = `<div class="inventory-summary"><article><span>Produtos cadastrados</span><strong>${dados.length}</strong></article><article><span>Produtos ativos</span><strong>${active}</strong></article><article><span>Precisam de reposição</span><strong class="${low ? "amount--negative" : "amount--positive"}">${low}</strong></article><article><span>Unidades em estoque</span><strong>${units}</strong></article></div>`;
-        const table = renderActionTable(dados, [["Produto", "nome"], ["Código de barras", "codigo_barras"], ["Categoria", "categoria"], ["Unidade", "unidade_medida"], ["Preço", "valor_atual", formatMoney], ["Estoque", "estoque_atual", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Mínimo", "estoque_minimo", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Reposição", "situacao_estoque", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Cadastro", "ativo", formatActive]], () => "", {
+        const table = renderActionTable(dados, [["Produto", "nome"], ["Categoria", "categoria"], ["Unidade", "unidade_medida"], ["Preço", "valor_atual", formatMoney], ["Estoque", "estoque_atual", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Mínimo", "estoque_minimo", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Reposição", "situacao_estoque", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Cadastro", "ativo", formatActive]], () => "", {
             selectableRows: true,
             selectionData: (row) => ({ id: row.id, capabilities: ["edit", "price", "history", ...(!isCanteenService(row) ? ["stock"] : [])] }),
         });
@@ -1519,7 +1517,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function renderReceivables() {
         const { dados = [] } = await api("/api/contas-receber");
-        const table = renderActionTable(dados, [["Residente", "residente_nome"], ["Responsável", "responsavel_nome"], ["Tipo", "tipo", receivableType], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Recebido", "total_recebido_com_encargos", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Pagamento", "status", receivablePayment]], (row) => {
+        const table = renderActionTable(dados, [["Origem", "origem_nome"], ["Tipo", "tipo", receivableType], ["Vencimento", "data_vencimento", formatDate], ["Valor devido", "valor_devido", formatMoney], ["Recebido", "total_recebido_com_encargos", formatMoney], ["Pagamento", "status", receivablePayment]], (row) => {
             const open = Number(row.saldo_restante) > 0 && !["PAGA", "DESCONTADA"].includes(row.status);
             return `${open ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento" data-id="${row.id}">Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto" data-id="${row.id}">Desconto</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`;
         }, {
@@ -1530,7 +1528,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
                     ? ["receive", "discount", "history"] : ["history"],
             }),
         });
-        const actions = `<div class="selection-actions" aria-label="Ações da conta selecionada"><span class="selection-actions__label">Conta selecionada</span><button class="button" type="button" data-action="open-financial-form" data-kind="recebimento" data-selection-action="receive" disabled>Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto" data-selection-action="discount" disabled>Desconto</button><button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-selection-action="history" disabled>Histórico</button></div>`;
+        const actions = `<div class="selection-actions" aria-label="Ações da conta selecionada"><span class="selection-actions__label">Conta selecionada</span><button class="button" type="button" data-action="open-financial-form" data-kind="recebimento" data-selection-action="receive" disabled>Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto" data-selection-action="discount" disabled>Desconto</button><button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-selection-action="history" disabled>Histórico</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button" type="button" data-action="open-financial-form" data-kind="conta_receber_avulsa">Nova conta</button></div>`;
         return `<section class="selection-scope financial-fixed-header"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 
@@ -1541,7 +1539,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     function monthlyFeesContent(rows) {
-        const table = renderActionTable(rows, [["Residente", "residente_nome"], ["Modalidade", "modalidade", shortInitial], ["Convênio", "convenio_nome"], ["Parcela", "numero_parcela"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor_devido", formatMoney], ["Recebido", "total_recebido_com_encargos", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "status", (_, row) => monthlyStatus(row)]], (row) => `${Number(row.saldo_restante) > 0 && !["PAGA", "DESCONTADA"].includes(monthlyStatus(row)) ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-id="${row.id}">Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto_mensalidade" data-id="${row.id}">Desconto</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`, {
+        const table = renderActionTable(rows, [["Residente", "residente_nome"], ["Tipo", "modalidade", shortInitial], ["Convênio", "convenio_nome"], ["Parcela", "numero_parcela"], ["Vencimento", "data_vencimento", formatDate], ["Valor", "valor_devido", formatMoney], ["Recebido", "total_recebido_com_encargos", formatMoney], ["Saldo", "saldo_restante", formatMoney], ["Situação", "status", (_, row) => monthlyStatus(row)]], (row) => `${Number(row.saldo_restante) > 0 && !["PAGA", "DESCONTADA"].includes(monthlyStatus(row)) ? `<button class="button" type="button" data-action="open-financial-form" data-kind="recebimento_mensalidade" data-id="${row.id}">Receber</button><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="desconto_mensalidade" data-id="${row.id}">Desconto</button>` : ""}<button class="button button--secondary" type="button" data-action="financial-history" data-kind="entrada" data-id="${row.id}">Histórico</button>`, {
             allStatusesLabel: "Todas as mensalidades",
             statuses: [["A VENCER", "A pagar"], ["PAGA", "Pagas"], ["VENCIDA", "Vencidas"], ["DESCONTADA", "Descontadas"], ["PARCIAL", "Parcialmente pagas"]],
             selectableRows: true,
@@ -1560,8 +1558,8 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         return monthlyFeesContent(dados);
     }
 
-    function paginationControls(action, pagina, paginas, label) {
-        return `<div class="filterable__meta"><p>${pagina.total_filtrado} ${label}</p><div class="report-actions"><button class="button button--secondary button--compact" data-action="${action}" data-page="${pagina.pagina - 1}"${pagina.pagina <= 1 ? " disabled" : ""}>Anterior</button><span>Página ${pagina.pagina} de ${paginas}</span><button class="button button--secondary button--compact" data-action="${action}" data-page="${pagina.pagina + 1}"${pagina.pagina >= paginas ? " disabled" : ""}>Próxima</button></div></div>`;
+    function paginationControls(action, pagina, paginas, label, showCount = true) {
+        return `<div class="filterable__meta">${showCount ? `<p>${pagina.total_filtrado} ${label}</p>` : ""}<div class="report-actions"><button class="button button--secondary button--compact" data-action="${action}" data-page="${pagina.pagina - 1}"${pagina.pagina <= 1 ? " disabled" : ""}>Anterior</button><span>Página ${pagina.pagina} de ${paginas}</span><button class="button button--secondary button--compact" data-action="${action}" data-page="${pagina.pagina + 1}"${pagina.pagina >= paginas ? " disabled" : ""}>Próxima</button></div></div>`;
     }
 
     async function renderPayables() {
@@ -1581,7 +1579,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             filters: false,
         });
         const actions = `<div class="selection-actions" aria-label="Ações da conta selecionada"><span class="selection-actions__label">Conta selecionada</span><button class="button" type="button" data-action="open-financial-form" data-kind="pagamento" data-selection-action="pay" disabled>Pagar</button><button class="button button--danger" type="button" data-action="cancel-payable" data-selection-action="cancel" disabled>Cancelar</button><button class="button button--danger" type="button" data-action="correct-cash-purchase" data-selection-action="correct-cash-purchase" disabled>Corrigir compra</button><button class="button button--secondary" type="button" data-action="financial-history" data-kind="saida" data-selection-action="history" disabled>Histórico</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="compra_avista">Compra à vista</button><button class="button" type="button" data-action="open-financial-form" data-kind="conta">Nova conta</button></div>`;
-        const filtros = `<div class="table-filters"><label>Buscar<input type="search" data-payables-search value="${escapeHtml(payableState.busca)}" placeholder="Descrição, setor ou natureza"></label><label>Situação<select data-payables-filter="status"><option value="">Todas</option>${["ABERTA","PARCIAL","PAGA","CANCELADA"].map(v => `<option value="${v}"${payableState.status === v ? " selected" : ""}>${v}</option>`).join("")}</select></label><label>Vencimento de<input type="date" data-payables-filter="inicio" value="${escapeHtml(payableState.inicio)}"></label><label>Até<input type="date" data-payables-filter="fim" value="${escapeHtml(payableState.fim)}"></label><label>Ordenar<select data-payables-filter="ordem"><option value="vencimento_asc">Vencimento crescente</option><option value="vencimento_desc"${payableState.ordem === "vencimento_desc" ? " selected" : ""}>Vencimento decrescente</option><option value="descricao_asc"${payableState.ordem === "descricao_asc" ? " selected" : ""}>Descrição A–Z</option></select></label></div>`;
+        const filtros = `<div class="table-filters"><label>Buscar<input type="search" data-payables-search value="${escapeHtml(payableState.busca)}" placeholder="Descrição, setor ou natureza"></label><label>Situação<select data-payables-filter="status"><option value="">Todas</option>${["ABERTA","PARCIAL","PAGA","CANCELADA"].map(v => `<option value="${v}"${payableState.status === v ? " selected" : ""}>${v}</option>`).join("")}</select></label><label>Vencimento de<input type="date" data-payables-filter="inicio" value="${escapeHtml(payableState.inicio)}"></label><label>Até<input type="date" data-payables-filter="fim" value="${escapeHtml(payableState.fim)}"></label><label>Ordenar<select data-payables-filter="ordem"><option value="vencimento_desc">Vencimento decrescente</option><option value="vencimento_asc"${payableState.ordem === "vencimento_asc" ? " selected" : ""}>Vencimento crescente</option><option value="descricao_asc"${payableState.ordem === "descricao_asc" ? " selected" : ""}>Descrição A–Z</option></select></label></div>`;
         const navegacao = `<div class="filterable__meta"><p>${pagina.total_filtrado} de ${pagina.total_registros} conta(s) · Restante filtrado: ${formatMoney(pagina.totais_filtrados.restante)}</p></div>`;
         return `<section class="selection-scope financial-fixed-header"><div class="toolbar selection-toolbar">${actions}<button class="button button--secondary button--compact" type="button" data-action="clear-payables-filters">Limpar filtros</button></div>${filtros}${navegacao}${table}</section>`;
     }
@@ -1600,11 +1598,19 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     }
 
     async function renderCashFlow(url = "/api/caixa") {
+        const today = localDate();
+        cashState.inicio ||= `${today.slice(0, 8)}01`;
+        cashState.fim ||= today;
         const separador = url.includes("?") ? "&" : "?";
-        const { dados } = await api(`${url}${separador}pagina=${cashState.pagina}&tamanho=50`);
+        const periodo = `data_inicio=${encodeURIComponent(cashState.inicio)}&data_fim=${encodeURIComponent(cashState.fim)}`;
+        const { dados } = await api(`${url}${separador}${periodo}&pagina=${cashState.pagina}&tamanho=50`);
         const pagina = dados.movimentacoes;
         const paginas = Math.max(1, Math.ceil(pagina.total_filtrado / pagina.tamanho));
-        return `<div class="metrics">${metric("Entradas", dados.total_entradas, "success")}${metric("Saídas", dados.total_saidas, "danger")}${metric("Resultado", dados.resultado, "primary")}</div>${paginationControls("cash-page", pagina, paginas, "movimentação(ões)")}${renderTable(pagina.linhas, [["Data", "data", formatDate], ["Descrição", "descricao"], ["Tipo", "tipo"], ["Forma", "forma_pagamento"], ["Valor", "valor", formatMoney]])}`;
+        const filters = `<div class="cash-flow-filters"><label>Data inicial<input type="date" data-cash-filter="inicio" value="${escapeHtml(cashState.inicio)}" max="${escapeHtml(cashState.fim)}"></label><label>Data final<input type="date" data-cash-filter="fim" value="${escapeHtml(cashState.fim)}" min="${escapeHtml(cashState.inicio)}"></label></div>`;
+        const table = renderTable(pagina.linhas, [["Data", "data", formatDate], ["Descrição", "descricao"], ["Tipo", "tipo"], ["Forma", "forma_pagamento"], ["Valor", "valor", formatMoney]], {
+            rowClass: row => `cash-flow-row cash-flow-row--${row.tipo === "SAIDA" ? "out" : "in"}`,
+        });
+        return `<section class="selection-scope cash-flow"><div class="cash-flow__summary"><div class="metrics">${metric("Entradas", dados.total_entradas, "success")}${metric("Saídas", dados.total_saidas, "danger")}${metric("Resultado", dados.resultado, "info")}</div>${filters}</div>${paginationControls("cash-page", pagina, paginas, "movimentação(ões)", false)}${table}</section>`;
     }
 
     async function renderReports() {

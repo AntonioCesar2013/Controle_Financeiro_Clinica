@@ -121,15 +121,12 @@ do item e desconta imediatamente o total da carteira do residente. O operador po
 serão cobrados posteriormente dos responsáveis. O sistema mantém no histórico o produto, a quantidade e o
 preço utilizado na operação.
 
-O caixa aceita leitores de código de barras configurados no modo teclado: basta
-manter o campo de leitura selecionado e ler o produto. O Enter enviado pelo
-leitor adiciona o item ao carrinho; leituras repetidas aumentam a quantidade.
-Também é possível adicionar produtos manualmente, conferir saldo e total e
+O caixa permite pesquisar produtos pelo nome, conferir saldo e total e
 finalizar todos os itens em um único cupom. O estorno é feito pelo cupom inteiro,
 devolvendo o saldo à carteira e as quantidades ao estoque na mesma operação.
 
-O cadastro de produtos reúne nome, código de barras, descrição, categoria,
-unidade de medida, preço vigente, estoque inicial, estoque mínimo e status. As
+O cadastro de produtos reúne nome, descrição, categoria, unidade de medida,
+preço vigente, estoque inicial, estoque mínimo e status. As
 vendas baixam o estoque automaticamente e são recusadas quando não há unidades
 suficientes.
 

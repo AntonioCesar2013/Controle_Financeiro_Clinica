@@ -73,6 +73,15 @@ class DashboardFinanceiro(unittest.TestCase):
         self.assertEqual((caixa_api['total_entradas'], caixa_api['total_saidas'], caixa_api['resultado']),
                          (1400, 500, 900))
 
+    def test_dashboard_exibe_exatamente_as_dez_ultimas_movimentacoes(self):
+        for indice in range(12):
+            self.f.sql("""INSERT INTO entradas_bancarias(data_entrada,valor,forma_recebimento,descricao,origem_documento)
+                          VALUES(?,100,'PIX',?,?)""", (self.f.hoje, f'Entrada {indice}', f'D-{indice}'))
+        recentes = _dashboard(self.f.hoje, self.f.hoje)['movimentacoes_recentes']
+        self.assertEqual(len(recentes), 10)
+        self.assertEqual(recentes[0]['descricao'], '[Conciliação pendente] Entrada 11')
+        self.assertEqual(recentes[-1]['descricao'], '[Conciliação pendente] Entrada 2')
+
     def test_caixa_paginado_limita_linhas_sem_alterar_totais(self):
         for indice in range(12):
             self.f.sql("""INSERT INTO entradas_bancarias(data_entrada,valor,forma_recebimento,descricao,origem_documento)

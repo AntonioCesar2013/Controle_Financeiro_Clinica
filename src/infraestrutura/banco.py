@@ -192,10 +192,11 @@ def _preparar_schema_legado():
         CREATE TABLE IF NOT EXISTS cobrancas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-            internacao_id INTEGER NOT NULL,
+            internacao_id INTEGER,
 
             numero_parcela INTEGER NOT NULL,
             tipo TEXT NOT NULL,
+            descricao TEXT,
 
             data_vencimento TEXT NOT NULL,
 
@@ -205,12 +206,39 @@ def _preparar_schema_legado():
 
             status TEXT NOT NULL DEFAULT 'ABERTA',
 
+            CHECK (internacao_id IS NOT NULL OR (tipo = 'OUTROS' AND descricao IS NOT NULL)),
+
             UNIQUE (internacao_id, numero_parcela),
 
             FOREIGN KEY (internacao_id)
                 REFERENCES internacoes (id)
         )
     """)
+
+    colunas_cobrancas = {linha[1]: linha for linha in cursor.execute("PRAGMA table_info(cobrancas)")}
+    if colunas_cobrancas["internacao_id"][3] or "descricao" not in colunas_cobrancas:
+        cursor.execute("PRAGMA legacy_alter_table = ON")
+        cursor.execute("ALTER TABLE cobrancas RENAME TO cobrancas_estrutura_anterior")
+        cursor.execute("""CREATE TABLE cobrancas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            internacao_id INTEGER,
+            numero_parcela INTEGER NOT NULL,
+            tipo TEXT NOT NULL,
+            descricao TEXT,
+            data_vencimento TEXT NOT NULL,
+            valor INTEGER NOT NULL,
+            desconto INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'ABERTA',
+            CHECK (internacao_id IS NOT NULL OR (tipo = 'OUTROS' AND descricao IS NOT NULL)),
+            UNIQUE (internacao_id, numero_parcela),
+            FOREIGN KEY (internacao_id) REFERENCES internacoes (id)
+        )""")
+        cursor.execute("""INSERT INTO cobrancas
+            (id,internacao_id,numero_parcela,tipo,descricao,data_vencimento,valor,desconto,status)
+            SELECT id,internacao_id,numero_parcela,tipo,NULL,data_vencimento,valor,desconto,status
+            FROM cobrancas_estrutura_anterior""")
+        cursor.execute("DROP TABLE cobrancas_estrutura_anterior")
+        cursor.execute("PRAGMA legacy_alter_table = OFF")
 
     # ============================================================
     # RECEBIMENTOS
@@ -415,7 +443,6 @@ def _preparar_schema_legado():
 
             nome TEXT NOT NULL UNIQUE,
 
-            codigo_barras TEXT,
             descricao TEXT,
             categoria TEXT,
             unidade_medida TEXT NOT NULL DEFAULT 'UN',
@@ -429,7 +456,6 @@ def _preparar_schema_legado():
     # Migração compatível com bancos criados antes do cadastro completo da Cantina.
     colunas_itens = {linha[1] for linha in cursor.execute("PRAGMA table_info(itens_cantina)")}
     novas_colunas = {
-        "codigo_barras": "TEXT",
         "descricao": "TEXT",
         "categoria": "TEXT",
         "unidade_medida": "TEXT NOT NULL DEFAULT 'UN'",
@@ -439,8 +465,11 @@ def _preparar_schema_legado():
     for nome_coluna, definicao in novas_colunas.items():
         if nome_coluna not in colunas_itens:
             cursor.execute(f"ALTER TABLE itens_cantina ADD COLUMN {nome_coluna} {definicao}")
-    cursor.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_itens_codigo_barras
-                      ON itens_cantina(codigo_barras) WHERE codigo_barras IS NOT NULL""")
+    # Remove definitivamente o antigo campo do leitor, quando vindo de uma versão anterior.
+    campo_antigo = "codigo_" + "barras"
+    if campo_antigo in colunas_itens:
+        cursor.execute(f"DROP INDEX IF EXISTS idx_itens_{campo_antigo}")
+        cursor.execute(f"ALTER TABLE itens_cantina DROP COLUMN {campo_antigo}")
 
     # ============================================================
     # HISTÓRICO DE VALORES DOS ITENS

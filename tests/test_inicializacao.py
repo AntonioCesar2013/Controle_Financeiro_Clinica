@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import main
 from src.infraestrutura import banco
@@ -59,6 +59,28 @@ class InicializacaoTests(unittest.TestCase):
         with patch.dict(os.environ, {'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS': '--opcao-personalizada'}, clear=True):
             main.configurar_webview2_economico()
             self.assertEqual(os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'], '--opcao-personalizada')
+
+    def test_janela_define_identidade_e_icone_proprios_no_windows(self):
+        self.assertTrue(main.caminho_icone().is_file())
+        with patch.object(main.sys, 'platform', 'win32'), patch.object(main.ctypes, 'windll') as winapi:
+            winapi.user32.FindWindowW.return_value = 123
+            winapi.user32.LoadImageW.return_value = 456
+            main.configurar_identidade_windows()
+            main.aplicar_icone_janela_windows()
+        winapi.shell32.SetCurrentProcessExplicitAppUserModelID.assert_called_once_with(main.ID_APLICATIVO_WINDOWS)
+        winapi.user32.FindWindowW.assert_called_once_with(None, main.TITULO_JANELA)
+        self.assertEqual(winapi.user32.SendMessageW.call_count, 2)
+
+    def test_janela_principal_inicia_maximizada(self):
+        http = Mock()
+        janela = MagicMock()
+        view = Mock()
+        view.create_window.return_value = janela
+        with patch.dict('sys.modules', webview=view), patch.object(
+            main, 'criar_servidor', return_value=(http, 'http://127.0.0.1', '')
+        ):
+            main.main()
+        self.assertTrue(view.create_window.call_args.kwargs['maximized'])
 
     def test_segunda_instancia_retorna_codigo_especifico(self):
         with patch.dict('sys.modules', webview=Mock()), patch.object(

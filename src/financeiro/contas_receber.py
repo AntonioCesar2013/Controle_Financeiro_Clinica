@@ -6,6 +6,7 @@ entrou), sem alterar dados persistidos, vencimentos ou status financeiro.
 """
 
 from datetime import date
+import sqlite3
 
 from src.infraestrutura.banco import conectar
 from src.financeiro.parcelas import calcular_status_parcela
@@ -64,6 +65,8 @@ def consolidar_cobranca(cobranca, data_referencia=None):
         "id": cobranca["id"],
         "internacao_id": cobranca["internacao_id"],
         "residente_nome": cobranca.get("residente_nome"),
+        "descricao": cobranca.get("descricao"),
+        "origem_nome": cobranca.get("residente_nome") or cobranca.get("descricao"),
         "responsavel_nome": cobranca.get("responsavel_nome"),
         "residente_id": cobranca.get("residente_id"),
         "modalidade": cobranca.get("modalidade"),
@@ -113,7 +116,7 @@ def _consultar_cobrancas(cobranca_id=None, internacao_id=None, tipo=None, busca=
         parametros.append(tipo)
 
     if busca:
-        filtros.append("(res.nome LIKE ? OR rp.nome LIKE ?)")
+        filtros.append("(res.nome LIKE ? OR c.descricao LIKE ?)")
         termo = f"%{busca.strip()}%"
         parametros.extend((termo, termo))
 
@@ -128,6 +131,7 @@ def _consultar_cobrancas(cobranca_id=None, internacao_id=None, tipo=None, busca=
             c.internacao_id,
             c.numero_parcela,
             c.tipo,
+            c.descricao,
             c.data_vencimento,
             c.valor,
             c.desconto,
@@ -138,9 +142,9 @@ def _consultar_cobrancas(cobranca_id=None, internacao_id=None, tipo=None, busca=
             res.nome AS residente_nome, rp.nome AS responsavel_nome,
             res.id AS residente_id, i.modalidade, cv.nome AS convenio_nome
         FROM cobrancas c
-        JOIN internacoes i ON i.id=c.internacao_id
-        JOIN residentes res ON res.id=i.residente_id
-        JOIN responsaveis rp ON rp.id=i.responsavel_id
+        LEFT JOIN internacoes i ON i.id=c.internacao_id
+        LEFT JOIN residentes res ON res.id=i.residente_id
+        LEFT JOIN responsaveis rp ON rp.id=i.responsavel_id
         LEFT JOIN convenios cv ON cv.id=i.convenio_id
         LEFT JOIN recebimentos_liquidos r
             ON r.cobranca_id = c.id
@@ -160,19 +164,20 @@ def _consultar_cobrancas(cobranca_id=None, internacao_id=None, tipo=None, busca=
             "internacao_id": cobranca[1],
             "numero_parcela": cobranca[2],
             "tipo": cobranca[3],
-            "data_vencimento": cobranca[4],
-            "valor": cobranca[5],
-            "desconto": cobranca[6],
-            "status": cobranca[7],
-            "total_recebido": cobranca[8],
-            "total_multa_juros": cobranca[9],
-            "total_recebido_com_encargos": cobranca[8] + cobranca[9],
-            "data_pagamento": cobranca[10],
-            "residente_nome": cobranca[11],
-            "responsavel_nome": cobranca[12],
-            "residente_id": cobranca[13],
-            "modalidade": cobranca[14],
-            "convenio_nome": cobranca[15],
+            "descricao": cobranca[4],
+            "data_vencimento": cobranca[5],
+            "valor": cobranca[6],
+            "desconto": cobranca[7],
+            "status": cobranca[8],
+            "total_recebido": cobranca[9],
+            "total_multa_juros": cobranca[10],
+            "total_recebido_com_encargos": cobranca[9] + cobranca[10],
+            "data_pagamento": cobranca[11],
+            "residente_nome": cobranca[12],
+            "responsavel_nome": cobranca[13],
+            "residente_id": cobranca[14],
+            "modalidade": cobranca[15],
+            "convenio_nome": cobranca[16],
         }
         for cobranca in cobrancas
     ]
@@ -199,6 +204,35 @@ def listar_cobrancas_consolidadas(internacao_id=None, data_referencia=None):
         consolidar_cobranca(cobranca, data_referencia)
         for cobranca in cobrancas
     ]
+
+
+def cadastrar_conta_avulsa(descricao, data_vencimento, valor):
+    """Registra uma conta a receber sem vínculo obrigatório com uma internação."""
+    descricao = str(descricao or "").strip()
+    if not descricao:
+        return {"sucesso": False, "erro": "Informe a origem ou descrição da conta."}
+    try:
+        date.fromisoformat(str(data_vencimento))
+        valor = int(valor)
+    except (TypeError, ValueError):
+        return {"sucesso": False, "erro": "Vencimento ou valor inválido."}
+    if valor <= 0:
+        return {"sucesso": False, "erro": "O valor deve ser maior que zero."}
+    conexao = conectar()
+    try:
+        cursor = conexao.execute(
+            """INSERT INTO cobrancas
+               (internacao_id,numero_parcela,tipo,descricao,data_vencimento,valor,desconto,status)
+               VALUES(NULL,0,'OUTROS',?,?,?,0,'ABERTA')""",
+            (descricao, data_vencimento, valor),
+        )
+        conexao.commit()
+        return {"sucesso": True, "id": cursor.lastrowid, "tipo": "OUTROS"}
+    except sqlite3.Error as erro:
+        conexao.rollback()
+        return {"sucesso": False, "erro": f"Não foi possível registrar a conta: {erro}"}
+    finally:
+        conexao.close()
 
 
 def listar_mensalidades(data_referencia=None):
@@ -241,16 +275,15 @@ def listar_cobrancas_paginadas(data_referencia=None, tipo=None, busca=None, pagi
             f"SELECT COUNT(*) FROM cobrancas c{filtro_tipo}", params_tipo
         ).fetchone()[0]
         filtro_busca = (" AND" if filtro_tipo else " WHERE") + \
-            " (res.nome LIKE ? OR rp.nome LIKE ?)" if busca else ""
+            " (res.nome LIKE ? OR c.descricao LIKE ?)" if busca else ""
         params_filtro = [*params_tipo]
         if busca:
             termo = f"%{busca}%"
             params_filtro.extend((termo, termo))
         total_filtrado = conexao.execute(
             f"""SELECT COUNT(*) FROM cobrancas c
-                JOIN internacoes i ON i.id=c.internacao_id
-                JOIN residentes res ON res.id=i.residente_id
-                JOIN responsaveis rp ON rp.id=i.responsavel_id
+                LEFT JOIN internacoes i ON i.id=c.internacao_id
+                LEFT JOIN residentes res ON res.id=i.residente_id
                 {filtro_tipo}{filtro_busca}""", params_filtro,
         ).fetchone()[0]
     finally:

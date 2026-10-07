@@ -14,9 +14,6 @@ def rotas_get(query):
             _parametro(query, "id"), _parametro(query, "pagina", 1), _parametro(query, "tamanho", 50)),
         "/api/cantina": lambda: vendas.consultar_cantina(
             _parametro(query, "pagina", 1), _parametro(query, "tamanho", 50)),
-        "/api/cantina/produto": lambda: vendas.buscar_produto_codigo(
-            _parametro(query, "codigo"), _parametro(query, "data")
-        ),
         "/api/itens": lambda: produtos.listar_itens(apenas_ativos=False),
         "/api/itens/historico": lambda: produtos.historico_item_paginado(
             _parametro(query, "id"), _parametro(query, "pagina", 1), _parametro(query, "tamanho", 50)),

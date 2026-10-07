@@ -9,9 +9,10 @@ export function shortInitial(value) {
 }
 
 export function receivableType(value, row = {}) {
-    if (row.setor_nome) return shortSector(row.setor_nome);
     const type = String(value || '').trim().toLocaleUpperCase('pt-BR');
-    return ['MENSALIDADE', 'ACOLHIMENTO'].includes(type) ? `${type.slice(0, 3)}...` : shortSector(type);
+    if (type === 'MENSALIDADE') return 'M';
+    if (type === 'ACOLHIMENTO') return 'A';
+    return 'O';
 }
 
 export function receivablePayment(value, row, today = localDate()) {

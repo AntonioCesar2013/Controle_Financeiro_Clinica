@@ -1,6 +1,7 @@
 import os
 import sys
 import threading
+import ctypes
 from pathlib import Path
 
 # pythonw não fornece console; configure os registros antes de importar o sistema.
@@ -11,6 +12,37 @@ if __name__ == "__main__":
 
 from src.interface.servidor import criar_servidor
 from src.infraestrutura.uso_banco import BancoEmUsoError
+
+
+TITULO_JANELA = "Controle Financeiro — Clínica da Cruz"
+ID_APLICATIVO_WINDOWS = "ClinicaDaCruz.ControleFinanceiro"
+
+
+def caminho_icone():
+    return Path(__file__).resolve().parent / "frontend" / "assets" / "logo-clinica.ico"
+
+
+def configurar_identidade_windows():
+    """Separa o aplicativo do Python e permite ao Windows usar seu próprio ícone."""
+    if sys.platform != "win32":
+        return
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(ID_APLICATIVO_WINDOWS)
+
+
+def aplicar_icone_janela_windows():
+    """Aplica o ícone grande e pequeno à janela nativa e à barra de tarefas."""
+    if sys.platform != "win32":
+        return
+    user32 = ctypes.windll.user32
+    identificador = user32.FindWindowW(None, TITULO_JANELA)
+    if not identificador:
+        return
+    carregar_do_arquivo = 0x0010
+    tamanho_padrao = 0x0040
+    icone = user32.LoadImageW(None, str(caminho_icone()), 1, 0, 0, carregar_do_arquivo | tamanho_padrao)
+    if icone:
+        user32.SendMessageW(identificador, 0x0080, 1, icone)
+        user32.SendMessageW(identificador, 0x0080, 0, icone)
 
 
 def configurar_webview2_economico():
@@ -30,6 +62,7 @@ def configurar_webview2_economico():
 
 def main():
     configurar_webview2_economico()
+    configurar_identidade_windows()
     try:
         import webview
     except ImportError as erro:
@@ -60,16 +93,18 @@ def main():
 
     try:
         janela = webview.create_window(
-            "Controle Financeiro — Clínica da Cruz",
+            TITULO_JANELA,
             endereco,
             width=1280,
             height=800,
             min_size=(980, 640),
+            maximized=True,
             text_select=True,
         )
         janela.events.closed += servidor.shutdown
+        janela.events.loaded += aplicar_icone_janela_windows
         webview.start(gui="edgechromium", debug=False,
-                      icon=str(Path(__file__).resolve().parent / 'frontend' / 'assets' / 'logo-clinica.ico'))
+                      icon=str(caminho_icone()))
     except Exception as erro:
         raise SystemExit(
             "Não foi possível iniciar o WebView2. Verifique se o Microsoft Edge "

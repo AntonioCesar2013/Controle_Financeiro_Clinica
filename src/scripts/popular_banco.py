@@ -163,21 +163,21 @@ def _financeiro(conn):
 
 
 def _cantina(conn):
-    itens = (("Água mineral", "7891000000001", "Bebidas", 400, 1200),
-             ("Suco", "7891000000002", "Bebidas", 650, 900),
-             ("Biscoito", "7891000000003", "Alimentos", 750, 850),
-             ("Chocolate", "7891000000004", "Doces", 900, 700),
-             ("Kit de higiene", "7891000000005", "Higiene", 2200, 400),
-             ("Corte de cabelo", "7891000000006", "Serviços", 3000, 0))
+    itens = (("Água mineral", "Bebidas", 400, 1200),
+             ("Suco", "Bebidas", 650, 900),
+             ("Biscoito", "Alimentos", 750, 850),
+             ("Chocolate", "Doces", 900, 700),
+             ("Kit de higiene", "Higiene", 2200, 400),
+             ("Corte de cabelo", "Serviços", 3000, 0))
     conn.executemany(
-        """INSERT INTO itens_cantina(nome,codigo_barras,descricao,categoria,unidade_medida,
-           estoque_atual,estoque_minimo,ativo) VALUES(?,?,?,?,'UN',?,?,1)""",
-        [(n, c, f"{n} fictício", cat, estoque, 20 if estoque else 0) for n, c, cat, _, estoque in itens],
+        """INSERT INTO itens_cantina(nome,descricao,categoria,unidade_medida,
+           estoque_atual,estoque_minimo,ativo) VALUES(?,?,?,'UN',?,?,1)""",
+        [(n, f"{n} fictício", cat, estoque, 20 if estoque else 0) for n, cat, _, estoque in itens],
     )
     conn.executemany("INSERT INTO itens_cantina_valores(item_id,valor,data_inicio_valor,ativo) VALUES(?,?,?,1)",
-                     [(i, item[3], "2026-03-01") for i, item in enumerate(itens, 1)])
+                     [(i, item[2], "2026-03-01") for i, item in enumerate(itens, 1)])
     conn.executemany("INSERT INTO carteiras(residente_id,saldo,ativo) VALUES(?,0,1)", [(i,) for i in range(1, 13)])
-    estoques = {i: item[4] for i, item in enumerate(itens, 1)}
+    estoques = {i: item[3] for i, item in enumerate(itens, 1)}
     saldos = {i: 0 for i in range(1, 13)}
     venda = 0
     for item, quantidade in estoques.items():

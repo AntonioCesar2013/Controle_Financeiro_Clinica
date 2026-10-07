@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { shortSector, shortInitial, receivableType, receivablePayment } from '../frontend/js/components/financial-labels.js';
 import { renderActionTable } from '../frontend/js/components/renderers.js';
-assert.equal(receivableType('MENSALIDADE'), 'MEN...');
-assert.equal(receivableType('ACOLHIMENTO'), 'ACO...');
-assert.equal(receivableType('OUTRO', {setor_nome: 'Administração'}), 'ADM');
+assert.equal(receivableType('MENSALIDADE'), 'M');
+assert.equal(receivableType('ACOLHIMENTO'), 'A');
+assert.equal(receivableType('OUTROS'), 'O');
 assert.equal(shortSector('Administração'), 'ADM');
 for (const [value, expected] of [['PARTICULAR','P'],['SOCIAL','S'],['CONVENIO','C'],['VARIAVEL','V'],['FIXA','F']]) assert.equal(shortInitial(value), expected);
 const row = {status:'PARCIAL', saldo_restante:100, data_vencimento:'2000-01-01'};

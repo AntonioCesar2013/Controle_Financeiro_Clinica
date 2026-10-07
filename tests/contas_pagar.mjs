@@ -12,6 +12,7 @@ assert.equal(parametros.get('tamanho'), null);
 assert.equal(parametros.get('completo'), '1');
 assert.equal(parametros.get('status'), 'ABERTA');
 assert.equal(parametros.get('busca'), 'Água');
+assert.equal(parametrosContasPagar({}).get('ordem'), 'vencimento_desc');
 assert.equal(parametrosContasPagar({...estado, inicio: '', fim: ''}).get('data_inicio'), '');
 
 const registros = {setores: [{id: 1, ativo: 0}, {id: 2, ativo: 1}], despesas: [
@@ -25,6 +26,8 @@ assert.match(appSource, /data-kind="expense" data-selection-action="edit" disabl
 assert.match(appSource, /endpoint = "\/api\/despesas\/editar"/);
 assert.doesNotMatch(appSource, /data-action="payables-page"/);
 assert.match(appSource, /data-kind="compra_avista">Compra à vista/);
+assert.match(appSource, /payableState = \{[^}]*ordem: "vencimento_desc"/);
+assert.match(appSource, /<option value="vencimento_desc">Vencimento decrescente<\/option><option value="vencimento_asc"/);
 assert.match(appSource, /definitions\.compra_avista = \["Nova compra à vista", "\/api\/compras-avista"/);
 console.log('Contas a pagar: contrato de filtros e despesas elegíveis validados.');
 if (process.argv.includes('--query')) {

@@ -1,8 +1,8 @@
 /* Cantina, carteiras e estoque. */
 
-.canteen-entry { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; align-items: stretch; }
 .canteen-checkout { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--color-border); border-radius: 16px; background: var(--color-surface); }
 .canteen-customer { display: grid; grid-template-columns: minmax(0, 75fr) 42px minmax(150px, 20fr); gap: 10px; margin-bottom: 18px; align-items: end; }
+.canteen-product-selector { display: grid; grid-template-columns: minmax(0, 1fr) 42px; gap: 10px; margin-bottom: 18px; align-items: end; }
 .canteen-resident-search-button { display: grid; width: 42px; height: 40px; padding: 0; place-items: center; border: 1px solid var(--color-action); border-radius: 8px; background: var(--color-action); color: #fff; font-size: 1.1rem; }
 .canteen-resident-search-button:hover, .canteen-resident-search-button:focus-visible { border-color: var(--color-action-dark); background: var(--color-action-dark); }
 .canteen-balance { display: grid; padding: 10px 14px; align-content: center; gap: 5px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-primary-soft); }
@@ -10,14 +10,7 @@
 .canteen-balance strong { color: var(--color-primary-dark); font-size: 1.18rem; }
 .canteen-balance strong.amount--positive { color: var(--color-success); }
 .canteen-balance strong.amount--negative { color: var(--color-danger); }
-.canteen-checkout h3,
-.canteen-scanner h3,
-.canteen-product-search h3 { margin: 0; }
-.canteen-scanner,
-.canteen-product-search { display: grid; gap: 14px; padding: 18px; border: 2px solid var(--color-primary); border-radius: 16px; background: var(--color-primary-soft); }
-.canteen-scanner form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
-.canteen-scanner form .login-error { grid-column: 1 / -1; margin: 0; }
-.canteen-scanner input { font-size: 1.12rem; font-weight: 700; letter-spacing: .04em; }
+.canteen-checkout h3 { margin: 0; }
 .canteen-checkout__details { display: grid; grid-template-columns: minmax(0, 1fr) minmax(135px, 180px); gap: 10px; align-items: end; }
 .canteen-totals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .canteen-totals article { display: grid; gap: 5px; padding: 12px; border-radius: 10px; background: var(--color-surface-muted); }
@@ -32,6 +25,17 @@
 .resident-search-result span { color: var(--color-text-muted); font-size: .8rem; }
 .resident-search-result span.amount--positive { color: var(--color-success); }
 .resident-search-result span.amount--negative { color: var(--color-danger); }
+
+.cash-flow__summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 14px; }
+.cash-flow__summary .metrics { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+.cash-flow-filters { display: flex; gap: 10px; padding: 8px 0; }
+.cash-flow-filters label { display: grid; gap: 5px; color: var(--color-text-muted); font-size: .78rem; font-weight: 700; }
+.cash-flow-filters input { min-height: 38px; padding: 7px 10px; border: 1px solid var(--color-border-strong); border-radius: 8px; background: #fff; color: var(--color-text); }
+.cash-flow-row--in td { color: var(--color-success); }
+.cash-flow-row--out td { color: var(--color-danger); }
+
+.product-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.product-form-grid .field { min-width: 0; }
 .monthly-report table { min-width: 0; table-layout: auto; font-size: .76rem; }
 .monthly-report th, .monthly-report td { padding: 9px 10px; white-space: normal; line-height: 1.35; }
 .monthly-report td[data-column-type="money"] { white-space: nowrap; overflow-wrap: normal; word-break: normal; }
@@ -85,6 +89,21 @@
         .internments-report .status { font-size: calc(.68rem - 2pt); }
     }
 }
+.selection-scope .selection-actions.internment-actions {
+    width: 100%;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: clamp(3px, .65vw, 8px);
+}
+.internment-actions .button {
+    min-width: 0;
+    min-height: clamp(32px, 3vw, 40px);
+    padding: 6px clamp(6px, .9vw, 14px);
+    flex: 0 1 auto;
+    font-size: clamp(.68rem, .82vw, .88rem);
+    white-space: nowrap;
+}
+.internment-actions .selection-actions__divider { margin: 0 clamp(1px, .35vw, 4px); }
 .products-report th, .products-report td { padding: 9px 10px; }
 .products-report td:last-child:has(.report-actions) { min-width: 150px; }
 .products-report td:last-child .report-actions { flex-wrap: wrap; }

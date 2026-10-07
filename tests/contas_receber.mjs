@@ -44,6 +44,10 @@ const panelCtx = vm.createContext({ api: async path => ({ dados: path.startsWith
     renderActionTable, formatMoney, formatDate, valueOrStatus: valueOrDash, receivableType, receivablePayment, shortInitial,
     localDate: () => '2026-09-16' });
 vm.runInContext(trecho('    async function renderReceivables()', '    async function renderPayables()'), panelCtx);
+const receivablesHtml = await vm.runInContext('renderReceivables()', panelCtx);
+assert.match(receivablesHtml, />Origem</);
+assert.doesNotMatch(receivablesHtml, />Responsável<|>Saldo</);
+assert.match(receivablesHtml, /data-kind="conta_receber_avulsa">Nova conta/);
 for (const method of ['renderReceivables()', 'renderMonthlyFees()']) {
     const html = await vm.runInContext(method, panelCtx);
     assert.match(html, /data-kind="desconto(?:_mensalidade)?"/);

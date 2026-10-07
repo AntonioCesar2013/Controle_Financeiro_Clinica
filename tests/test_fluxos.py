@@ -20,6 +20,14 @@ class Fluxos(unittest.TestCase):
     carteira = fixtures.Regressoes.carteira
     post = fixtures.Regressoes.post
 
+    def test_cantina_nao_possui_campo_de_leitor(self):
+        campo_antigo = "codigo_" + "barras"
+        self.assertNotIn(campo_antigo, [linha[1] for linha in self.sql("PRAGMA table_info(itens_cantina)")])
+        self.sql(f"ALTER TABLE itens_cantina ADD COLUMN {campo_antigo} TEXT")
+        self.sql(f"CREATE UNIQUE INDEX idx_itens_{campo_antigo} ON itens_cantina({campo_antigo})")
+        banco.criar_tabelas()
+        self.assertNotIn(campo_antigo, [linha[1] for linha in self.sql("PRAGMA table_info(itens_cantina)")])
+
     def test_produto_com_historico_nao_vira_servico_e_estorno_repoe(self):
         wid, pid = self.carteira()
         venda = vendas.registrar_compra(wid, [{'item_id': pid, 'quantidade': 20}])

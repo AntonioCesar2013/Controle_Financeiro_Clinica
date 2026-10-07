@@ -45,6 +45,7 @@ OBRIGATORIOS = {
     '/api/despesas': ('setor_id','descricao'), '/api/despesas/desativar': ('id',),
     '/api/despesas/editar': ('id','setor_id','descricao','natureza'),
     '/api/contas-pagar': ('despesa_id','data_vencimento','valor'),
+    '/api/contas-receber/avulsa': ('descricao','data_vencimento','valor'),
     '/api/compras-avista': ('despesa_id','data_pagamento','valor','forma_pagamento'),
     '/api/compras-avista/corrigir': ('conta_id','motivo'),
     '/api/contas-pagar/cancelar': ('conta_id',),

@@ -14,6 +14,9 @@
 }
 
 @media (max-width: 760px) {
+    .product-form-grid { grid-template-columns: 1fr; }
+    .cash-flow__summary { grid-template-columns: 1fr; }
+    .cash-flow-filters { padding-top: 0; }
     .panel--menu {
         top: 8px;
         right: 8px;
@@ -48,8 +51,8 @@
 }
 
 @media (max-width: 560px) {
-    .canteen-entry { grid-template-columns: 1fr; }
     .canteen-customer { grid-template-columns: 1fr; gap: 10px; }
+    .canteen-product-selector { grid-template-columns: minmax(0, 1fr) 42px; }
     .wallet-summary { grid-template-columns: 1fr; }
     .inventory-summary { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
     .metrics { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
@@ -68,7 +71,6 @@
     .metrics { grid-template-columns: 1fr; }
     .toolbar__group { flex-basis: 100%; }
     .field { flex: 1 1 100%; }
-    .canteen-scanner form,
     .canteen-checkout__details,
     .canteen-totals { grid-template-columns: 1fr; }
     .inventory-summary { grid-template-columns: 1fr; }

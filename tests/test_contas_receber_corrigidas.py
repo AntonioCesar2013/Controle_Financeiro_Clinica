@@ -5,7 +5,7 @@ import uuid
 from unittest.mock import patch
 
 import test_regressoes as base_tests
-from src.financeiro import cobrancas, devolucoes, recebimentos
+from src.financeiro import caixa, cobrancas, devolucoes, recebimentos
 from src.financeiro import contas_receber
 from src.financeiro.estornos import historico, historico_ajustes
 from src.interface.extrato_residente import consultar
@@ -135,6 +135,25 @@ class ContasReceberCorrigidas(unittest.TestCase):
         self.assertTrue(all('modalidade' in x for x in mensalidades['linhas']))
         with self.assertRaises(ValueError):
             contas_receber.listar_cobrancas_paginadas(pagina=0, tamanho=10)
+
+    def test_conta_avulsa_integra_recebimento_busca_e_caixa(self):
+        criada = self.post('/api/contas-receber/avulsa', {
+            'descricao': 'Serviço prestado por colaborador',
+            'data_vencimento': self.f.hoje,
+            'valor': '125.50',
+        })
+        self.assertTrue(criada.get('sucesso'), criada)
+        conta = contas_receber.buscar_cobranca_consolidada(criada['id'], self.f.hoje)
+        self.assertEqual((conta['tipo'], conta['origem_nome'], conta['internacao_id']),
+                         ('OUTROS', 'Serviço prestado por colaborador', None))
+        resultado = contas_receber.listar_cobrancas_paginadas(
+            busca='colaborador', pagina=1, tamanho=10, data_referencia=self.f.hoje)
+        self.assertEqual([linha['id'] for linha in resultado['linhas']], [criada['id']])
+        recebido = recebimentos.registrar_pagamento(criada['id'], self.f.hoje, 12550)
+        self.assertTrue(recebido['sucesso'], recebido)
+        movimentos = caixa.resumo_com_movimentacoes(self.f.hoje, self.f.hoje)['movimentacoes']
+        self.assertTrue(any(item.get('residente_nome') == 'Serviço prestado por colaborador'
+                            for item in movimentos))
 
 
 if __name__ == '__main__':

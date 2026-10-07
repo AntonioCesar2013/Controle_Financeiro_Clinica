@@ -45,9 +45,9 @@ def painel(pagina=1, tamanho=50):
             'recebimentos': [dict(r) for r in conn.execute("""
                 SELECT r.id,r.valor + COALESCE(r.multa_juros,0) AS valor,
                        r.valor AS valor_principal,r.multa_juros,
-                       r.data_recebimento AS data,res.nome,c.numero_parcela
+                       r.data_recebimento AS data,COALESCE(res.nome,c.descricao) AS nome,c.numero_parcela
                 FROM recebimentos r JOIN cobrancas c ON c.id=r.cobranca_id
-                JOIN internacoes i ON i.id=c.internacao_id JOIN residentes res ON res.id=i.residente_id
+                LEFT JOIN internacoes i ON i.id=c.internacao_id LEFT JOIN residentes res ON res.id=i.residente_id
                 WHERE NOT EXISTS(SELECT 1 FROM conciliacoes_vinculos v WHERE v.recebimento_id=r.id)
                 ORDER BY r.data_recebimento DESC,r.id DESC LIMIT 100""")],
             'creditos': [dict(r) for r in conn.execute("""

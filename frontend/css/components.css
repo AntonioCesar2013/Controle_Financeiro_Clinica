@@ -129,6 +129,8 @@ form[aria-busy="true"] .button:disabled { cursor: wait; }
 .metric--success { border-top: 3px solid var(--color-success); }
 .metric--danger { border-top: 3px solid var(--color-danger); }
 .metric--primary { border-top: 3px solid var(--color-primary); }
+.metric--info { border-top: 3px solid #2563eb; }
+.metric--info .metric__value { color: #2563eb; }
 .metric--warning { border-top: 3px solid #f59e0b; }
 
 .section-title {
@@ -389,7 +391,6 @@ tbody tr:hover { background: var(--color-action-soft); }
 @container (max-width: 680px) {
     [data-column-key="setor_nome"],
     [data-column-key="tipo"],
-    [data-column-key="codigo_barras"],
     [data-column-key="categoria"],
     [data-column-key="numero_parcela"],
     [data-column-key="total_recebido"],

@@ -107,7 +107,7 @@ def listar_itens(apenas_ativos=True):
     try:
         cursor = conexao.cursor()
 
-        sql = """SELECT i.id, i.nome, i.codigo_barras, i.descricao, i.categoria,
+        sql = """SELECT i.id, i.nome, i.descricao, i.categoria,
                         i.unidade_medida, i.estoque_atual, i.estoque_minimo, i.ativo,
                         CASE WHEN i.ativo=0 THEN 'INATIVO'
                              WHEN UPPER(i.categoria) IN ('SERVIÇO','SERVIÇOS','SERVICO','SERVICOS') THEN 'NÃO SE APLICA'
@@ -411,11 +411,10 @@ def alterar_status_valor(item_valor_id, ativo):
 
 
 def cadastrar_produto(nome, valor, estoque_inicial=0, estoque_minimo=0,
-                      codigo_barras=None, descricao=None, categoria=None,
+                      descricao=None, categoria=None,
                       unidade_medida="UN", ativo=1, data_inicio_valor=None):
     """Cadastra produto, preço inicial e estoque em uma única transação."""
     nome = str(nome or "").strip()
-    codigo_barras = str(codigo_barras or "").strip() or None
     descricao = str(descricao or "").strip() or None
     categoria = str(categoria or "").strip() or None
     unidade_medida = str(unidade_medida or "UN").strip().upper()
@@ -452,9 +451,9 @@ def cadastrar_produto(nome, valor, estoque_inicial=0, estoque_minimo=0,
         conexao.execute("BEGIN")
         cursor = conexao.execute(
             """INSERT INTO itens_cantina
-               (nome,codigo_barras,descricao,categoria,unidade_medida,estoque_atual,estoque_minimo,ativo)
-               VALUES (?,?,?,?,?,?,?,?)""",
-            (nome, codigo_barras, descricao, categoria, unidade_medida,
+               (nome,descricao,categoria,unidade_medida,estoque_atual,estoque_minimo,ativo)
+               VALUES (?,?,?,?,?,?,?)""",
+            (nome, descricao, categoria, unidade_medida,
              estoque_inicial, estoque_minimo, ativo),
         )
         item_id = cursor.lastrowid
@@ -476,17 +475,14 @@ def cadastrar_produto(nome, valor, estoque_inicial=0, estoque_minimo=0,
     except sqlite3.IntegrityError as erro:
         conexao.rollback()
         mensagem = "Já existe um produto com esse nome."
-        if codigo_barras and "codigo_barras" in str(erro):
-            mensagem = "Já existe um produto com esse código de barras."
         return {"sucesso": False, "erro": mensagem}
     finally:
         conexao.close()
 
 
-def editar_produto(item_id, nome, codigo_barras=None, descricao=None, categoria=None,
+def editar_produto(item_id, nome, descricao=None, categoria=None,
                    unidade_medida="UN", estoque_minimo=0, ativo=1):
     nome = str(nome or "").strip()
-    codigo_barras = str(codigo_barras or "").strip() or None
     descricao = str(descricao or "").strip() or None
     categoria = str(categoria or "").strip() or None
     unidade_medida = str(unidade_medida or "").strip().upper()
@@ -518,9 +514,9 @@ def editar_produto(item_id, nome, codigo_barras=None, descricao=None, categoria=
             if anterior[1] or possui_historico:
                 return {"sucesso": False, "erro": "Não é possível trocar produto por serviço (ou o contrário) com estoque ou histórico. Cadastre um novo item."}
         cursor = conexao.execute(
-            """UPDATE itens_cantina SET nome=?,codigo_barras=?,descricao=?,categoria=?,
+            """UPDATE itens_cantina SET nome=?,descricao=?,categoria=?,
                unidade_medida=?,estoque_minimo=?,estoque_atual=CASE WHEN ? THEN 0 ELSE estoque_atual END,ativo=? WHERE id=?""",
-            (nome, codigo_barras, descricao, categoria, unidade_medida, estoque_minimo, int(_eh_servico(categoria)), ativo, item_id),
+            (nome, descricao, categoria, unidade_medida, estoque_minimo, int(_eh_servico(categoria)), ativo, item_id),
         )
         if cursor.rowcount == 0:
             return {"sucesso": False, "erro": "Produto não encontrado."}
@@ -528,8 +524,6 @@ def editar_produto(item_id, nome, codigo_barras=None, descricao=None, categoria=
         return {"sucesso": True, "id": item_id, "nome": nome, "ativo": ativo}
     except sqlite3.IntegrityError as erro:
         mensagem = "Já existe um produto com esse nome."
-        if codigo_barras and "codigo_barras" in str(erro):
-            mensagem = "Já existe um produto com esse código de barras."
         return {"sucesso": False, "erro": mensagem}
     finally:
         conexao.close()

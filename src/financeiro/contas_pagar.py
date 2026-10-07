@@ -445,7 +445,7 @@ def listar_contas(
 
 
 def listar_contas_paginadas(status=None, data_inicio=None, data_fim=None, busca=None,
-                            pagina=1, tamanho=50, ordem="vencimento_asc", completo=False):
+                            pagina=1, tamanho=50, ordem="vencimento_desc", completo=False):
     """Lista contas com filtros aplicados no servidor e totais independentes da página."""
     try:
         pagina = max(1, int(pagina))

@@ -42,10 +42,11 @@ def _pagina(pagina, tamanho=20):
 
 def _posicao(conn):
     receber = [dict(r) for r in conn.execute('''
-        SELECT c.id,r.nome || ' — parcela ' || c.numero_parcela AS nome,
+        SELECT c.id,CASE WHEN c.internacao_id IS NULL THEN c.descricao
+                         ELSE r.nome || ' — parcela ' || c.numero_parcela END AS nome,
                c.valor-c.desconto-COALESCE((SELECT SUM(valor) FROM recebimentos_liquidos WHERE cobranca_id=c.id),0) AS valor
-        FROM cobrancas c JOIN internacoes i ON i.id=c.internacao_id
-        JOIN residentes r ON r.id=i.residente_id WHERE c.status!='CANCELADA' ORDER BY c.id''')]
+        FROM cobrancas c LEFT JOIN internacoes i ON i.id=c.internacao_id
+        LEFT JOIN residentes r ON r.id=i.residente_id WHERE c.status!='CANCELADA' ORDER BY c.id''')]
     pagar = [dict(r) for r in conn.execute('''
         SELECT c.id,d.descricao AS nome,
                c.valor-c.desconto-COALESCE((SELECT SUM(valor) FROM pagamentos_saida WHERE conta_pagar_id=c.id),0) AS valor
