@@ -38,7 +38,11 @@ Get-ChildItem -LiteralPath $pastaSistema -Directory -Recurse -Force |
     Sort-Object FullName -Descending |
     Remove-Item -Recurse -Force
 Get-ChildItem -LiteralPath $pastaSistema -File -Recurse -Force |
-    Where-Object { $_.Extension -eq ".pyc" -or $_.Name -like "test*.py" } |
+    Where-Object {
+        $_.Extension -eq ".pyc" -or
+        $_.Name -like "test*.py" -or
+        $_.Name -in @("popular_banco.py", "popular_despesas_reais.py", "popular_entradas_reais.py")
+    } |
     Remove-Item -Force
 
 $scripts = Join-Path $pastaSistema "src\scripts"
