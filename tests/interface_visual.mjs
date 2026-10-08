@@ -55,6 +55,7 @@ assert.match(modules, /\.wallet-summary\s*{[^}]*grid-template-columns:\s*minmax\
 assert.match(app, /wallet-selector[\s\S]*open-wallet-resident-search[\s\S]*button--success[\s\S]*Nova carteira/, "seleção, pesquisa e nova carteira devem ficar na mesma linha e na ordem solicitada");
 assert.match(app, /wallet-status--active[\s\S]*wallet-status--inactive/, "situação da carteira deve distinguir ativo e inativo por cor");
 assert.match(app, /dados\.creditos[\s\S]*\{ filters: false \}/, "créditos da carteira não devem exibir pesquisa própria");
+assert.match(app, /dados\.compras[^\n]+\{ filters: false \}/, "compras da carteira não devem exibir pesquisa própria");
 assert.match(components, /\.button--success\s*{[^}]*background:\s*var\(--color-success\)/s, "botão Nova carteira deve usar verde");
 assert.match(app, /\["Tipo", "modalidade", shortInitial\]/, "internações devem exibir o tipo pela inicial");
 assert.match(app, /<label for="internment-modality">Tipo de residência<\/label>/, "formulários de internação devem usar a nomenclatura Tipo");
@@ -74,6 +75,7 @@ assert.match(app, /data-endpoint="\/api\/convenios\/editar"/, "o formulário dev
 assert.match(tableLayout, /padding-top:\s*5px/, "painéis financeiros devem iniciar até 5 px abaixo do cabeçalho");
 assert.match(tableLayout, /justify-content:\s*space-between/, "ações e limpeza devem ocupar a mesma linha");
 assert.match(tableLayoutScript, /filters\.after\(toolbar\)/, "as ações devem ficar abaixo dos filtros");
+assert.match(tableLayoutScript, /internmentActions \|\| toolbar\)\.append\(clear\)/, "Limpar filtros deve integrar a linha de ações das internações");
 assert.match(auth, /\.settlement-form\s+\.login-error:empty\s*{[^}]*display:\s*none/s, "o formulário financeiro não deve reservar espaço para erro vazio");
 for (const tone of ["particular", "convenio", "social", "voluntario"]) {
     assert.match(components, new RegExp(`\\.residence-type--${tone}`), `deve existir a cor do tipo ${tone}`);

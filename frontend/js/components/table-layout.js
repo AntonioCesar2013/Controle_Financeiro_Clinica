@@ -12,7 +12,10 @@ export function organizeTablePanels(root) {
                 meta.classList.add('table-pagination');
             } else {
                 const clear = meta.querySelector('[data-action="clear-table-filters"]');
-                if (clear && toolbar) toolbar.append(clear);
+                if (clear && toolbar) {
+                    const internmentActions = toolbar.querySelector('.internment-actions');
+                    (internmentActions || toolbar).append(clear);
+                }
                 meta.classList.add('table-filter-feedback');
             }
         }
