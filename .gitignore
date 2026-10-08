@@ -8,4 +8,5 @@ tmp/
 distribuicao/dependencias-python/
 distribuicao/pre-requisitos/
 distribuicao/instalador-sistema/build/
+distribuicao/ControleFinanceiroClinica-Instalacao/
 ~*.CAB

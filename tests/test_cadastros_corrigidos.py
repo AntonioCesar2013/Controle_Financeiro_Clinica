@@ -84,6 +84,66 @@ class CadastrosCorrigidos(unittest.TestCase):
         self.assertEqual(self.fixture.sql('SELECT nome,valor_diaria,ativo FROM convenios WHERE id=?', (criado['id'],))[0], ('Saúde B', 15000, 0))
         self.assertEqual(self.fixture.sql('SELECT valor_diaria FROM internacoes WHERE id=?', (internacao['id'],))[0][0], 10000)
 
+    def test_convenio_fixo_gera_acolhimento_e_mensalidades(self):
+        rid = residentes.cadastrar_residente('Convênio fixo', '10987654321', 'Cidade')['id']
+        resultado = internacoes.cadastrar_internacao_com_cobrancas(
+            rid, 1, self.fixture.hoje, 2, 70000, 10000, 30000,
+            'CONVENIO', 1, None, 'FIXA',
+        )
+        self.assertTrue(resultado['sucesso'], resultado)
+        registro = self.fixture.sql(
+            'SELECT modalidade,tipo_cobranca_convenio,convenio_id,valor_diaria,valor_contrato FROM internacoes WHERE id=?',
+            (resultado['id'],),
+        )[0]
+        self.assertEqual(registro, ('CONVENIO', 'FIXA', 1, 0, 70000))
+        cobrancas = self.fixture.sql(
+            'SELECT numero_parcela,tipo,valor FROM cobrancas WHERE internacao_id=? ORDER BY numero_parcela',
+            (resultado['id'],),
+        )
+        self.assertEqual(cobrancas, [(0, 'ACOLHIMENTO', 10000), (1, 'MENSALIDADE', 30000), (2, 'MENSALIDADE', 30000)])
+
+        invalido = internacoes.cadastrar_internacao_com_cobrancas(
+            residentes.cadastrar_residente('Fixo inválido', '10987654322', 'Cidade')['id'],
+            1, self.fixture.hoje, 2, 60000, 10000, 30000, 'CONVENIO', 1, None, 'FIXA',
+        )
+        self.assertFalse(invalido['sucesso'])
+        self.assertIn('contrato', invalido['erro'].lower())
+
+    def test_historico_permite_responsavel_e_reclassificacao_para_convenio_fixo(self):
+        rid = residentes.cadastrar_residente('Histórico fixo', '10987654323', 'Cidade')['id']
+        criada = internacoes.cadastrar_internacao_com_cobrancas(
+            rid, 1, self.fixture.hoje, 2, 70000, 10000, 30000, 'PARTICULAR',
+        )
+        cobrancas_antes = self.fixture.sql(
+            'SELECT id,numero_parcela,tipo,valor FROM cobrancas WHERE internacao_id=? ORDER BY numero_parcela',
+            (criada['id'],),
+        )
+        self.fixture.sql(
+            "INSERT INTO recebimentos(cobranca_id,data_recebimento,valor,forma_recebimento) VALUES(?,?,?,'PIX')",
+            (cobrancas_antes[0][0], self.fixture.hoje, 10000),
+        )
+        novo_responsavel = responsaveis.cadastrar_responsavel('Responsável novo', '10987654324', None, None)['id']
+        alterada = internacoes.editar_internacao(
+            criada['id'], rid, novo_responsavel, self.fixture.hoje, 2,
+            70000, 10000, 30000, 'CONVENIO', 1, None, 'FIXA',
+        )
+        self.assertTrue(alterada['sucesso'], alterada)
+        self.assertEqual(alterada['cobrancas'], 0)
+        self.assertEqual(
+            self.fixture.sql('SELECT responsavel_id,modalidade,tipo_cobranca_convenio,convenio_id FROM internacoes WHERE id=?', (criada['id'],))[0],
+            (novo_responsavel, 'CONVENIO', 'FIXA', 1),
+        )
+        self.assertEqual(
+            self.fixture.sql('SELECT id,numero_parcela,tipo,valor FROM cobrancas WHERE internacao_id=? ORDER BY numero_parcela', (criada['id'],)),
+            cobrancas_antes,
+        )
+        bloqueada = internacoes.editar_internacao(
+            criada['id'], rid, novo_responsavel, self.fixture.hoje, 3,
+            100000, 10000, 30000, 'CONVENIO', 1, None, 'FIXA',
+        )
+        self.assertFalse(bloqueada['sucesso'])
+        self.assertIn('histórico financeiro', bloqueada['erro'])
+
     def test_reinternacao_na_saida_e_contato_preservado(self):
         rid = residentes.cadastrar_residente('Teste', '23456789012', 'Cidade')['id']
         inicio = (date.today() - timedelta(days=5)).isoformat()

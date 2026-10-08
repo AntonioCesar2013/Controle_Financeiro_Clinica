@@ -30,7 +30,8 @@ def previa(internacao_id, data_encerramento, politica=None, conexao=None):
         raise ValueError('O encerramento não pode anteceder o acolhimento.')
     if i['modalidade'] != 'VOLUNTARIO' and fim > calcular_data_vencimento(i['data_acolhimento'], i['periodo_tratamento']):
         raise ValueError('O encerramento não pode ultrapassar o período contratado.')
-    if i['modalidade'] == 'PARTICULAR':
+    cobranca_fixa = i['modalidade'] == 'PARTICULAR' or (i['modalidade'] == 'CONVENIO' and i['tipo_cobranca_convenio'] == 'FIXA')
+    if cobranca_fixa:
         if politica not in ('MANTER', 'DISPENSAR_FUTURAS'):
             raise ValueError('Escolha manter as cobranças ou dispensar mensalidades com vencimento após a saída.')
     else:

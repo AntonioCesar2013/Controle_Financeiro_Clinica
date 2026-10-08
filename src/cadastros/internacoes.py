@@ -73,12 +73,17 @@ def cadastrar_internacao(
     modalidade="PARTICULAR",
     convenio_id=None,
     servicos_voluntario=None,
+    tipo_cobranca_convenio="DIARIA",
     conexao=None,
 ):
     modalidade = str(modalidade or "PARTICULAR").strip().upper()
     modalidades = {"PARTICULAR", "SOCIAL", "CONVENIO", "VOLUNTARIO"}
     if modalidade not in modalidades:
         return {"sucesso": False, "erro": "Modalidade de residência inválida."}
+    tipo_cobranca_convenio = str(tipo_cobranca_convenio or "DIARIA").strip().upper()
+    if modalidade == "CONVENIO" and tipo_cobranca_convenio not in {"DIARIA", "FIXA"}:
+        return {"sucesso": False, "erro": "Tipo de cobrança do convênio inválido."}
+    convenio_fixo = modalidade == "CONVENIO" and tipo_cobranca_convenio == "FIXA"
     try:
         periodo_tratamento = 0 if modalidade == "VOLUNTARIO" else int(periodo_tratamento)
         date.fromisoformat(data_acolhimento)
@@ -89,7 +94,7 @@ def cadastrar_internacao(
         return {"sucesso": False, "erro": "O período de tratamento deve ser maior que zero."}
     if any(valor < 0 for valor in valores):
         return {"sucesso": False, "erro": "Os valores da internação não podem ser negativos."}
-    if modalidade == "PARTICULAR" and valores[0] != valores[1] + valores[2] * periodo_tratamento:
+    if (modalidade == "PARTICULAR" or convenio_fixo) and valores[0] != valores[1] + valores[2] * periodo_tratamento:
         return {"sucesso": False, "erro": "O contrato deve corresponder ao acolhimento mais as mensalidades do período."}
 
     conexao_propria = conexao is None
@@ -139,8 +144,11 @@ def cadastrar_internacao(
             if conexao_propria:
                 conexao.close()
             return {"sucesso": False, "erro": "Selecione um convênio ativo."}
-        valor_diaria = convenio["valor_diaria"]
-        valores = [0, 0, 0]
+        if convenio_fixo:
+            valor_diaria = 0
+        else:
+            valor_diaria = convenio["valor_diaria"]
+            valores = [0, 0, 0]
     elif modalidade in ("SOCIAL", "VOLUNTARIO"):
         valores = [0, 0, 0]
         convenio_id = None
@@ -183,9 +191,10 @@ def cadastrar_internacao(
             modalidade,
             convenio_id,
             valor_diaria,
+            tipo_cobranca_convenio,
             servicos_voluntario
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             residente_id,
@@ -193,7 +202,7 @@ def cadastrar_internacao(
             data_acolhimento,
             periodo_tratamento,
             valores[0], valores[1], valores[2], modalidade, convenio_id,
-            valor_diaria, servicos_voluntario
+            valor_diaria, tipo_cobranca_convenio, servicos_voluntario
         )
     )
 
@@ -261,7 +270,7 @@ def buscar_internacao(internacao_id):
             i.valor_acolhimento,
             i.valor_mensalidade,
             i.status,i.modalidade,i.convenio_id,c.nome AS convenio_nome,
-            i.valor_diaria,i.servicos_voluntario
+            i.valor_diaria,i.tipo_cobranca_convenio,i.servicos_voluntario
         FROM internacoes i
         INNER JOIN residentes r
             ON r.id = i.residente_id
@@ -287,11 +296,16 @@ def editar_internacao(
     internacao_id, residente_id, responsavel_id, data_acolhimento,
     periodo_tratamento, valor_contrato, valor_acolhimento, valor_mensalidade,
     modalidade="PARTICULAR", convenio_id=None, servicos_voluntario=None,
+    tipo_cobranca_convenio="DIARIA",
 ):
     """Corrige uma internação aberta e refaz cobranças somente sem histórico financeiro."""
     modalidade = str(modalidade or "PARTICULAR").strip().upper()
     if modalidade not in {"PARTICULAR", "SOCIAL", "CONVENIO", "VOLUNTARIO"}:
         return {"sucesso": False, "erro": "Modalidade de residência inválida."}
+    tipo_cobranca_convenio = str(tipo_cobranca_convenio or "DIARIA").strip().upper()
+    if modalidade == "CONVENIO" and tipo_cobranca_convenio not in {"DIARIA", "FIXA"}:
+        return {"sucesso": False, "erro": "Tipo de cobrança do convênio inválido."}
+    convenio_fixo = modalidade == "CONVENIO" and tipo_cobranca_convenio == "FIXA"
     try:
         internacao_id = int(internacao_id)
         residente_id = int(residente_id)
@@ -307,7 +321,7 @@ def editar_internacao(
         return {"sucesso": False, "erro": "O período de tratamento deve ser maior que zero."}
     if any(valor < 0 for valor in valores):
         return {"sucesso": False, "erro": "Os valores da internação não podem ser negativos."}
-    if modalidade == "PARTICULAR" and valores[0] != valores[1] + valores[2] * periodo_tratamento:
+    if (modalidade == "PARTICULAR" or convenio_fixo) and valores[0] != valores[1] + valores[2] * periodo_tratamento:
         return {"sucesso": False, "erro": "O contrato deve corresponder ao acolhimento mais as mensalidades do período."}
 
     servicos_voluntario = str(servicos_voluntario or "").strip() or None
@@ -336,8 +350,11 @@ def editar_internacao(
             convenio = conexao.execute("SELECT valor_diaria,ativo FROM convenios WHERE id=?", (convenio_id,)).fetchone()
             if not convenio or not convenio[1]:
                 return {"sucesso": False, "erro": "Selecione um convênio ativo."}
-            valor_diaria = convenio[0]
-            valores = [0, 0, 0]
+            if convenio_fixo:
+                valor_diaria = 0
+            else:
+                valor_diaria = convenio[0]
+                valores = [0, 0, 0]
         elif modalidade in ("SOCIAL", "VOLUNTARIO"):
             convenio_id = None
             valores = [0, 0, 0]
@@ -359,33 +376,50 @@ def editar_internacao(
         campos_contratuais = (
             residente_id, data_acolhimento, periodo_tratamento, valores[0], valores[1], valores[2],
             modalidade, int(convenio_id) if convenio_id not in (None, "") else None,
-            valor_diaria, servicos_voluntario if modalidade == "VOLUNTARIO" else None,
+            valor_diaria, tipo_cobranca_convenio,
+            servicos_voluntario if modalidade == "VOLUNTARIO" else None,
         )
         atuais = (
             atual["residente_id"], atual["data_acolhimento"], atual["periodo_tratamento"],
-            0 if atual["modalidade"] in ("CONVENIO", "SOCIAL", "VOLUNTARIO") else atual["valor_contrato"],
+            0 if (atual["modalidade"] in ("SOCIAL", "VOLUNTARIO") or
+                  (atual["modalidade"] == "CONVENIO" and atual["tipo_cobranca_convenio"] != "FIXA")) else atual["valor_contrato"],
             atual["valor_acolhimento"], atual["valor_mensalidade"],
-            atual["modalidade"], atual["convenio_id"], atual["valor_diaria"], atual["servicos_voluntario"],
+            atual["modalidade"], atual["convenio_id"], atual["valor_diaria"],
+            atual["tipo_cobranca_convenio"], atual["servicos_voluntario"],
         )
         contrato_alterado = campos_contratuais != atuais
+        possui_historico = conexao.execute(
+            """SELECT EXISTS(
+                   SELECT 1 FROM recebimentos r JOIN cobrancas c ON c.id=r.cobranca_id
+                   WHERE c.internacao_id=?
+               ) OR EXISTS(
+                   SELECT 1 FROM ajustes_cobrancas a JOIN cobrancas c ON c.id=a.cobranca_id
+                   WHERE c.internacao_id=?
+               )""", (internacao_id, internacao_id)
+        ).fetchone()[0]
+        reclassificacao_fixa = False
         if contrato_alterado:
-            possui_historico = conexao.execute(
-                """SELECT EXISTS(
-                       SELECT 1 FROM recebimentos r JOIN cobrancas c ON c.id=r.cobranca_id
-                       WHERE c.internacao_id=?
-                   ) OR EXISTS(
-                       SELECT 1 FROM ajustes_cobrancas a JOIN cobrancas c ON c.id=a.cobranca_id
-                       WHERE c.internacao_id=?
-                   )""", (internacao_id, internacao_id)
-            ).fetchone()[0]
             if possui_historico:
-                return {"sucesso": False, "erro": "Esta internação já possui histórico de recebimentos ou ajustes. Corrija somente o responsável; os dados contratuais precisam ser tratados pelo fluxo financeiro."}
-            conexao.execute("DELETE FROM cobrancas WHERE internacao_id=?", (internacao_id,))
+                atual_fixo = atual["modalidade"] == "CONVENIO" and atual["tipo_cobranca_convenio"] == "FIXA"
+                campos_preservados = (
+                    residente_id == atual["residente_id"] and
+                    data_acolhimento == atual["data_acolhimento"] and
+                    periodo_tratamento == atual["periodo_tratamento"] and
+                    tuple(valores) == (atual["valor_contrato"], atual["valor_acolhimento"], atual["valor_mensalidade"])
+                )
+                reclassificacao_fixa = (
+                    campos_preservados and modalidade == "CONVENIO" and convenio_fixo and
+                    (atual["modalidade"] == "PARTICULAR" or atual_fixo)
+                )
+                if not reclassificacao_fixa:
+                    return {"sucesso": False, "erro": "Esta internação já possui histórico financeiro. Altere somente o responsável ou classifique uma internação particular como Convênio - Fixo, sem modificar residente, datas, período ou valores."}
+            else:
+                conexao.execute("DELETE FROM cobrancas WHERE internacao_id=?", (internacao_id,))
 
         conexao.execute(
             """UPDATE internacoes SET residente_id=?,responsavel_id=?,data_acolhimento=?,
                periodo_tratamento=?,valor_contrato=?,valor_acolhimento=?,valor_mensalidade=?,
-               modalidade=?,convenio_id=?,valor_diaria=?,servicos_voluntario=? WHERE id=?""",
+               modalidade=?,convenio_id=?,valor_diaria=?,tipo_cobranca_convenio=?,servicos_voluntario=? WHERE id=?""",
             (*campos_contratuais[:1], responsavel_id, *campos_contratuais[1:], internacao_id),
         )
         conexao.execute(
@@ -394,7 +428,7 @@ def editar_internacao(
             (residente_id, responsavel_id, "Responsável contratual"),
         )
         quantidade = 0
-        if contrato_alterado:
+        if contrato_alterado and not reclassificacao_fixa:
             resultado = criar_contrato_internacao(internacao_id, conexao=conexao)
             if not resultado.get("sucesso"):
                 raise ValueError(resultado.get("erro") or "Não foi possível recalcular as cobranças.")

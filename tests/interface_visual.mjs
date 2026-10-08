@@ -16,9 +16,11 @@ assert.doesNotMatch(base, /transform:\s*scale\(/, "a interface não deve usar es
 assert.match(base, /--sidebar-width:\s*clamp\(/, "a barra lateral deve possuir limites fluidos");
 assert.match(responsive, /max-width:\s*760px/, "o layout deve reorganizar a navegação em telas estreitas");
 assert.match(layout, /menu-group__title/, "o menu deve possuir títulos de grupos");
-for (const group of ["Visão geral", "Módulos", "Pessoas", "Atendimento", "Operação", "Estoque", "Acesso", "Sistema"]) {
+for (const group of ["Módulos", "Pessoas", "Atendimento", "Operação", "Estoque", "Acesso", "Sistema"]) {
     assert(app.includes(`\"${group}\"`), `o menu deve incluir o grupo ${group}`);
 }
+assert.doesNotMatch(app, /\["dashboard", "Dashboard", "Indicadores e movimentos"/, "menu geral não deve exibir o botão Dashboard");
+assert.match(app, /\["financeiro", "Visão financeira"[^\n]+\n\s*\["relatorios", "Relatórios", "Análises por período", "open-panel", "Resumo"\]/, "Relatórios deve ficar imediatamente abaixo de Visão financeira");
 assert.match(app, /\["carteiras", "Carteiras", "Créditos, saldos e compras", "open-panel", "Residentes"\]/);
 assert.match(app, /data-dashboard-chart-start/);
 assert.match(app, /data-dashboard-chart-end/);
@@ -44,6 +46,11 @@ assert.match(app, /id="product-price"[^>]*type="text"[^>]*data-mask="currency"[^
 assert.match(app, /data\.valor = currencyValue\(data\.valor\)\.toFixed\(2\)/, "preço mascarado do produto deve ser enviado com os centavos corretos");
 assert.match(app, /class="product-form-grid"[\s\S]*product-unit[\s\S]*product-price[\s\S]*product-price-date[\s\S]*product-stock[\s\S]*product-minimum[\s\S]*product-status/, "cadastro de produto deve agrupar os seis campos em uma grade");
 assert.match(modules, /\.product-form-grid\s*{[^}]*grid-template-columns:\s*repeat\(3,/s, "cadastro de produto deve exibir três campos por linha");
+assert.match(modules, /\.wallet-summary\s*{[^}]*grid-template-columns:\s*minmax\(0, 2fr\)\s+minmax\(0, 1fr\)\s+minmax\(0, 1fr\)/s, "resumo da carteira deve usar 50%, 25% e 25% em uma linha");
+assert.match(app, /wallet-selector[\s\S]*open-wallet-resident-search[\s\S]*button--success[\s\S]*Nova carteira/, "seleção, pesquisa e nova carteira devem ficar na mesma linha e na ordem solicitada");
+assert.match(app, /wallet-status--active[\s\S]*wallet-status--inactive/, "situação da carteira deve distinguir ativo e inativo por cor");
+assert.match(app, /dados\.creditos[\s\S]*\{ filters: false \}/, "créditos da carteira não devem exibir pesquisa própria");
+assert.match(components, /\.button--success\s*{[^}]*background:\s*var\(--color-success\)/s, "botão Nova carteira deve usar verde");
 assert.match(app, /\["Tipo", "modalidade", shortInitial\]/, "internações devem exibir o tipo pela inicial");
 assert.match(app, /<label for="internment-modality">Tipo de residência<\/label>/, "formulários de internação devem usar a nomenclatura Tipo");
 assert.doesNotMatch(app, />Modalidade(?: de residência)?</, "a interface não deve exibir a nomenclatura antiga");

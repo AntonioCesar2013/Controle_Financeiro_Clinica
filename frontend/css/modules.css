@@ -50,11 +50,16 @@
 .monthly-report th:nth-child(7) { width: 95px; }
 .monthly-report .report-actions { flex-wrap: wrap; }
 .monthly-report .button { min-height: 32px; padding: 5px 8px; font-size: .72rem; }
-.wallet-selector { display: grid; grid-template-columns: minmax(0, 1fr) 42px; gap: 10px; align-items: end; margin-bottom: 18px; }
-.wallet-summary { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 12px; }
+.wallet-selector { display: grid; grid-template-columns: minmax(0, 1fr) 42px auto; gap: 10px; align-items: end; margin-bottom: 8px; }
+.wallet-selector > .button { min-height: 40px; white-space: nowrap; }
+.wallet-create-only { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.wallet-actions { margin: 0 0 8px; }
+.wallet-summary { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
 .wallet-summary article { display: grid; gap: 7px; padding: 18px; border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-surface-muted); }
 .wallet-summary span { color: var(--color-text-muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; }
 .wallet-summary strong { font-size: 1.2rem; }
+.wallet-status--active { color: var(--color-success); }
+.wallet-status--inactive { color: var(--color-danger); }
 .inventory-summary { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 10px; margin-bottom: 18px; }
 .inventory-summary article { display: grid; gap: 6px; padding: 15px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface-muted); }
 .inventory-summary span { color: var(--color-text-muted); font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; }

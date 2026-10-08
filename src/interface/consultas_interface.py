@@ -36,7 +36,11 @@ def listar_internacoes():
                i.valor_acolhimento, i.valor_mensalidade, i.status,
                i.residente_id,i.responsavel_id,i.encerrada_em,i.motivo_encerramento,
                i.modalidade,i.convenio_id,c.nome AS convenio_nome,i.valor_diaria,
-               i.servicos_voluntario
+               i.tipo_cobranca_convenio,i.servicos_voluntario,
+               EXISTS(SELECT 1 FROM recebimentos rec JOIN cobrancas cob ON cob.id=rec.cobranca_id
+                      WHERE cob.internacao_id=i.id) OR
+               EXISTS(SELECT 1 FROM ajustes_cobrancas aj JOIN cobrancas cob ON cob.id=aj.cobranca_id
+                      WHERE cob.internacao_id=i.id) AS possui_historico_financeiro
         FROM internacoes i
         INNER JOIN residentes r ON r.id = i.residente_id
         INNER JOIN responsaveis rp ON rp.id = i.responsavel_id

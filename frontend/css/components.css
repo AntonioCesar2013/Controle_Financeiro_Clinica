@@ -93,6 +93,9 @@ form[aria-busy="true"] .button:disabled { cursor: wait; }
 .button--danger { background: var(--color-danger); }
 .button--danger:hover,
 .button--danger:focus-visible { background: var(--color-primary-dark); box-shadow: 0 8px 18px rgba(200, 16, 46, .22); }
+.button--success { border-color: var(--color-success); background: var(--color-success); color: #fff; }
+.button--success:hover,
+.button--success:focus-visible { border-color: #166534; background: #166534; box-shadow: 0 8px 18px rgba(21, 128, 61, .22); }
 
 .metrics {
     display: grid;

@@ -373,8 +373,6 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     function openGeneralMenu() {
         renderMenu("Menu geral", "Controle Financeiro", [
-            ["dashboard", "Dashboard", "Indicadores e movimentos", "open-panel", "Visão geral"],
-            ["relatorios", "Relatórios", "Análises por período", "open-panel", "Visão geral"],
             ["financeiro", "Financeiro", "Receber, pagar e conferir", "open-financial-menu", "Módulos"],
             ["cadastros", "Cadastros", "Residentes, responsáveis e internações", "open-registrations-menu", "Módulos"],
             ["cantina", "Cantina", "Vendas, carteiras e estoque", "open-canteen-menu", "Módulos"],
@@ -386,6 +384,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     function openFinancialMenu() {
         renderMenu("Menu financeiro", "Módulo", [
             ["financeiro", "Visão financeira", "Resumo do módulo", "open-panel", "Resumo"],
+            ["relatorios", "Relatórios", "Análises por período", "open-panel", "Resumo"],
             ["contas_receber", "Contas a receber", "Cobranças e recebimentos", "open-panel", "Operações"],
             ["mensalidades", "Mensalidades", "Pagas, vencidas e a vencer", "open-panel", "Operações"],
             ["contas_pagar", "Contas a pagar", "Vencimentos e pagamentos", "open-panel", "Operações"],
@@ -445,7 +444,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (id === state.activePanelName) return true;
         if (nestedMenu) return false;
         const modulePanels = {
-            financeiro: ["financeiro", "contas_receber", "mensalidades", "contas_pagar", "caixa", "conferencia", "despesas"],
+            financeiro: ["financeiro", "contas_receber", "mensalidades", "contas_pagar", "caixa", "conferencia", "despesas", "relatorios"],
             cadastros: ["residentes", "responsaveis", "internacoes"],
             cantina: ["cantina", "carteiras", "itens"],
             administracao: ["itens_administracao", "importacoes", "colaboradores", "configuracoes"],
@@ -711,35 +710,55 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             const agreements = (agreementsResponse.dados || []).filter((item) => Number(item.ativo) === 1 || String(item.id) === String(internment?.convenio_id));
             const agreementOptions = agreements.map((item) => `<option value="${item.id}"${selected(item.id, internment?.convenio_id)}>${escapeHtml(item.nome)} — ${formatMoney(item.valor_diaria)} por dia</option>`).join("");
             const today = localDate();
-            const mode = internment?.modalidade || "PARTICULAR";
+            const mode = internment?.modalidade === "CONVENIO"
+                ? (internment?.tipo_cobranca_convenio === "FIXA" ? "CONVENIO_FIXO" : "CONVENIO_DIARIO")
+                : (internment?.modalidade || "PARTICULAR");
+            const hasFinancialHistory = Boolean(Number(internment?.possui_historico_financeiro));
+            const allModeOptions = [
+                ["PARTICULAR", "Particular"], ["SOCIAL", "Social"],
+                ["CONVENIO_FIXO", "Convênio - Fixo"], ["CONVENIO_DIARIO", "Convênio - Diário"],
+                ["VOLUNTARIO", "Voluntário"],
+            ];
+            const allowedModes = hasFinancialHistory
+                ? (mode === "PARTICULAR" ? allModeOptions.filter(([value]) => value === "PARTICULAR" || value === "CONVENIO_FIXO")
+                    : allModeOptions.filter(([value]) => value === mode))
+                : allModeOptions;
+            const modeOptions = allowedModes.map(([value, label]) => `<option value="${value}"${selected(value, mode)}>${label}</option>`).join("");
+            const locked = hasFinancialHistory ? " readonly" : "";
+            const residentLock = hasFinancialHistory ? `<input type="hidden" name="residente_id" value="${escapeHtml(internment.residente_id)}">` : "";
             const money = value => escapeHtml(formatMoney(Number(value || 0)));
-            const body = `<form class="login-form" id="internment-form">${id ? `<input type="hidden" name="id" value="${escapeHtml(id)}">` : ""}${internmentSearchField('resident', 'Residente', 'residente_id', residentOptions)}${internmentSearchField('guardian', 'Responsável', 'responsavel_id', guardianOptions)}<div class="internment-form__row"><div class="field"><label for="internment-modality">Tipo de residência</label><select id="internment-modality" name="modalidade" required><option value="PARTICULAR"${selected("PARTICULAR", mode)}>Particular</option><option value="SOCIAL"${selected("SOCIAL", mode)}>Social</option><option value="CONVENIO"${selected("CONVENIO", mode)}>Convênio</option><option value="VOLUNTARIO"${selected("VOLUNTARIO", mode)}>Voluntário</option></select></div><div class="field"><label for="internment-date">Data de acolhimento</label><input id="internment-date" name="data_acolhimento" type="date" value="${escapeHtml(internment?.data_acolhimento || today)}" required></div><div class="field" data-period-field><label for="internment-period">Período de tratamento (meses)</label><input id="internment-period" name="periodo_tratamento" inputmode="numeric" type="number" min="1" step="1" value="${escapeHtml(internment?.periodo_tratamento || "")}" required></div></div><div class="field" data-agreement-field hidden><label for="internment-agreement">Convênio</label><select id="internment-agreement" name="convenio_id"><option value="">Selecione</option>${agreementOptions}</select><small>O valor é calculado pela diária e pelos dias de tratamento em cada mês.</small></div><div class="internment-form__row" data-particular-fields><div class="field"><label for="internment-contract">Valor do contrato</label><input id="internment-contract" name="valor_contrato" readonly title="Acolhimento + mensalidades do período" type="text" inputmode="numeric" data-mask="currency" value="${money(internment?.valor_contrato)}" required></div><div class="field"><label for="internment-welcome">Valor do acolhimento</label><input id="internment-welcome" name="valor_acolhimento" type="text" inputmode="numeric" data-mask="currency" value="${money(internment?.valor_acolhimento)}" required></div><div class="field"><label for="internment-monthly">Mensalidade</label><input id="internment-monthly" name="valor_mensalidade" type="text" inputmode="numeric" data-mask="currency" value="${money(internment?.valor_mensalidade)}" required></div></div><div class="field" data-volunteer-field hidden><label for="internment-services">Serviços prestados à clínica</label><textarea id="internment-services" name="servicos_voluntario" rows="4" placeholder="Descreva as atividades combinadas">${escapeHtml(internment?.servicos_voluntario || "")}</textarea></div>${id ? '<p class="form-note">Alterações contratuais recalculam as cobranças quando ainda não existe histórico financeiro.</p>' : ""}<p class="form-note" data-internment-note></p><p class="login-error" data-internment-error role="alert"></p><button class="button" type="submit">${id ? "Salvar alterações" : "Salvar internação"}</button></form>`;
+            const residentField = internmentSearchField('resident', 'Residente', 'residente_id', residentOptions)
+                .replace('name="residente_id"', `name="residente_id"${hasFinancialHistory ? " disabled" : ""}`)
+                .replace('data-internment-search="resident"', `data-internment-search="resident"${hasFinancialHistory ? " disabled" : ""}`);
+            const body = `<form class="login-form" id="internment-form">${id ? `<input type="hidden" name="id" value="${escapeHtml(id)}">` : ""}${residentLock}${residentField}${internmentSearchField('guardian', 'Responsável', 'responsavel_id', guardianOptions)}<div class="internment-form__row"><div class="field"><label for="internment-modality">Tipo de residência</label><select id="internment-modality" name="modalidade" required>${modeOptions}</select></div><div class="field"><label for="internment-date">Data de acolhimento</label><input id="internment-date" name="data_acolhimento" type="date" value="${escapeHtml(internment?.data_acolhimento || today)}" required${locked}></div><div class="field" data-period-field><label for="internment-period">Período de tratamento (meses)</label><input id="internment-period" name="periodo_tratamento" inputmode="numeric" type="number" min="1" step="1" value="${escapeHtml(internment?.periodo_tratamento || "")}" required${locked}></div></div><div class="field" data-agreement-field hidden><label for="internment-agreement">Convênio</label><select id="internment-agreement" name="convenio_id"><option value="">Selecione</option>${agreementOptions}</select><small data-agreement-help></small></div><div class="internment-form__row" data-particular-fields><div class="field"><label for="internment-contract">Valor do contrato</label><input id="internment-contract" name="valor_contrato" readonly title="Acolhimento + mensalidades do período" type="text" inputmode="numeric" data-mask="currency" value="${money(internment?.valor_contrato)}" required></div><div class="field"><label for="internment-welcome">Valor do acolhimento</label><input id="internment-welcome" name="valor_acolhimento" type="text" inputmode="numeric" data-mask="currency" value="${money(internment?.valor_acolhimento)}" required${locked}></div><div class="field"><label for="internment-monthly">Mensalidade fixa</label><input id="internment-monthly" name="valor_mensalidade" type="text" inputmode="numeric" data-mask="currency" value="${money(internment?.valor_mensalidade)}" required${locked}></div></div><div class="field" data-volunteer-field hidden><label for="internment-services">Serviços prestados à clínica</label><textarea id="internment-services" name="servicos_voluntario" rows="4" placeholder="Descreva as atividades combinadas"${locked}>${escapeHtml(internment?.servicos_voluntario || "")}</textarea></div>${hasFinancialHistory ? '<p class="form-note">Esta internação possui histórico financeiro. Somente o responsável e a classificação para Convênio - Fixo podem ser alterados; datas, período e valores estão bloqueados.</p>' : id ? '<p class="form-note">Alterações contratuais recalculam as cobranças quando ainda não existe histórico financeiro.</p>' : ""}<p class="form-note" data-internment-note></p><p class="login-error" data-internment-error role="alert"></p><button class="button" type="submit">${id ? "Salvar alterações" : "Salvar internação"}</button></form>`;
             layers.auxiliary.replaceChildren(createPanel({ title: id ? "Editar internação" : "Nova internação", eyebrow: "Acolhimento e contrato", body, size: "medium" }));
             bindInternmentSearch(document.querySelector("#internment-form"), residents, guardians, internments);
             updateInternmentMode(mode);
-            if (mode === "PARTICULAR") updateContractTotal();
+            if (mode === "PARTICULAR" || mode === "CONVENIO_FIXO") updateContractTotal();
         } catch (error) { showAlert("Não foi possível abrir", error.message); }
     }
 
     function updateInternmentMode(mode) {
         const form = document.querySelector("#internment-form");
         if (!form) return;
-        const particular = mode === "PARTICULAR";
-        const agreement = mode === "CONVENIO";
+        const fixed = mode === "PARTICULAR" || mode === "CONVENIO_FIXO";
+        const agreement = mode === "CONVENIO_FIXO" || mode === "CONVENIO_DIARIO";
+        const daily = mode === "CONVENIO_DIARIO";
         const volunteer = mode === "VOLUNTARIO";
-        form.querySelector("[data-particular-fields]").hidden = !particular;
+        form.querySelector("[data-particular-fields]").hidden = !fixed;
         form.querySelector("[data-agreement-field]").hidden = !agreement;
         form.querySelector("[data-volunteer-field]").hidden = !volunteer;
         form.querySelector("[data-period-field]").hidden = volunteer;
-        ["valor_contrato", "valor_acolhimento", "valor_mensalidade"].forEach((name) => form.elements[name].required = particular);
+        ["valor_contrato", "valor_acolhimento", "valor_mensalidade"].forEach((name) => form.elements[name].required = fixed);
         form.elements.convenio_id.required = agreement;
         form.elements.servicos_voluntario.required = volunteer;
         form.elements.periodo_tratamento.required = !volunteer;
         form.elements.periodo_tratamento.disabled = volunteer;
         form.elements.convenio_id.disabled = !agreement;
         form.elements.servicos_voluntario.disabled = !volunteer;
-        ["valor_contrato", "valor_acolhimento", "valor_mensalidade"].forEach(name => form.elements[name].disabled = !particular);
-        form.querySelector("[data-internment-note]").textContent = volunteer ? "A permanência não tem prazo e continuará ativa até o encerramento manual." : mode === "SOCIAL" ? "O contrato terá período definido, sem gerar cobranças." : agreement ? "As cobranças serão separadas por mês conforme as diárias do período." : "O residente ficará ativo somente enquanto esta internação estiver dentro do período contratado.";
+        ["valor_contrato", "valor_acolhimento", "valor_mensalidade"].forEach(name => form.elements[name].disabled = !fixed);
+        form.querySelector("[data-agreement-help]").textContent = daily ? "O valor é calculado pela diária e pelos dias de tratamento em cada mês." : "O convênio será cobrado por acolhimento e mensalidade fixa, como uma internação particular.";
+        form.querySelector("[data-internment-note]").textContent = volunteer ? "A permanência não tem prazo e continuará ativa até o encerramento manual." : mode === "SOCIAL" ? "O contrato terá período definido, sem gerar cobranças." : daily ? "As cobranças serão separadas por mês conforme as diárias do período." : mode === "CONVENIO_FIXO" ? "Serão geradas uma cobrança de acolhimento e as mensalidades fixas do período." : "O residente ficará ativo somente enquanto esta internação estiver dentro do período contratado.";
     }
 
     function openConvenioForm() {
@@ -1393,7 +1412,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function renderInternments() {
         const { dados } = await api("/api/internacoes");
-        const table = renderActionTable(dados, [["Residente", "residente_nome"], ["Tipo", "modalidade", shortInitial], ["Convênio", "convenio_nome"], ["Responsável", "responsavel_nome"], ["Acolhimento", "data_acolhimento", formatDate], ["Período", "periodo_tratamento", (value, row) => row.modalidade === "VOLUNTARIO" ? "Sem prazo" : `${value} meses`], ["Contrato", "valor_contrato", formatMoney], ["Diária", "valor_diaria", (value, row) => row.modalidade === "CONVENIO" ? formatMoney(value) : "—"], ["Status", "status"], ["Encerrada em", "encerrada_em", formatDate]], () => "", {
+        const table = renderActionTable(dados, [["Residente", "residente_nome"], ["Tipo", "modalidade", shortInitial], ["Convênio", "convenio_nome"], ["Cobrança", "tipo_cobranca_convenio", (value, row) => row.modalidade === "CONVENIO" ? (value === "FIXA" ? "Fixa" : "Diária") : "—"], ["Responsável", "responsavel_nome"], ["Acolhimento", "data_acolhimento", formatDate], ["Período", "periodo_tratamento", (value, row) => row.modalidade === "VOLUNTARIO" ? "Sem prazo" : `${value} meses`], ["Contrato", "valor_contrato", formatMoney], ["Diária", "valor_diaria", (value, row) => row.modalidade === "CONVENIO" && row.tipo_cobranca_convenio !== "FIXA" ? formatMoney(value) : "—"], ["Status", "status"], ["Encerrada em", "encerrada_em", formatDate]], () => "", {
             selectableRows: true,
             selectionData: (row) => ({
                 id: row.id,
@@ -1407,13 +1426,12 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     async function renderWallets() {
         const { dados } = await api("/api/carteiras");
         walletResidents = dados || [];
-        const toolbar = '<div class="toolbar"><div></div><button class="button" type="button" data-action="open-wallet-form" data-kind="create">Nova carteira</button></div>';
-        if (!dados?.length) return `${toolbar}${emptyState("Nenhuma carteira cadastrada", "Crie uma carteira para o residente antes de consultar saldo e compras.")}`;
+        if (!dados?.length) return `<div class="wallet-create-only"><button class="button button--success" type="button" data-action="open-wallet-form" data-kind="create">Nova carteira</button></div>${emptyState("Nenhuma carteira cadastrada", "Crie uma carteira para o residente antes de consultar saldo e compras.")}`;
         const selected = dados.find((wallet) => String(wallet.id) === selectedWalletId);
         selectedWalletId = selected ? String(selected.id) : "";
         const options = `<option value=""${selected ? "" : " selected"}>Selecione um residente</option>` + dados.map((wallet) => `<option value="${wallet.id}"${String(wallet.id) === selectedWalletId ? " selected" : ""}>${escapeHtml(wallet.residente_nome)}</option>`).join("");
         const detail = selected ? await renderWalletDetail(selected.id) : walletSelectionPlaceholder();
-        return `${toolbar}<div class="wallet-selector"><div class="field"><label for="wallet-resident">Residente</label><select id="wallet-resident">${options}</select></div><button class="canteen-resident-search-button" type="button" data-action="open-wallet-resident-search" aria-label="Pesquisar residente" title="Pesquisar residente">🔍</button></div><div data-wallet-detail>${detail}</div>`;
+        return `<div class="wallet-selector"><div class="field"><label for="wallet-resident">Residente</label><select id="wallet-resident">${options}</select></div><button class="canteen-resident-search-button" type="button" data-action="open-wallet-resident-search" aria-label="Pesquisar residente" title="Pesquisar residente">🔍</button><button class="button button--success" type="button" data-action="open-wallet-form" data-kind="create">Nova carteira</button></div><div data-wallet-detail>${detail}</div>`;
     }
 
     function walletSelectionPlaceholder() {
@@ -1465,12 +1483,12 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const dados = resultado.dados;
         if (!dados?.sucesso) throw new Error(dados?.erro || "Carteira não encontrada.");
         const wallet = dados.carteira;
-        const credits = renderActionTable(dados.creditos, [["Data", "data_movimentacao", formatDate], ["Valor", "valor_total", formatMoney], ["Situação", "estornada", formatReversal], ["Motivo do estorno", "motivo_estorno"]], (row) => Number(row.estornada) === 0 ? `<button class="button button--secondary" type="button" data-action="open-wallet-form" data-kind="correct" data-id="${row.id}" data-value="${row.valor_total}" data-date="${row.data_movimentacao}">Corrigir</button><button class="button button--danger" type="button" data-action="wallet-reversal" data-id="${row.id}">Estornar</button>` : "");
+        const credits = renderActionTable(dados.creditos, [["Data", "data_movimentacao", formatDate], ["Valor", "valor_total", formatMoney], ["Situação", "estornada", formatReversal], ["Motivo do estorno", "motivo_estorno"]], (row) => Number(row.estornada) === 0 ? `<button class="button button--secondary" type="button" data-action="open-wallet-form" data-kind="correct" data-id="${row.id}" data-value="${row.valor_total}" data-date="${row.data_movimentacao}">Corrigir</button><button class="button button--danger" type="button" data-action="wallet-reversal" data-id="${row.id}">Estornar</button>` : "", { filters: false });
         const purchases = renderActionTable(dados.compras, [["Cupom", "venda_id"], ["Data", "data_movimentacao", formatDate], ["Produto", "item_nome"], ["Quantidade", "quantidade"], ["Valor unitário", "valor_unitario", formatMoney], ["Total descontado", "valor_total", formatMoney], ["Situação", "estornada", formatReversal]], (row) => Number(row.estornada) === 0 && !row.venda_id ? `<button class="button button--danger" type="button" data-action="wallet-reversal" data-id="${row.id}">Estornar compra</button>` : "");
         const walletActions = Number(wallet.ativo) === 1 ? `<button class="button" type="button" data-action="open-wallet-form" data-kind="credit" data-id="${wallet.id}">Adicionar crédito</button><button class="button button--danger" type="button" data-action="wallet-status" data-id="${wallet.id}" data-ativo="0">Inativar carteira</button>` : `<button class="button" type="button" data-action="wallet-status" data-id="${wallet.id}" data-ativo="1">Reativar carteira</button>`;
         const paginas = Math.max(1, Math.ceil(dados.paginacao.total_filtrado / dados.paginacao.tamanho));
         const navegacao = paginationControls("wallet-history-page", dados.paginacao, paginas, "movimentação(ões)");
-        return `<div class="toolbar"><div></div><div class="report-actions">${walletActions}${Number(wallet.saldo) > 0 ? `<button class="button button--secondary" data-action="open-maintenance-form" data-kind="wallet-refund" data-id="${wallet.id}">Devolver saldo</button>` : ""}</div></div><div class="wallet-summary"><article><span>Residente</span><strong>${escapeHtml(wallet.residente_nome)}</strong></article><article><span>Saldo disponível</span><strong class="${Number(wallet.saldo) > 0 ? "amount--positive" : "amount--negative"}">${escapeHtml(formatMoney(wallet.saldo))}</strong></article><article><span>Situação</span><strong>${escapeHtml(formatActive(wallet.ativo))}</strong></article></div>${navegacao}<h3 class="section-title">Créditos</h3>${credits}<h3 class="section-title">Compras na Cantina</h3>${purchases}<h3>Devoluções da carteira</h3>${renderActionTable(dados.movimentacoes.filter(m => m.tipo === "DEVOLUCAO"), [["Data", "data_movimentacao", formatDate], ["Valor", "valor_total", formatMoney], ["Situação", "estornada", formatReversal], ["Motivo", "motivo"], ["Documento", "documento"], ["Motivo da correção", "motivo_estorno"]], row => Number(row.estornada) === 0 ? `<button class="button button--danger" data-action="wallet-reversal" data-id="${row.id}">Corrigir lançamento</button>` : "")}`;
+        return `<div class="toolbar wallet-actions"><div></div><div class="report-actions">${walletActions}${Number(wallet.saldo) > 0 ? `<button class="button button--secondary" data-action="open-maintenance-form" data-kind="wallet-refund" data-id="${wallet.id}">Devolver saldo</button>` : ""}</div></div><div class="wallet-summary"><article><span>Residente</span><strong>${escapeHtml(wallet.residente_nome)}</strong></article><article><span>Saldo disponível</span><strong class="${Number(wallet.saldo) > 0 ? "amount--positive" : "amount--negative"}">${escapeHtml(formatMoney(wallet.saldo))}</strong></article><article><span>Situação</span><strong class="${Number(wallet.ativo) === 1 ? "wallet-status--active" : "wallet-status--inactive"}">${escapeHtml(formatActive(wallet.ativo))}</strong></article></div>${navegacao}<h3 class="section-title">Créditos</h3>${credits}<h3 class="section-title">Compras na Cantina</h3>${purchases}<h3>Devoluções da carteira</h3>${renderActionTable(dados.movimentacoes.filter(m => m.tipo === "DEVOLUCAO"), [["Data", "data_movimentacao", formatDate], ["Valor", "valor_total", formatMoney], ["Situação", "estornada", formatReversal], ["Motivo", "motivo"], ["Documento", "documento"], ["Motivo da correção", "motivo_estorno"]], row => Number(row.estornada) === 0 ? `<button class="button button--danger" data-action="wallet-reversal" data-id="${row.id}">Corrigir lançamento</button>` : "")}`;
     }
 
     async function renderCantina() {

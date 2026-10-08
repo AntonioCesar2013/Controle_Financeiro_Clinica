@@ -31,10 +31,10 @@ def ajustar_convenio_ao_encerrar(internacao_id, data_encerramento, conexao=None,
         if propria:
             conexao.execute("BEGIN IMMEDIATE")
         internacao = conexao.execute(
-            "SELECT data_acolhimento,modalidade,valor_diaria FROM internacoes WHERE id=?",
+            "SELECT data_acolhimento,modalidade,valor_diaria,tipo_cobranca_convenio FROM internacoes WHERE id=?",
             (internacao_id,),
         ).fetchone()
-        if not internacao or internacao[1] != "CONVENIO":
+        if not internacao or internacao[1] != "CONVENIO" or internacao[3] == "FIXA":
             return
         competencias = {numero: (fim.isoformat(), valor) for numero, fim, valor in _competencias_diarias(
             date.fromisoformat(internacao[0]), date.fromisoformat(data_encerramento), internacao[2]
@@ -98,7 +98,7 @@ def gerar_cobrancas(internacao_id, conexao=None):
             periodo_tratamento,
             valor_acolhimento,
             valor_mensalidade
-            ,modalidade,valor_diaria
+            ,modalidade,valor_diaria,tipo_cobranca_convenio
         FROM internacoes
         WHERE id = ?
     """, (internacao_id,)).fetchone()
@@ -117,6 +117,7 @@ def gerar_cobrancas(internacao_id, conexao=None):
     valor_mensalidade = internacao[3]
     modalidade = internacao[4]
     valor_diaria = internacao[5]
+    tipo_cobranca_convenio = internacao[6]
 
     quantidade_existente = cursor.execute("""
         SELECT COUNT(*)
@@ -137,7 +138,7 @@ def gerar_cobrancas(internacao_id, conexao=None):
             conexao.close()
         return {"sucesso": True, "quantidade": 0}
 
-    if modalidade == "CONVENIO":
+    if modalidade == "CONVENIO" and tipo_cobranca_convenio != "FIXA":
         inicio = date.fromisoformat(data_acolhimento)
         fim = calcular_data_vencimento(data_acolhimento, periodo_tratamento)
         total = 0

@@ -8,7 +8,7 @@ def acrescentar(conn, internacao, novo_periodo):
     i = internacao
     anterior = i['periodo_tratamento']
     novas = []
-    if i['modalidade'] == 'PARTICULAR':
+    if i['modalidade'] == 'PARTICULAR' or (i['modalidade'] == 'CONVENIO' and i['tipo_cobranca_convenio'] == 'FIXA'):
         novas = [(n, calcular_data_vencimento(i['data_acolhimento'], n), i['valor_mensalidade'])
                  for n in range(anterior+1, novo_periodo+1)]
     elif i['modalidade'] == 'CONVENIO':

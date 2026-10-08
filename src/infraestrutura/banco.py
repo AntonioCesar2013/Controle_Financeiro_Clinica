@@ -171,6 +171,7 @@ def _preparar_schema_legado():
             modalidade TEXT NOT NULL DEFAULT 'PARTICULAR',
             convenio_id INTEGER,
             valor_diaria INTEGER NOT NULL DEFAULT 0,
+            tipo_cobranca_convenio TEXT NOT NULL DEFAULT 'DIARIA',
             servicos_voluntario TEXT,
 
             FOREIGN KEY (residente_id)
@@ -273,6 +274,8 @@ def _preparar_schema_legado():
         cursor.execute("ALTER TABLE internacoes ADD COLUMN convenio_id INTEGER")
     if "valor_diaria" not in colunas_internacoes:
         cursor.execute("ALTER TABLE internacoes ADD COLUMN valor_diaria INTEGER NOT NULL DEFAULT 0")
+    if "tipo_cobranca_convenio" not in colunas_internacoes:
+        cursor.execute("ALTER TABLE internacoes ADD COLUMN tipo_cobranca_convenio TEXT NOT NULL DEFAULT 'DIARIA'")
     if "servicos_voluntario" not in colunas_internacoes:
         cursor.execute("ALTER TABLE internacoes ADD COLUMN servicos_voluntario TEXT")
 

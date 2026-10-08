@@ -16,6 +16,10 @@ export function opcoesResponsavelContratual(internacao, responsaveis) {
 
 export function prepararInternacao(dados) {
     const payload = { ...dados };
+    if (payload.modalidade === "CONVENIO_FIXO" || payload.modalidade === "CONVENIO_DIARIO") {
+        payload.tipo_cobranca_convenio = payload.modalidade === "CONVENIO_FIXO" ? "FIXA" : "DIARIA";
+        payload.modalidade = "CONVENIO";
+    }
     if (payload.modalidade === "VOLUNTARIO") {
         payload.periodo_tratamento = 0;
         payload.convenio_id = null;
@@ -25,7 +29,7 @@ export function prepararInternacao(dados) {
     } else {
         delete payload.servicos_voluntario;
         if (payload.modalidade !== "CONVENIO") delete payload.convenio_id;
-        if (payload.modalidade !== "PARTICULAR") {
+        if (payload.modalidade !== "PARTICULAR" && !(payload.modalidade === "CONVENIO" && payload.tipo_cobranca_convenio === "FIXA")) {
             payload.valor_contrato = 0;
             payload.valor_acolhimento = 0;
             payload.valor_mensalidade = 0;

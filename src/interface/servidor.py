@@ -342,7 +342,7 @@ class Requisicao(BaseHTTPRequestHandler):
                     dados.get("periodo_tratamento"), _centavos(dados.get("valor_contrato")),
                     _centavos(dados.get("valor_acolhimento")), _centavos(dados.get("valor_mensalidade")),
                     dados.get("modalidade", "PARTICULAR"), dados.get("convenio_id"),
-                    dados.get("servicos_voluntario"),
+                    dados.get("servicos_voluntario"), dados.get("tipo_cobranca_convenio", "DIARIA"),
                 )
             except ValueError as erro:
                 return self._json({"sucesso": False, "erro": str(erro)}, HTTPStatus.BAD_REQUEST)
@@ -355,6 +355,7 @@ class Requisicao(BaseHTTPRequestHandler):
                     _centavos(dados.get("valor_contrato")), _centavos(dados.get("valor_acolhimento")),
                     _centavos(dados.get("valor_mensalidade")), dados.get("modalidade", "PARTICULAR"),
                     dados.get("convenio_id"), dados.get("servicos_voluntario"),
+                    dados.get("tipo_cobranca_convenio", "DIARIA"),
                 )
             except ValueError as erro:
                 return self._json({"sucesso": False, "erro": str(erro)}, HTTPStatus.BAD_REQUEST)

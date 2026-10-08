@@ -1,0 +1,20 @@
+CONTROLE FINANCEIRO DA CLINICA - INSTALACAO COMPLETA
+
+Esta pasta contém tudo o que é necessário para instalar o sistema em um
+computador limpo com Windows 10 ou Windows 11 de 64 bits.
+
+COMO INSTALAR
+
+1. Copie a pasta inteira para o computador.
+2. Abra a pasta e dê dois cliques em INSTALAR.cmd.
+3. Aguarde a mensagem de conclusão.
+4. Use o atalho criado na Área de Trabalho ou no Menu Iniciar.
+
+O instalador verifica automaticamente os componentes existentes. Python e
+WebView2 só são instalados quando estiverem ausentes. As bibliotecas do sistema
+são instaladas a partir desta pasta, sem necessidade de internet.
+
+Em uma atualização, o banco de dados, as configurações e os backups existentes
+são preservados.
+
+Se ocorrer algum problema, consulte o arquivo instalacao.log criado nesta pasta.
