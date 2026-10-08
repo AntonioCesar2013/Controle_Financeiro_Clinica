@@ -57,7 +57,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     let startupDueAlertShown = false;
     const dashboardChartState = { metric: "daily", type: "bar", start: "", end: "" };
     const payableState = { busca: "", status: "", inicio: "", fim: "", ordem: "vencimento_desc" };
-    const cashState = { pagina: 1, inicio: "", fim: "" };
+    const cashState = { inicio: "", fim: "" };
     let reportPage = 1;
     let payableSearchTimer;
 
@@ -165,10 +165,6 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             Object.assign(payableState, { busca: "", status: "", inicio: "", fim: "", ordem: "vencimento_desc" });
             openMainPanel("contas_pagar");
         }
-        if (action === "cash-page") {
-            cashState.pagina = Number(trigger.dataset.page);
-            openMainPanel("caixa");
-        }
         if (action === "wallet-history-page") {
             walletHistoryPage = Number(trigger.dataset.page);
             const select = document.querySelector("#wallet-resident");
@@ -260,7 +256,6 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         }
         if (event.target.matches("[data-cash-filter]")) {
             cashState[event.target.dataset.cashFilter] = event.target.value;
-            cashState.pagina = 1;
             openMainPanel("caixa");
         }
         if (event.target.matches("#wallet-resident")) refreshWalletDetail(event.target);
@@ -1370,7 +1365,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     function dashboardRecent(dados) {
         const ultimasMovimentacoes = (dados.movimentacoes_recentes || []).slice(0, 10);
-        return `${renderTable(ultimasMovimentacoes, [["Data", "data", formatDate], ["Descrição", "descricao"], ["Tipo", "tipo"], ["Forma", "forma_pagamento"], ["Valor", "valor", formatMoney]])}`;
+        return `<div class="dashboard-recent-table">${renderTable(ultimasMovimentacoes, [["Data", "data", formatDate], ["Descrição", "descricao"], ["Tipo", "tipo"], ["Forma", "forma_pagamento"], ["Valor", "valor", formatMoney]])}</div>`;
     }
 
     async function renderDashboard() {
@@ -1412,14 +1407,14 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function renderInternments() {
         const { dados } = await api("/api/internacoes");
-        const table = renderActionTable(dados, [["Residente", "residente_nome"], ["Tipo", "modalidade", shortInitial], ["Convênio", "convenio_nome"], ["Cobrança", "tipo_cobranca_convenio", (value, row) => row.modalidade === "CONVENIO" ? (value === "FIXA" ? "Fixa" : "Diária") : "—"], ["Responsável", "responsavel_nome"], ["Acolhimento", "data_acolhimento", formatDate], ["Período", "periodo_tratamento", (value, row) => row.modalidade === "VOLUNTARIO" ? "Sem prazo" : `${value} meses`], ["Contrato", "valor_contrato", formatMoney], ["Diária", "valor_diaria", (value, row) => row.modalidade === "CONVENIO" && row.tipo_cobranca_convenio !== "FIXA" ? formatMoney(value) : "—"], ["Status", "status"], ["Encerrada em", "encerrada_em", formatDate]], () => "", {
+        const table = renderActionTable(dados, [["Residente", "residente_nome"], ["Tipo", "modalidade", shortInitial], ["Convênio", "convenio_nome"], ["Responsável", "responsavel_nome"], ["Acolhimento", "data_acolhimento", formatDate], ["Período", "periodo_tratamento", (value, row) => row.modalidade === "VOLUNTARIO" ? "Sem prazo" : `${value} meses`], ["Contrato", "valor_contrato", formatMoney], ["Diária", "valor_diaria", (value, row) => row.modalidade === "CONVENIO" && row.tipo_cobranca_convenio !== "FIXA" ? formatMoney(value) : "—"], ["Status", "status"], ["Encerrada em", "encerrada_em", formatDate]], () => "", {
             selectableRows: true,
             selectionData: (row) => ({
                 id: row.id,
-                capabilities: [...(["ATIVA", "AGENDADA"].includes(row.status) ? ["edit"] : []), ...(!row.encerrada_em && row.status !== "CANCELADA" && row.modalidade !== "VOLUNTARIO" ? ["extend"] : []), ...(row.status === "AGENDADA" ? ["cancel"] : []), ...(row.status === "ATIVA" && !row.encerrada_em ? ["end"] : [])],
+                capabilities: [...(["ATIVA", "AGENDADA"].includes(row.status) ? ["edit"] : []), ...(row.status === "AGENDADA" ? ["cancel"] : []), ...(row.status === "ATIVA" && !row.encerrada_em ? ["end"] : [])],
             }),
         });
-        const actions = `<div class="selection-actions internment-actions" aria-label="Ações da internação selecionada"><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-edit" data-selection-action="edit" disabled>Editar</button><button class="button button--danger" type="button" data-action="cancel-internment" data-selection-action="cancel" disabled>Cancelar agendamento</button><button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-selection-action="end" disabled>Encerrar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-extend" data-selection-action="extend" disabled>Prorrogar</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button button--secondary" type="button" data-action="open-edit-convenio">Editar convênio</button><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button" type="button" data-action="open-new-internment">Nova internação</button></div>`;
+        const actions = `<div class="selection-actions internment-actions" aria-label="Ações da internação selecionada"><button class="button" type="button" data-action="open-new-internment">Nova internação</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-edit" data-selection-action="edit" disabled>Editar</button><button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-selection-action="end" disabled>Encerrar</button><button class="button button--danger" type="button" data-action="cancel-internment" data-selection-action="cancel" disabled>Cancelar</button><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button button--secondary" type="button" data-action="open-edit-convenio">Editar convênio</button></div>`;
         return `<section class="selection-scope internments-report"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 
@@ -1621,14 +1616,13 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         cashState.fim ||= today;
         const separador = url.includes("?") ? "&" : "?";
         const periodo = `data_inicio=${encodeURIComponent(cashState.inicio)}&data_fim=${encodeURIComponent(cashState.fim)}`;
-        const { dados } = await api(`${url}${separador}${periodo}&pagina=${cashState.pagina}&tamanho=50`);
-        const pagina = dados.movimentacoes;
-        const paginas = Math.max(1, Math.ceil(pagina.total_filtrado / pagina.tamanho));
+        const { dados } = await api(`${url}${separador}${periodo}`);
+        const movimentacoes = dados.movimentacoes || [];
         const filters = `<div class="cash-flow-filters"><label>Data inicial<input type="date" data-cash-filter="inicio" value="${escapeHtml(cashState.inicio)}" max="${escapeHtml(cashState.fim)}"></label><label>Data final<input type="date" data-cash-filter="fim" value="${escapeHtml(cashState.fim)}" min="${escapeHtml(cashState.inicio)}"></label></div>`;
-        const table = renderTable(pagina.linhas, [["Data", "data", formatDate], ["Descrição", "descricao"], ["Tipo", "tipo"], ["Forma", "forma_pagamento"], ["Valor", "valor", formatMoney]], {
+        const table = renderTable(movimentacoes, [["Data", "data", formatDate], ["Descrição", "descricao"], ["Tipo", "tipo"], ["Forma", "forma_pagamento"], ["Valor", "valor", formatMoney]], {
             rowClass: row => `cash-flow-row cash-flow-row--${row.tipo === "SAIDA" ? "out" : "in"}`,
         });
-        return `<section class="selection-scope cash-flow"><div class="cash-flow__summary"><div class="metrics">${metric("Entradas", dados.total_entradas, "success")}${metric("Saídas", dados.total_saidas, "danger")}${metric("Resultado", dados.resultado, "info")}</div>${filters}</div>${paginationControls("cash-page", pagina, paginas, "movimentação(ões)", false)}${table}</section>`;
+        return `<section class="selection-scope cash-flow"><div class="cash-flow__summary"><div class="metrics">${metric("Entradas", dados.total_entradas, "success")}${metric("Saídas", dados.total_saidas, "danger")}${metric("Resultado", dados.resultado, "info")}</div>${filters}</div>${table}</section>`;
     }
 
     async function renderReports() {

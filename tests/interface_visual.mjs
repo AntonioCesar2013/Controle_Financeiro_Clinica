@@ -33,7 +33,12 @@ assert.match(app, /data-action="clear-payables-filters"/, "contas a pagar deve o
 assert.match(app, /data-cash-filter="inicio"/, "fluxo de caixa deve filtrar pela data inicial");
 assert.match(app, /data-cash-filter="fim"/, "fluxo de caixa deve filtrar pela data final");
 assert.match(app, /metric\("Resultado", dados\.resultado, "info"\)/, "resultado do caixa deve usar sempre o tom azul");
-assert.match(app, /paginationControls\("cash-page"[^\n]+false\)/, "fluxo de caixa não deve exibir o contador de movimentações");
+assert.doesNotMatch(app, /paginationControls\("cash-page"|data-action="cash-page"/, "fluxo de caixa não deve possuir paginação");
+assert.match(app, /api\(`\$\{url\}\$\{separador\}\$\{periodo\}`\)/, "fluxo de caixa deve solicitar todas as movimentações do período");
+assert.match(modules, /\.cash-flow table\s*{\s*font-size:\s*\.82rem/, "fluxo de caixa deve usar fonte levemente menor");
+assert.match(modules, /\.cash-flow \[data-column-key="data"\][^}]+white-space:\s*nowrap/s, "data do fluxo de caixa deve permanecer na mesma linha");
+assert.match(app, /class="dashboard-recent-table"/, "movimentações recentes devem possuir estilo próprio de tabela");
+assert.match(modules, /\.dashboard-recent-table table\s*{\s*font-size:\s*\.82rem/, "tabela da visão financeira deve usar fonte levemente menor");
 assert.match(modules, /\.cash-flow-row--in td\s*{\s*color:\s*var\(--color-success\)/, "entradas do caixa devem usar texto verde");
 assert.match(modules, /\.cash-flow-row--out td\s*{\s*color:\s*var\(--color-danger\)/, "saídas do caixa devem usar texto vermelho");
 const removedReaderTerms = new RegExp(["c[oó]digo", " de ", "barras|codigo_", "barras|canteen-", "sc", "an|canteen-bar", "code"].join(""), "i");
@@ -58,6 +63,13 @@ assert.match(app, /data-action="open-edit-convenio">Editar convênio/, "interna�
 assert.match(app, /class="selection-actions internment-actions"/, "ações de internação devem ter layout compacto próprio");
 assert.doesNotMatch(app, /<span class="selection-actions__label">Internação selecionada<\/span>/, "a barra não deve ocupar espaço com a indicação de seleção");
 assert.match(modules, /\.selection-scope \.selection-actions\.internment-actions\s*\{[^}]*flex-wrap:\s*nowrap/s, "ações de internação devem permanecer em uma linha");
+assert.doesNotMatch(app, /\["Cobrança", "tipo_cobranca_convenio"/, "internações não devem exibir a coluna Cobrança");
+const internmentActions = app.match(/const actions = `<div class="selection-actions internment-actions"[^;]+;/)?.[0] || '';
+for (const [left, right] of [["Nova internação", "Editar"], ["Editar", "Encerrar"], ["Encerrar", "Cancelar"], ["Cancelar", "Novo convênio"], ["Novo convênio", "Editar convênio"]]) {
+    assert.ok(internmentActions.indexOf(left) < internmentActions.indexOf(right), `${left} deve aparecer antes de ${right}`);
+}
+assert.doesNotMatch(internmentActions, /Prorrogar|internment-extend/, "a barra de internações não deve exibir Prorrogar");
+assert.match(modules, /\.internments-report table\s*{\s*font-size:\s*calc\(1em - 2\.5pt\)/, "tabela de internações deve usar fonte levemente menor");
 assert.match(app, /data-endpoint="\/api\/convenios\/editar"/, "o formulário deve enviar a edição do convênio");
 assert.match(tableLayout, /padding-top:\s*5px/, "painéis financeiros devem iniciar até 5 px abaixo do cabeçalho");
 assert.match(tableLayout, /justify-content:\s*space-between/, "ações e limpeza devem ocupar a mesma linha");

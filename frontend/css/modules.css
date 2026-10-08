@@ -33,6 +33,13 @@
 .cash-flow-filters input { min-height: 38px; padding: 7px 10px; border: 1px solid var(--color-border-strong); border-radius: 8px; background: #fff; color: var(--color-text); }
 .cash-flow-row--in td { color: var(--color-success); }
 .cash-flow-row--out td { color: var(--color-danger); }
+.cash-flow table { font-size: .82rem; }
+.cash-flow th, .cash-flow td { padding: 9px 11px; }
+.cash-flow [data-column-key="data"],
+.cash-flow [data-column-key="tipo"],
+.cash-flow [data-column-key="forma_pagamento"] { white-space: nowrap; overflow-wrap: normal; }
+.dashboard-recent-table table { font-size: .82rem; }
+.dashboard-recent-table th, .dashboard-recent-table td { padding: 9px 11px; }
 
 .product-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .product-form-grid .field { min-width: 0; }
@@ -84,14 +91,15 @@
     #internment-form .internment-form__row { grid-template-columns: 1fr; }
 }
 @media screen {
-    .internments-report table { font-size: calc(1em - 2pt); }
-    .internments-report th { font-size: calc(.74rem - 2pt); }
-    .internments-report .status { font-size: calc(.72rem - 2pt); }
+    .internments-report table { font-size: calc(1em - 2.5pt); }
+    .internments-report th { font-size: calc(.74rem - 2.5pt); }
+    .internments-report .status { font-size: calc(.72rem - 2.5pt); }
+    .internments-report th, .internments-report td { padding: 8px 9px; }
     @container (max-width: 920px) {
-        .internments-report table { font-size: calc(.84rem - 2pt); }
+        .internments-report table { font-size: calc(.84rem - 2.5pt); }
     }
     @container (max-width: 680px) {
-        .internments-report .status { font-size: calc(.68rem - 2pt); }
+        .internments-report .status { font-size: calc(.68rem - 2.5pt); }
     }
 }
 .selection-scope .selection-actions.internment-actions {
