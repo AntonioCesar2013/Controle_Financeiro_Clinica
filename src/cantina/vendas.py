@@ -1,7 +1,7 @@
 from src.financeiro.moeda import validar_centavos
 """Operações da cantina vinculadas às carteiras dos residentes."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import sqlite3
 import unicodedata
 
@@ -587,5 +587,46 @@ def consultar_carteira(carteira_id, pagina=1, tamanho=50):
                 "creditos": creditos, "compras": compras,
                 "paginacao": {"pagina": pagina, "tamanho": tamanho,
                                "total_registros": total, "total_filtrado": total}}
+    finally:
+        conn.close()
+
+
+def relatorio_carteira(carteira_id, data_referencia=None):
+    """Retorna todas as movimentações da carteira nos últimos 30 dias."""
+    try:
+        referencia = date.fromisoformat(data_referencia) if data_referencia else date.today()
+        carteira_id = int(carteira_id)
+    except (TypeError, ValueError) as erro:
+        raise ValueError("Carteira ou data de referência inválida.") from erro
+    if referencia > date.today():
+        raise ValueError("A data de referência não pode ser futura.")
+    inicio = referencia - timedelta(days=29)
+    conn = conectar()
+    conn.row_factory = sqlite3.Row
+    try:
+        carteira = conn.execute(
+            """SELECT c.id,c.residente_id,c.saldo,c.ativo,r.nome AS residente_nome
+               FROM carteiras c JOIN residentes r ON r.id=c.residente_id
+               WHERE c.id=?""", (carteira_id,),
+        ).fetchone()
+        if not carteira:
+            return {"sucesso": False, "erro": "Carteira não encontrada."}
+        movimentos = [dict(linha) for linha in conn.execute(
+            """SELECT m.id,m.tipo,m.data_movimentacao,m.valor_total,m.quantidade,
+                      m.estornada,m.motivo_estorno,m.venda_id,i.nome AS item_nome
+               FROM movimentacoes_carteira m
+               LEFT JOIN itens_cantina i ON i.id=m.item_id
+               WHERE m.carteira_id=? AND m.data_movimentacao BETWEEN ? AND ?
+               ORDER BY m.data_movimentacao DESC,m.id DESC""",
+            (carteira_id, inicio.isoformat(), referencia.isoformat()),
+        )]
+        return {
+            "sucesso": True,
+            "carteira": dict(carteira),
+            "data_inicio": inicio.isoformat(),
+            "data_fim": referencia.isoformat(),
+            "emitido_em": datetime.now().isoformat(timespec="seconds"),
+            "movimentacoes": movimentos,
+        }
     finally:
         conn.close()

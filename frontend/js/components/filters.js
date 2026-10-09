@@ -51,3 +51,33 @@ export function scheduleTableFilters(control, delay = 200) {
         if (control.isConnected) applyTableFilters(control);
     }, delay));
 }
+
+export function captureTableFilters(root) {
+    if (!root) return [];
+    return [...root.querySelectorAll(".filterable")].map((container) => ({
+        search: container.querySelector("[data-filter-search]")?.value || "",
+        status: container.querySelector("[data-filter-status]")?.value || "",
+        start: container.querySelector("[data-filter-start]")?.value || "",
+        end: container.querySelector("[data-filter-end]")?.value || "",
+    }));
+}
+
+export function restoreTableFilters(root, snapshots = []) {
+    if (!root || !snapshots.length) return;
+    [...root.querySelectorAll(".filterable")].forEach((container, index) => {
+        const snapshot = snapshots[index];
+        if (!snapshot) return;
+        const fields = [
+            ["[data-filter-search]", snapshot.search],
+            ["[data-filter-status]", snapshot.status],
+            ["[data-filter-start]", snapshot.start],
+            ["[data-filter-end]", snapshot.end],
+        ];
+        for (const [selector, value] of fields) {
+            const field = container.querySelector(selector);
+            if (field) field.value = value || "";
+        }
+        const control = container.querySelector("[data-filter-search], [data-filter-status], [data-filter-start], [data-filter-end]");
+        if (control) applyTableFilters(control);
+    });
+}

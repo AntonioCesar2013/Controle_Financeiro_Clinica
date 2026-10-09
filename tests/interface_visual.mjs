@@ -10,6 +10,7 @@ const components = await readFile(new URL("../frontend/css/components.css", impo
 const modules = await readFile(new URL("../frontend/css/modules.css", import.meta.url), "utf8");
 const tableLayout = await readFile(new URL("../frontend/css/table-layout.css", import.meta.url), "utf8");
 const tableLayoutScript = await readFile(new URL("../frontend/js/components/table-layout.js", import.meta.url), "utf8");
+const filtersScript = await readFile(new URL("../frontend/js/components/filters.js", import.meta.url), "utf8");
 const app = await readFile(new URL("../frontend/js/app.js", import.meta.url), "utf8");
 
 assert.doesNotMatch(base, /transform:\s*scale\(/, "a interface não deve usar escala global");
@@ -29,7 +30,16 @@ assert.match(app, /openStartupDueAlert/, "o sistema deve exibir o aviso financei
 assert.match(app, /setDate\(limitDate\.getDate\(\) \+ 5\)/, "o aviso deve considerar os próximos cinco dias");
 assert.match(app, /Contas que exigem atenção/, "o aviso deve identificar claramente as contas críticas");
 assert.match(app, /organizeTablePanels\(panel\)/, "a organização deve ocorrer depois do carregamento do painel");
+assert.match(app, /sameOpenPanel[\s\S]*captureTableFilters\(layers\.main\)[\s\S]*restoreTableFilters\(panel, preservedFilters\)/, "filtros devem sobreviver às atualizações do painel enquanto ele permanecer aberto");
+assert.match(filtersScript, /export function captureTableFilters/, "o estado dos filtros deve poder ser capturado antes da atualização");
+assert.match(filtersScript, /export function restoreTableFilters[\s\S]*applyTableFilters\(control\)/, "filtros restaurados devem ser reaplicados à tabela");
 assert.match(app, /data-action="clear-payables-filters"/, "contas a pagar deve oferecer limpeza dos filtros");
+assert.match(app, /class="selection-actions financial-history-actions"/, "ações do histórico financeiro devem ficar no topo");
+assert.match(app, /financial-history-actions[\s\S]*Estornar[\s\S]*Devolver valor[\s\S]*Gerar recibo/, "ações dos recebimentos devem manter a ordem solicitada no topo");
+assert.match(app, /const history = renderActionTable\(dados, columns, \(\) => "", \{[\s\S]*filters: false,[\s\S]*selectableRows: true/, "histórico individual não deve exibir pesquisa nem coluna de ações");
+assert.match(app, /firstEffective[\s\S]*selectReportRow\(firstEffective\)/, "o primeiro lançamento efetivo deve ser selecionado automaticamente");
+assert.match(modules, /\.financial-history table\s*{\s*font-size:\s*\.8rem/, "histórico financeiro deve usar fonte levemente menor");
+assert.match(modules, /\.financial-history \[data-column-key="forma_pagamento"\][\s\S]*white-space:\s*nowrap/, "formas de pagamento devem permanecer na mesma linha");
 assert.match(app, /data-cash-filter="inicio"/, "fluxo de caixa deve filtrar pela data inicial");
 assert.match(app, /data-cash-filter="fim"/, "fluxo de caixa deve filtrar pela data final");
 assert.match(app, /metric\("Resultado", dados\.resultado, "info"\)/, "resultado do caixa deve usar sempre o tom azul");
@@ -50,13 +60,26 @@ assert.match(app, /data-action="select-canteen-product"/, "a pesquisa deve permi
 assert.match(app, /id="product-price"[^>]*type="text"[^>]*data-mask="currency"[^>]*value="R\$ 0,00"/, "preço do produto deve iniciar com máscara financeira sem setas numéricas");
 assert.match(app, /data\.valor = currencyValue\(data\.valor\)\.toFixed\(2\)/, "preço mascarado do produto deve ser enviado com os centavos corretos");
 assert.match(app, /class="product-form-grid"[\s\S]*product-unit[\s\S]*product-price[\s\S]*product-price-date[\s\S]*product-stock[\s\S]*product-minimum[\s\S]*product-status/, "cadastro de produto deve agrupar os seis campos em uma grade");
+assert.match(app, /id="product-expiration" name="data_validade" type="date"/, "cadastro do produto deve aceitar validade opcional para o estoque inicial");
+assert.match(app, /Validade do lote \(opcional\)<\/label><input name="data_validade" type="date"/, "reabastecimento deve aceitar a validade opcional do lote");
 assert.match(modules, /\.product-form-grid\s*{[^}]*grid-template-columns:\s*repeat\(3,/s, "cadastro de produto deve exibir três campos por linha");
+assert.doesNotMatch(app, /Unidades em estoque/, "produtos não devem exibir a soma de unidades de naturezas diferentes");
+assert.match(app, /Produtos vencendo \(30 dias\)/, "produtos devem indicar vencimentos nos próximos 30 dias");
+assert.match(app, /dados\.filter\(\(row\) => row\.produto_vencendo\)\.length/, "o indicador deve contar somente produtos sinalizados pelo controle de lotes");
+assert.match(modules, /\.products-summary\s*{[^}]*grid-template-columns:\s*repeat\(4,/s, "os quatro indicadores de produtos devem ocupar a largura disponível");
 assert.match(modules, /\.wallet-summary\s*{[^}]*grid-template-columns:\s*minmax\(0, 2fr\)\s+minmax\(0, 1fr\)\s+minmax\(0, 1fr\)/s, "resumo da carteira deve usar 50%, 25% e 25% em uma linha");
 assert.match(app, /wallet-selector[\s\S]*open-wallet-resident-search[\s\S]*button--success[\s\S]*Nova carteira/, "seleção, pesquisa e nova carteira devem ficar na mesma linha e na ordem solicitada");
 assert.match(app, /wallet-status--active[\s\S]*wallet-status--inactive/, "situação da carteira deve distinguir ativo e inativo por cor");
 assert.match(app, /dados\.creditos[\s\S]*\{ filters: false \}/, "créditos da carteira não devem exibir pesquisa própria");
 assert.match(app, /dados\.compras[^\n]+\{ filters: false \}/, "compras da carteira não devem exibir pesquisa própria");
 assert.match(components, /\.button--success\s*{[^}]*background:\s*var\(--color-success\)/s, "botão Nova carteira deve usar verde");
+assert.match(app, /Devolver saldo[\s\S]*data-action="wallet-report"[^>]*>Gerar relatório</, "Gerar relatório deve ser o último botão das ações da carteira");
+assert.match(app, /\/api\/carteiras\/relatorio\?id=/, "o relatório deve consultar todas as movimentações dos últimos 30 dias");
+assert.match(app, /resident-document wallet-report/, "o relatório da Cantina deve usar o documento preparado para impressão A4");
+assert.match(app, /Imprimir \/ salvar PDF/, "o usuário deve poder imprimir ou salvar o relatório em PDF");
+for (const reportContent of ["Saldo atual da Cantina", "Movimentações no período", "Créditos e compras da Cantina"]) {
+    assert.ok(app.includes(reportContent), `o relatório deve conter ${reportContent}`);
+}
 assert.match(app, /\["Tipo", "modalidade", shortInitial\]/, "internações devem exibir o tipo pela inicial");
 assert.match(app, /<label for="internment-modality">Tipo de residência<\/label>/, "formulários de internação devem usar a nomenclatura Tipo");
 assert.doesNotMatch(app, />Modalidade(?: de residência)?</, "a interface não deve exibir a nomenclatura antiga");

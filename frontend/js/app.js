@@ -5,7 +5,7 @@ import { groupInternmentPeople, internmentPeopleOptions, internmentSearchField, 
 import { createWorkflows } from './components/workflows.js';
 import { responsaveisElegiveis, opcoesResponsavelContratual, prepararInternacao, criarPessoa } from './components/cadastros.js';
 import { parametrosContasPagar, despesasElegiveis } from './components/contas-pagar.js';
-import { applyTableFilters, normalizeSearch, scheduleTableFilters } from "./components/filters.js";
+import { applyTableFilters, captureTableFilters, normalizeSearch, restoreTableFilters, scheduleTableFilters } from "./components/filters.js";
 import { createResidentDocuments, printDocument } from "./components/resident-documents.js";
 import { createApi } from "./core/api.js";
 import { createPanelRegistry, resolvePanel } from "./core/router.js";
@@ -208,6 +208,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (action === "select-wallet-resident") selectWalletResident(trigger.dataset.id);
         if (action === "wallet-status") runMaintenanceCommand("/api/carteiras/status", { carteira_id: trigger.dataset.id, ativo: trigger.dataset.ativo }, "Alterar a situação desta carteira?", "carteiras");
         if (action === "wallet-reversal") runMaintenanceCommand("/api/carteiras/movimentacoes/estornar", { movimentacao_id: trigger.dataset.id, motivo: "Estorno realizado pela tela" }, "Estornar esta movimentação? O saldo e o estoque serão recalculados.", "carteiras");
+        if (action === "wallet-report") openWalletReport(trigger.dataset.id);
         if (action === "preview-settlement") workflows.preview(trigger.closest("form"));
         if (action === "end-recurrence") runMaintenanceCommand("/api/recorrencias/encerrar", { id: trigger.dataset.id }, "Encerrar a programação? Contas já geradas permanecem registradas.", "despesas");
         if (action === "open-maintenance-form") openMaintenanceForm(trigger.dataset.kind, trigger.dataset.id, trigger.dataset.residentId);
@@ -557,6 +558,8 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
     async function openMainPanel(name, { preserveCanteenResident = false, preserveWalletResident = false } = {}) {
         const definition = resolvePanel(panels, name);
         if (!definition) return;
+        const sameOpenPanel = state.activePanelName === name && Boolean(layers.main.querySelector(".panel"));
+        const preservedFilters = sameOpenPanel ? captureTableFilters(layers.main) : [];
         if (name === "cantina" && !preserveCanteenResident) selectedCanteenWalletId = "";
         if (name === "carteiras" && !preserveWalletResident) selectedWalletId = "";
         state.activePanelName = name;
@@ -570,6 +573,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         try {
             panel.querySelector(".panel__body").innerHTML = await renderer();
             organizeTablePanels(panel);
+            restoreTableFilters(panel, preservedFilters);
         }
         catch (error) { panel.querySelector(".panel__body").innerHTML = errorState(error.message); }
         requestAnimationFrame(() => panel.focus({ preventScroll: true }));
@@ -666,6 +670,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
                 <div class="field"><label for="product-price">Preço de venda</label><input id="product-price" name="valor" type="text" inputmode="numeric" data-mask="currency" value="R$ 0,00" required></div>
                 <div class="field"><label for="product-price-date">Preço válido desde</label><input id="product-price-date" name="data_inicio_valor" type="date" value="${today}" required></div>
                 <div class="field"><label for="product-stock">Estoque inicial</label><input id="product-stock" name="estoque_inicial" type="number" min="0" step="1" value="0" required></div>
+                <div class="field"><label for="product-expiration">Validade do estoque inicial (opcional)</label><input id="product-expiration" name="data_validade" type="date"></div>
                 <div class="field"><label for="product-minimum">Estoque mínimo</label><input id="product-minimum" name="estoque_minimo" type="number" min="0" step="1" value="0" required></div>
                 <div class="field"><label for="product-status">Status</label><select id="product-status" name="ativo"><option value="1">Ativo</option><option value="0">Inativo</option></select></div>
             </div>
@@ -926,14 +931,28 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
                 ? [["Data", "data_pagamento", formatDate], ["Principal", "valor", formatMoney], ["Desconto", "desconto", formatMoney], ["Multa e juros", "multa_juros", formatMoney], ["Total pago", "total_lancamento", formatMoney], ["Forma", "forma_pagamento"], ["Observação", "observacao"]]
                 : [["Data", "data_recebimento", formatDate], ["Principal", "valor", formatMoney], ["Desconto", "desconto", formatMoney], ["Multa e juros", "multa_juros", formatMoney], ["Total recebido", "total_lancamento", formatMoney], ["Forma", "forma_recebimento"], ["Observação", "observacao"]];
             columns.push(["Situação", "estornada", (value) => value ? "ESTORNADO" : "EFETIVO"], ["Estornado em", "estornada_em", formatDateTime], ["Motivo do estorno", "motivo_estorno"]);
-            let body = renderActionTable(dados, columns, (row) => row.estornada ? "" : `<button class="button button--danger" type="button" data-action="delete-financial-entry" data-kind="${isOutgoing ? "saida" : "entrada"}" data-id="${row.id}">Estornar</button>${!isOutgoing ? `<button class="button button--secondary" data-action="open-maintenance-form" data-kind="refund" data-id="${row.id}">Devolver valor</button>` : ""}${!isOutgoing && row.tipo === "MENSALIDADE" ? `<button class="button button--secondary" data-action="generate-receipt" data-id="${row.id}">Gerar recibo</button>` : ""}`);
+            const actions = `<div class="selection-actions financial-history-actions" aria-label="Ações do lançamento selecionado"><button class="button button--danger" type="button" data-action="delete-financial-entry" data-kind="${isOutgoing ? "saida" : "entrada"}" data-selection-action="reverse" disabled>Estornar</button>${!isOutgoing ? `<button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="refund" data-selection-action="refund" disabled>Devolver valor</button><button class="button button--secondary" type="button" data-action="generate-receipt" data-selection-action="receipt" disabled>Gerar recibo</button>` : ""}</div>`;
+            const history = renderActionTable(dados, columns, () => "", {
+                filters: false,
+                selectableRows: true,
+                selectionHint: false,
+                selectionData: (row) => ({
+                    id: row.id,
+                    capabilities: row.estornada ? [] : ["reverse", ...(!isOutgoing ? ["refund"] : []), ...(!isOutgoing && row.tipo === "MENSALIDADE" ? ["receipt"] : [])],
+                }),
+            });
+            let body = `<section class="selection-scope financial-history"><div class="toolbar selection-toolbar">${actions}</div>${history}</section>`;
             if (!isOutgoing) {
                 const { dados: refunds } = await api(`/api/recebimentos/devolucoes?cobranca_id=${encodeURIComponent(id)}`);
-                if (refunds.length) body += `<h3>Devoluções realizadas</h3>${renderActionTable(refunds, [["Data", "data_devolucao", formatDate], ["Recebimento", "recebimento_id"], ["Total devolvido", "total_lancamento", formatMoney], ["Situação", "estornada", value => value ? "ESTORNADA" : "EFETIVA"], ["Motivo", "motivo"], ["Documento", "documento"], ["Motivo da correção", "motivo_estorno"]], row => row.estornada ? "" : `<button class="button button--danger" data-action="open-maintenance-form" data-kind="refund-reversal" data-id="${row.id}">Corrigir lançamento</button>`)}`;
+                if (refunds.length) body += `<h3>Devoluções realizadas</h3>${renderActionTable(refunds, [["Data", "data_devolucao", formatDate], ["Recebimento", "recebimento_id"], ["Total devolvido", "total_lancamento", formatMoney], ["Situação", "estornada", value => value ? "ESTORNADA" : "EFETIVA"], ["Motivo", "motivo"], ["Documento", "documento"], ["Motivo da correção", "motivo_estorno"]], row => row.estornada ? "" : `<button class="button button--danger" data-action="open-maintenance-form" data-kind="refund-reversal" data-id="${row.id}">Corrigir lançamento</button>`, { filters: false })}`;
                 const { dados: ajustes } = await api(`/api/cobrancas/ajustes?id=${encodeURIComponent(id)}`);
                 if (ajustes.length) body += `<h3>Ajustes da cobrança</h3>${renderTable(ajustes, [["Data", "criado_em", formatDateTime], ["Valor anterior", "valor_anterior", formatMoney], ["Valor ajustado", "valor_novo", formatMoney], ["Desconto anterior", "desconto_anterior", formatMoney], ["Desconto ajustado", "desconto_novo", formatMoney], ["Motivo", "motivo"]])}`;
             }
             layers.auxiliary.replaceChildren(createPanel({ title: isOutgoing ? "Pagamentos da conta" : "Recebimentos da cobrança", eyebrow: "Histórico individual", body, size: "large" }));
+            requestAnimationFrame(() => {
+                const firstEffective = layers.auxiliary.querySelector(".financial-history .selectable-row[data-capabilities]:not([data-capabilities=''])");
+                if (firstEffective) selectReportRow(firstEffective);
+            });
         } catch (error) { showAlert("Não foi possível consultar", error.message); }
     }
 
@@ -1013,7 +1032,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
                 fields = `<input type="hidden" name="id" value="${item.id}"><div class="field"><label>Nome</label><input name="nome" value="${escapeHtml(item.nome)}" required></div><div class="field"><label>Categoria</label><input name="categoria" value="${escapeHtml(item.categoria || "")}"></div><div class="field"><label>Descrição</label><textarea name="descricao" rows="3">${escapeHtml(item.descricao || "")}</textarea></div><div class="field"><label>Unidade</label><input name="unidade_medida" value="${escapeHtml(item.unidade_medida)}" required></div><div class="field"><label>Estoque mínimo</label><input name="estoque_minimo" type="number" min="0" value="${item.estoque_minimo}" required></div>${activeSelect(item.ativo)}`;
             } else if (kind === "product-stock") {
                 title = "Movimentar estoque"; endpoint = "/api/itens/estoque"; refresh = "itens";
-                fields = `<input type="hidden" name="item_id" value="${escapeHtml(id)}"><div class="field"><label>Operação</label><select name="tipo" required><option value="ENTRADA">Entrada — acrescentar</option><option value="SAIDA">Saída — retirar</option></select></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" step="1" required></div><div class="field"><label>Data da movimentação</label><input name="data_movimentacao" type="date" value="${today}" max="${today}" required></div><div class="field"><label>Motivo</label><input name="motivo" placeholder="Ex.: compra, perda, consumo interno" required></div><div class="field"><label>Custo unitário (opcional)</label><input name="custo_unitario" type="number" min="0" step="0.01"></div><div class="field"><label>Fornecedor (opcional)</label><input name="fornecedor"></div><div class="field"><label>Nota ou documento (opcional)</label><input name="documento"></div><div class="field"><label>Lote (opcional)</label><input name="lote"></div><div class="field"><label>Validade (opcional)</label><input name="data_validade" type="date"></div>`;
+                fields = `<input type="hidden" name="item_id" value="${escapeHtml(id)}"><div class="field"><label>Operação</label><select name="tipo" required><option value="ENTRADA">Entrada — acrescentar</option><option value="SAIDA">Saída — retirar</option></select></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" step="1" required></div><div class="field"><label>Data da movimentação</label><input name="data_movimentacao" type="date" value="${today}" max="${today}" required></div><div class="field"><label>Motivo</label><input name="motivo" placeholder="Ex.: compra, perda, consumo interno" required></div><div class="field"><label>Custo unitário (opcional)</label><input name="custo_unitario" type="number" min="0" step="0.01"></div><div class="field"><label>Fornecedor (opcional)</label><input name="fornecedor"></div><div class="field"><label>Nota ou documento (opcional)</label><input name="documento"></div><div class="field"><label>Lote (opcional)</label><input name="lote"></div><div class="field"><label>Validade do lote (opcional)</label><input name="data_validade" type="date"></div>`;
             } else if (kind === "product-price") {
                 title = "Novo preço"; endpoint = "/api/itens/precos"; refresh = "itens";
                 fields = `<input type="hidden" name="item_id" value="${escapeHtml(id)}">${moneyField("Novo preço")}<div class="field"><label>Válido desde</label><input name="data_inicio_valor" type="date" value="${today}" required></div>`;
@@ -1483,7 +1502,27 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const walletActions = Number(wallet.ativo) === 1 ? `<button class="button" type="button" data-action="open-wallet-form" data-kind="credit" data-id="${wallet.id}">Adicionar crédito</button><button class="button button--danger" type="button" data-action="wallet-status" data-id="${wallet.id}" data-ativo="0">Inativar carteira</button>` : `<button class="button" type="button" data-action="wallet-status" data-id="${wallet.id}" data-ativo="1">Reativar carteira</button>`;
         const paginas = Math.max(1, Math.ceil(dados.paginacao.total_filtrado / dados.paginacao.tamanho));
         const navegacao = paginationControls("wallet-history-page", dados.paginacao, paginas, "movimentação(ões)");
-        return `<div class="toolbar wallet-actions"><div></div><div class="report-actions">${walletActions}${Number(wallet.saldo) > 0 ? `<button class="button button--secondary" data-action="open-maintenance-form" data-kind="wallet-refund" data-id="${wallet.id}">Devolver saldo</button>` : ""}</div></div><div class="wallet-summary"><article><span>Residente</span><strong>${escapeHtml(wallet.residente_nome)}</strong></article><article><span>Saldo disponível</span><strong class="${Number(wallet.saldo) > 0 ? "amount--positive" : "amount--negative"}">${escapeHtml(formatMoney(wallet.saldo))}</strong></article><article><span>Situação</span><strong class="${Number(wallet.ativo) === 1 ? "wallet-status--active" : "wallet-status--inactive"}">${escapeHtml(formatActive(wallet.ativo))}</strong></article></div>${navegacao}<h3 class="section-title">Créditos</h3>${credits}<h3 class="section-title">Compras na Cantina</h3>${purchases}<h3>Devoluções da carteira</h3>${renderActionTable(dados.movimentacoes.filter(m => m.tipo === "DEVOLUCAO"), [["Data", "data_movimentacao", formatDate], ["Valor", "valor_total", formatMoney], ["Situação", "estornada", formatReversal], ["Motivo", "motivo"], ["Documento", "documento"], ["Motivo da correção", "motivo_estorno"]], row => Number(row.estornada) === 0 ? `<button class="button button--danger" data-action="wallet-reversal" data-id="${row.id}">Corrigir lançamento</button>` : "")}`;
+        return `<div class="toolbar wallet-actions"><div></div><div class="report-actions">${walletActions}${Number(wallet.saldo) > 0 ? `<button class="button button--secondary" data-action="open-maintenance-form" data-kind="wallet-refund" data-id="${wallet.id}">Devolver saldo</button>` : ""}<button class="button button--secondary" type="button" data-action="wallet-report" data-id="${wallet.id}">Gerar relatório</button></div></div><div class="wallet-summary"><article><span>Residente</span><strong>${escapeHtml(wallet.residente_nome)}</strong></article><article><span>Saldo disponível</span><strong class="${Number(wallet.saldo) > 0 ? "amount--positive" : "amount--negative"}">${escapeHtml(formatMoney(wallet.saldo))}</strong></article><article><span>Situação</span><strong class="${Number(wallet.ativo) === 1 ? "wallet-status--active" : "wallet-status--inactive"}">${escapeHtml(formatActive(wallet.ativo))}</strong></article></div>${navegacao}<h3 class="section-title">Créditos</h3>${credits}<h3 class="section-title">Compras na Cantina</h3>${purchases}<h3>Devoluções da carteira</h3>${renderActionTable(dados.movimentacoes.filter(m => m.tipo === "DEVOLUCAO"), [["Data", "data_movimentacao", formatDate], ["Valor", "valor_total", formatMoney], ["Situação", "estornada", formatReversal], ["Motivo", "motivo"], ["Documento", "documento"], ["Motivo da correção", "motivo_estorno"]], row => Number(row.estornada) === 0 ? `<button class="button button--danger" data-action="wallet-reversal" data-id="${row.id}">Corrigir lançamento</button>` : "")}`;
+    }
+
+    async function openWalletReport(walletId) {
+        try {
+            const { dados } = await api(`/api/carteiras/relatorio?id=${encodeURIComponent(walletId)}`);
+            if (!dados?.sucesso) throw new Error(dados?.erro || "Carteira não encontrada.");
+            const typeLabel = { CREDITO: "Crédito", COMPRA_CANTINA: "Compra", DEVOLUCAO: "Devolução" };
+            const rows = (dados.movimentacoes || []).map((row) => ({
+                ...row,
+                movimento: typeLabel[row.tipo] || row.tipo,
+                detalhe: row.item_nome || (row.tipo === "CREDITO" ? "Crédito adicionado à carteira" : row.tipo === "DEVOLUCAO" ? "Saldo devolvido" : "—"),
+                entrada: row.tipo === "CREDITO" ? row.valor_total : null,
+                saida: row.tipo !== "CREDITO" ? row.valor_total : null,
+                situacao: Number(row.estornada) === 1 ? `Estornada${row.motivo_estorno ? ` — ${row.motivo_estorno}` : ""}` : "Válida",
+            }));
+            const table = renderTable(rows, [["Data", "data_movimentacao", formatDate], ["Movimento", "movimento"], ["Detalhes", "detalhe"], ["Quantidade", "quantidade", valueOrDash], ["Crédito", "entrada", value => value === null ? "—" : formatMoney(value)], ["Compra / saída", "saida", value => value === null ? "—" : formatMoney(value)], ["Situação", "situacao"]]);
+            const movementCount = `<article class="metric metric--info"><span class="metric__label">Movimentações no período</span><strong class="metric__value">${rows.length}</strong></article>`;
+            const body = `<div class="document-controls"><button class="button" type="button" data-action="print-document">Imprimir / salvar PDF</button></div><article class="resident-document wallet-report">${await institutionalHeader()}<header><h2>Relatório da Cantina — últimos 30 dias</h2><h3>${escapeHtml(dados.carteira.residente_nome)}</h3><p>Período: ${formatDate(dados.data_inicio)} a ${formatDate(dados.data_fim)}</p></header><div class="metrics">${metric("Saldo atual da Cantina", dados.carteira.saldo, Number(dados.carteira.saldo) < 0 ? "danger" : "primary")}${movementCount}</div><h3>Créditos e compras da Cantina</h3>${table}<footer class="print-report__footer"><span>Emitido em ${formatDateTime(dados.emitido_em)}</span><span>Clínica da Cruz de Reabilitação</span></footer></article>`;
+            layers.auxiliary.replaceChildren(createPanel({ title: "Relatório da Cantina", eyebrow: "Carteira do residente", body, size: "large" }));
+        } catch (error) { showAlert("Não foi possível gerar o relatório", error.message); }
     }
 
     async function renderCantina() {
@@ -1513,8 +1552,8 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const { dados } = await api("/api/itens");
         const active = dados.filter((row) => Number(row.ativo) === 1).length;
         const low = dados.filter((row) => Number(row.ativo) === 1 && !isCanteenService(row) && ["REPOR", "SEM ESTOQUE"].includes(row.situacao_estoque)).length;
-        const units = dados.reduce((total, row) => total + Number(row.estoque_atual || 0), 0);
-        const summary = `<div class="inventory-summary"><article><span>Produtos cadastrados</span><strong>${dados.length}</strong></article><article><span>Produtos ativos</span><strong>${active}</strong></article><article><span>Precisam de reposição</span><strong class="${low ? "amount--negative" : "amount--positive"}">${low}</strong></article><article><span>Unidades em estoque</span><strong>${units}</strong></article></div>`;
+        const expiring = dados.filter((row) => row.produto_vencendo).length;
+        const summary = `<div class="inventory-summary products-summary"><article><span>Produtos cadastrados</span><strong>${dados.length}</strong></article><article><span>Produtos ativos</span><strong>${active}</strong></article><article><span>Precisam de reposição</span><strong class="${low ? "amount--negative" : "amount--positive"}">${low}</strong></article><article><span>Produtos vencendo (30 dias)</span><strong class="${expiring ? "amount--negative" : "amount--positive"}">${expiring}</strong></article></div>`;
         const table = renderActionTable(dados, [["Produto", "nome"], ["Categoria", "categoria"], ["Unidade", "unidade_medida"], ["Preço", "valor_atual", formatMoney], ["Estoque", "estoque_atual", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Mínimo", "estoque_minimo", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Reposição", "situacao_estoque", (value, row) => isCanteenService(row) ? "Não se aplica" : value], ["Cadastro", "ativo", formatActive]], () => "", {
             selectableRows: true,
             selectionData: (row) => ({ id: row.id, capabilities: ["edit", "price", "history", ...(!isCanteenService(row) ? ["stock"] : [])] }),

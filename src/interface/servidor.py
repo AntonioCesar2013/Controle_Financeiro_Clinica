@@ -377,6 +377,7 @@ class Requisicao(BaseHTTPRequestHandler):
                 dados.get("estoque_minimo", 0), dados.get("descricao"), dados.get("categoria"),
                 dados.get("unidade_medida", "UN"), dados.get("ativo", 1),
                 dados.get("data_inicio_valor"),
+                dados.get("data_validade"),
             )
             return self._json(resultado, HTTPStatus.CREATED if resultado.get("sucesso") else HTTPStatus.BAD_REQUEST)
         if rota == "/api/cantina/vendas":

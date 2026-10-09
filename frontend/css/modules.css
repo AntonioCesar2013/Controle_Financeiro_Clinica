@@ -40,6 +40,10 @@
 .cash-flow [data-column-key="forma_pagamento"] { white-space: nowrap; overflow-wrap: normal; }
 .dashboard-recent-table table { font-size: .82rem; }
 .dashboard-recent-table th, .dashboard-recent-table td { padding: 9px 11px; }
+.financial-history table { font-size: .8rem; }
+.financial-history th, .financial-history td { padding: 8px 9px; }
+.financial-history [data-column-key="forma_pagamento"],
+.financial-history [data-column-key="forma_recebimento"] { white-space: nowrap; overflow-wrap: normal; }
 
 .product-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .product-form-grid .field { min-width: 0; }
@@ -68,6 +72,7 @@
 .wallet-status--active { color: var(--color-success); }
 .wallet-status--inactive { color: var(--color-danger); }
 .inventory-summary { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.products-summary { grid-template-columns: repeat(4, minmax(150px, 1fr)); }
 .inventory-summary article { display: grid; gap: 6px; padding: 15px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface-muted); }
 .inventory-summary span { color: var(--color-text-muted); font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; }
 .inventory-summary strong { font-size: 1.25rem; }

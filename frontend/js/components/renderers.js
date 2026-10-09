@@ -31,7 +31,10 @@ export function renderActionTable(rows, columns, actions, options = {}) {
             : (selection.canManage ? "manage history" : "history");
         return `<tr class="selectable-row" ${attributes} data-action="select-report-row" data-row-id="${escapeHtml(selection.id ?? row.id ?? "")}" data-capabilities="${escapeHtml(capabilities)}" role="button" tabindex="0" aria-selected="false" title="Clique para selecionar este registro">${cells}</tr>`;
     }).join("");
-    return `<section class="${options.filters === false ? "" : "filterable"}${selectable ? " filterable--selectable" : ""}">${controls}${selectable ? '<p class="table-interaction-hint">Selecione uma linha para habilitar as ações acima da tabela.</p>' : ""}<div class="table-wrap"><table><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table></div></section>`;
+    const selectionHint = selectable && options.selectionHint !== false
+        ? '<p class="table-interaction-hint">Selecione uma linha para habilitar as ações acima da tabela.</p>'
+        : "";
+    return `<section class="${options.filters === false ? "" : "filterable"}${selectable ? " filterable--selectable" : ""}">${controls}${selectionHint}<div class="table-wrap"><table><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table></div></section>`;
 }
 
 function cellAttributes(key) {

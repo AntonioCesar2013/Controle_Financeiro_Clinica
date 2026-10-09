@@ -49,6 +49,56 @@ class Fluxos(unittest.TestCase):
         pid = produtos.cadastrar_produto('Novo', 100)['id']
         self.assertTrue(produtos.editar_produto(pid, 'Novo', categoria='Serviço')['sucesso'])
 
+    def test_validade_opcional_fica_vinculada_a_cada_entrada_de_estoque(self):
+        inicial = produtos.cadastrar_produto(
+            'Bolacha', 500, estoque_inicial=3, data_validade='2027-01-10',
+        )
+        self.assertTrue(inicial['sucesso'])
+        self.assertTrue(produtos.ajustar_estoque(
+            inicial['id'], 2, 'Reabastecimento', self.hoje, 'ENTRADA',
+            lote='LOTE-2', data_validade='2027-03-20',
+        )['sucesso'])
+        movimentos = self.sql(
+            '''SELECT tipo,quantidade_movimentada,lote,data_validade
+               FROM movimentacoes_estoque WHERE item_id=? ORDER BY id''',
+            (inicial['id'],),
+        )
+        self.assertEqual(movimentos, [
+            ('SALDO_INICIAL', 3, None, '2027-01-10'),
+            ('ENTRADA', 2, 'LOTE-2', '2027-03-20'),
+        ])
+        sem_validade = produtos.cadastrar_produto('Guardanapo', 100, estoque_inicial=1)
+        self.assertTrue(sem_validade['sucesso'])
+        self.assertEqual(
+            self.sql('SELECT data_validade FROM movimentacoes_estoque WHERE item_id=?', (sem_validade['id'],)),
+            [(None,)],
+        )
+        self.assertFalse(produtos.cadastrar_produto(
+            'Validade inválida', 100, estoque_inicial=1, data_validade='10/01/2027',
+        )['sucesso'])
+
+    def test_produtos_vencendo_consideram_somente_lotes_ainda_em_estoque(self):
+        proxima = (date.today() + timedelta(days=10)).isoformat()
+        distante = (date.today() + timedelta(days=60)).isoformat()
+        consumido = produtos.cadastrar_produto(
+            'Lote consumido', 100, estoque_inicial=2, data_validade=proxima,
+        )['id']
+        produtos.ajustar_estoque(consumido, 2, 'Consumo', self.hoje, 'SAIDA')
+        vencendo = produtos.cadastrar_produto(
+            'Lote próximo', 100, estoque_inicial=2, data_validade=proxima,
+        )['id']
+        distante_id = produtos.cadastrar_produto(
+            'Lote distante', 100, estoque_inicial=2, data_validade=distante,
+        )['id']
+
+        itens = {item['id']: item for item in produtos.listar_itens()}
+
+        self.assertFalse(itens[consumido]['produto_vencendo'])
+        self.assertIsNone(itens[consumido]['validade_proxima'])
+        self.assertTrue(itens[vencendo]['produto_vencendo'])
+        self.assertEqual(itens[vencendo]['validade_proxima'], proxima)
+        self.assertFalse(itens[distante_id]['produto_vencendo'])
+
     def test_encerramento_particular_exige_escolha_e_preserva_se_manter(self):
         _, iid = self.internar()
         antes = self.sql('SELECT valor,desconto,status FROM cobrancas WHERE internacao_id=?', (iid,))

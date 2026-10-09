@@ -60,6 +60,38 @@ class Complementares(unittest.TestCase):
         self.assertEqual(self.sql('SELECT estoque_atual FROM itens_cantina WHERE id=?', (pid,))[0][0], estoque)
         self.assertEqual(self.sql('SELECT COUNT(*) FROM movimentacoes_estoque')[0][0], historico)
 
+    def test_relatorio_carteira_reune_creditos_e_compras_dos_ultimos_30_dias(self):
+        wid, pid = self.carteira()
+        referencia = date.today()
+        inicio = referencia - timedelta(days=29)
+        antiga = referencia - timedelta(days=30)
+        self.sql('DELETE FROM movimentacoes_carteira WHERE carteira_id=?', (wid,))
+        self.sql(
+            """INSERT INTO movimentacoes_carteira
+               (carteira_id,tipo,quantidade,valor_total,data_movimentacao)
+               VALUES(?,'CREDITO',1,75,?)""", (wid, inicio.isoformat()),
+        )
+        self.sql(
+            """INSERT INTO movimentacoes_carteira
+               (carteira_id,tipo,item_id,quantidade,valor_total,data_movimentacao)
+               VALUES(?,'COMPRA_CANTINA',?,2,30,?)""", (wid, pid, referencia.isoformat()),
+        )
+        self.sql(
+            """INSERT INTO movimentacoes_carteira
+               (carteira_id,tipo,quantidade,valor_total,data_movimentacao)
+               VALUES(?,'CREDITO',1,999,?)""", (wid, antiga.isoformat()),
+        )
+
+        relatorio = vendas.relatorio_carteira(wid, referencia.isoformat())
+
+        self.assertTrue(relatorio['sucesso'])
+        self.assertEqual(relatorio['data_inicio'], inicio.isoformat())
+        self.assertEqual(relatorio['data_fim'], referencia.isoformat())
+        self.assertEqual(relatorio['carteira']['residente_nome'], 'Teste')
+        self.assertEqual(relatorio['carteira']['saldo'], 10)
+        self.assertEqual([m['tipo'] for m in relatorio['movimentacoes']], ['COMPRA_CANTINA', 'CREDITO'])
+        self.assertEqual(relatorio['movimentacoes'][0]['item_nome'], 'Teste')
+
     def test_preco_e_internacao_futuros_continuam_permitidos(self):
         _, pid = self.carteira()
         futuro = (date.today()+timedelta(days=30)).isoformat()

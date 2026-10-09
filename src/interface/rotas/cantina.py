@@ -12,6 +12,8 @@ def rotas_get(query):
         "/api/carteiras": listar_carteiras,
         "/api/carteiras/detalhe": lambda: vendas.consultar_carteira(
             _parametro(query, "id"), _parametro(query, "pagina", 1), _parametro(query, "tamanho", 50)),
+        "/api/carteiras/relatorio": lambda: vendas.relatorio_carteira(
+            _parametro(query, "id"), _parametro(query, "data_referencia")),
         "/api/cantina": lambda: vendas.consultar_cantina(
             _parametro(query, "pagina", 1), _parametro(query, "tamanho", 50)),
         "/api/itens": lambda: produtos.listar_itens(apenas_ativos=False),

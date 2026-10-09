@@ -1,7 +1,7 @@
 from src.financeiro.moeda import validar_centavos
 import sqlite3
 import unicodedata
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from src.infraestrutura.banco import conectar
 
@@ -9,6 +9,39 @@ from src.infraestrutura.banco import conectar
 def _eh_servico(categoria):
     texto = unicodedata.normalize("NFKD", str(categoria or ""))
     return "".join(char for char in texto if not unicodedata.combining(char)).strip().upper() in {"SERVICO", "SERVICOS"}
+
+
+def _proximas_validades(movimentos, estoques):
+    """Calcula a validade mais próxima do estoque restante, consumindo lotes em FIFO."""
+    lotes = {}
+    for movimento in movimentos:
+        item_id = movimento["item_id"]
+        quantidade = int(movimento["quantidade_movimentada"] or 0)
+        filas = lotes.setdefault(item_id, [])
+        if quantidade > 0:
+            filas.append([quantidade, movimento["data_validade"]])
+            continue
+        restante = abs(quantidade)
+        while restante and filas:
+            consumida = min(restante, filas[0][0])
+            filas[0][0] -= consumida
+            restante -= consumida
+            if filas[0][0] == 0:
+                filas.pop(0)
+    resultado = {}
+    for item_id, filas in lotes.items():
+        estoque_atual = max(0, int(estoques.get(item_id, 0)))
+        total_calculado = sum(lote[0] for lote in filas)
+        excesso = max(0, total_calculado - estoque_atual)
+        while excesso and filas:
+            consumida = min(excesso, filas[0][0])
+            filas[0][0] -= consumida
+            excesso -= consumida
+            if filas[0][0] == 0:
+                filas.pop(0)
+        validades = [lote[1] for lote in filas if lote[0] > 0 and lote[1]]
+        resultado[item_id] = min(validades) if validades else None
+    return resultado
 
 
 def cadastrar_item(nome):
@@ -123,9 +156,21 @@ def listar_itens(apenas_ativos=True):
         sql += " ORDER BY i.nome"
         cursor.execute(sql)
 
-        itens = cursor.fetchall()
-
-        return [dict(item) for item in itens]
+        itens = [dict(item) for item in cursor.fetchall()]
+        estoques = {item["id"]: item["estoque_atual"] for item in itens}
+        movimentos = cursor.execute(
+            """SELECT item_id,quantidade_movimentada,data_validade
+               FROM movimentacoes_estoque ORDER BY data_movimentacao,id"""
+        ).fetchall()
+        validades = _proximas_validades(movimentos, estoques)
+        limite = (date.today() + timedelta(days=30)).isoformat()
+        for item in itens:
+            item["validade_proxima"] = validades.get(item["id"])
+            item["produto_vencendo"] = bool(
+                item["ativo"] and item["estoque_atual"] > 0
+                and item["validade_proxima"] and item["validade_proxima"] <= limite
+            )
+        return itens
 
     finally:
         conexao.close()
@@ -412,13 +457,15 @@ def alterar_status_valor(item_valor_id, ativo):
 
 def cadastrar_produto(nome, valor, estoque_inicial=0, estoque_minimo=0,
                       descricao=None, categoria=None,
-                      unidade_medida="UN", ativo=1, data_inicio_valor=None):
+                      unidade_medida="UN", ativo=1, data_inicio_valor=None,
+                      data_validade=None):
     """Cadastra produto, preço inicial e estoque em uma única transação."""
     nome = str(nome or "").strip()
     descricao = str(descricao or "").strip() or None
     categoria = str(categoria or "").strip() or None
     unidade_medida = str(unidade_medida or "UN").strip().upper()
     data_inicio_valor = data_inicio_valor or date.today().isoformat()
+    data_validade = str(data_validade or "").strip() or None
     if not nome:
         return {"sucesso": False, "erro": "O nome do produto é obrigatório."}
     try:
@@ -445,6 +492,14 @@ def cadastrar_produto(nome, valor, estoque_inicial=0, estoque_minimo=0,
             raise ValueError
     except (TypeError, ValueError):
         return {"sucesso": False, "erro": "A data inicial do preço é inválida."}
+    if data_validade:
+        try:
+            if datetime.strptime(data_validade, "%Y-%m-%d").strftime("%Y-%m-%d") != data_validade:
+                raise ValueError
+        except ValueError:
+            return {"sucesso": False, "erro": "A data de validade é inválida."}
+    if _eh_servico(categoria):
+        data_validade = None
 
     conexao = conectar()
     try:
@@ -465,9 +520,10 @@ def cadastrar_produto(nome, valor, estoque_inicial=0, estoque_minimo=0,
             conexao.execute(
                 """INSERT INTO movimentacoes_estoque
                    (item_id,quantidade_anterior,quantidade_movimentada,quantidade_atual,
-                    motivo,data_movimentacao,tipo)
-                   VALUES(?,0,?,?,?,?,'SALDO_INICIAL')""",
-                (item_id, estoque_inicial, estoque_inicial, "Estoque inicial do cadastro", data_inicio_valor),
+                    motivo,data_movimentacao,tipo,data_validade)
+                   VALUES(?,0,?,?,?,?,'SALDO_INICIAL',?)""",
+                (item_id, estoque_inicial, estoque_inicial, "Estoque inicial do cadastro",
+                 data_inicio_valor, data_validade),
             )
         conexao.commit()
         return {"sucesso": True, "id": item_id, "item_valor_id": preco.lastrowid,
