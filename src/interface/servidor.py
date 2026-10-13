@@ -407,7 +407,11 @@ class Requisicao(BaseHTTPRequestHandler):
         if rota == "/api/internacoes/cancelar":
             return self._resultado_operacao(cancelar_agendamento(dados.get("id"), dados.get("motivo")))
         if rota == "/api/internacoes/encerrar":
-            return self._resultado_operacao(encerrar_internacao(dados.get("id"), dados.get("data_encerramento"), dados.get("motivo"), str(dados.get("autorizar_ajuste_desconto", "")).lower() in ("1", "true"), dados.get('politica'), dados.get('assinatura')), criado=False)
+            return self._resultado_operacao(encerrar_internacao(
+                dados.get("id"), dados.get("data_encerramento"), dados.get("motivo"),
+                str(dados.get("autorizar_ajuste_desconto", "")).lower() in ("1", "true"),
+                dados.get('politica'), dados.get('assinatura'), dados.get('cobrancas_mantidas')),
+                criado=False)
         if rota == "/api/internacoes/responsavel":
             return self._resultado_operacao(alterar_responsavel_principal(dados.get("id"), dados.get("responsavel_id")), criado=False)
         if rota == "/api/itens/editar":

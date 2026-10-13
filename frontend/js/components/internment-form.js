@@ -3,7 +3,7 @@ import { normalizeSearch } from './filters.js';
 import { currencyValue } from '../utils/masks.js';
 
 export function groupInternmentPeople(people, internments, key, search = '') {
-    const active = new Set(internments.filter(i => i.status === 'ATIVA').map(i => String(i[key])));
+    const active = new Set(internments.filter(i => ['ATIVA', 'AGUARDANDO'].includes(i.status)).map(i => String(i[key])));
     const tokens = normalizeSearch(search).split(/\s+/).filter(Boolean);
     const visible = people.filter(p => tokens.every(t => normalizeSearch(`${p.nome} ${p.cpf || ''}`).includes(t)
         || String(p.cpf || '').replace(/\D/g, '').includes(t)))

@@ -217,6 +217,20 @@ class Regressoes(unittest.TestCase):
         self.assertEqual(self.sql("SELECT COUNT(*) FROM ajustes_cobrancas")[0][0], 3)
         self.assertTrue(internacoes.cadastrar_internacao_com_cobrancas(rid, 1, futuro, 2, 70000, 10000, 30000)["sucesso"])
 
+    def test_periodo_vencido_com_parcelas_abertas_fica_aguardando(self):
+        rid, iid = self.internar()
+        futuro = (date.today() + timedelta(days=400)).isoformat()
+        internacoes.sincronizar_status_residentes(futuro)
+        self.assertEqual(self.sql("SELECT status FROM internacoes WHERE id=?", (iid,))[0][0], "AGUARDANDO")
+        self.assertEqual(self.sql("SELECT ativo FROM residentes WHERE id=?", (rid,))[0][0], 1)
+        for cobranca_id, saldo in self.sql(
+            "SELECT id,valor-desconto FROM cobrancas WHERE internacao_id=?", (iid,),
+        ):
+            self.assertTrue(recebimentos.registrar_pagamento(cobranca_id, self.hoje, saldo)["sucesso"])
+        internacoes.sincronizar_status_residentes(futuro)
+        self.assertEqual(self.sql("SELECT status FROM internacoes WHERE id=?", (iid,))[0][0], "ENCERRADA")
+        self.assertEqual(self.sql("SELECT ativo FROM residentes WHERE id=?", (rid,))[0][0], 0)
+
     def test_migracao_repetivel_preserva_dados(self):
         self.internar()
         banco.criar_tabelas()
@@ -336,6 +350,18 @@ class Regressoes(unittest.TestCase):
         self.assertTrue(recibos.consultar(recibo["id"])["cancelado"])
         with self.assertRaises(ValueError): recibos.gerar(pagamento["id"])
         with self.assertRaises(ValueError): recibos.gerar(99999)
+
+    def test_recibo_de_acolhimento_preserva_identificacao_da_cobranca(self):
+        from src.financeiro import recibos
+        _, iid = self.internar()
+        cid = self.sql(
+            "SELECT id FROM cobrancas WHERE internacao_id=? AND tipo='ACOLHIMENTO'", (iid,),
+        )[0][0]
+        pagamento = recebimentos.registrar_pagamento(cid, self.hoje, 10000)
+        recibo = recibos.gerar(pagamento["id"])
+        self.assertEqual(recibo["dados"]["tipo"], "ACOLHIMENTO")
+        self.assertEqual(recibo["dados"]["valor_devido"], 10000)
+        self.assertEqual(recibos.gerar(pagamento["id"])["numero"], recibo["numero"])
 
     def test_extrato_periodo_e_residente_isolados(self):
         from src.interface.extrato_residente import consultar

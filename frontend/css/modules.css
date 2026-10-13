@@ -44,6 +44,8 @@
 .financial-history th, .financial-history td { padding: 8px 9px; }
 .financial-history [data-column-key="forma_pagamento"],
 .financial-history [data-column-key="forma_recebimento"] { white-space: nowrap; overflow-wrap: normal; }
+.cash-purchase-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.cash-purchase-grid .field { min-width: 0; }
 
 .product-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .product-form-grid .field { min-width: 0; }
@@ -94,6 +96,7 @@
 .internment-person__result:hover, .internment-person__result:focus-visible { background: var(--color-action-soft); }
 @media (max-width: 560px) {
     #internment-form .internment-form__row { grid-template-columns: 1fr; }
+    .cash-purchase-grid { grid-template-columns: 1fr; }
 }
 @media screen {
     .internments-report table { font-size: calc(1em - 2.5pt); }

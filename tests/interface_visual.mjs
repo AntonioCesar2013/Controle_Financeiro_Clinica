@@ -23,6 +23,7 @@ for (const group of ["Módulos", "Pessoas", "Atendimento", "Operação", "Estoqu
 assert.doesNotMatch(app, /\["dashboard", "Dashboard", "Indicadores e movimentos"/, "menu geral não deve exibir o botão Dashboard");
 assert.match(app, /\["financeiro", "Visão financeira"[^\n]+\n\s*\["relatorios", "Relatórios", "Análises por período", "open-panel", "Resumo"\]/, "Relatórios deve ficar imediatamente abaixo de Visão financeira");
 assert.match(app, /\["carteiras", "Carteiras", "Créditos, saldos e compras", "open-panel", "Residentes"\]/);
+assert.match(app, /\["carteiras", "Carteiras"[^\n]+\n\s*\["cantina", "Caixa da Cantina"/, "Carteiras deve aparecer antes do Caixa da Cantina");
 assert.match(app, /data-dashboard-chart-start/);
 assert.match(app, /data-dashboard-chart-end/);
 assert.match(app, /new Date\(currentYear, currentMonth, 0\)/, "o gráfico deve iniciar com o mês civil atual completo");
@@ -36,10 +37,12 @@ assert.match(filtersScript, /export function restoreTableFilters[\s\S]*applyTabl
 assert.match(app, /data-action="clear-payables-filters"/, "contas a pagar deve oferecer limpeza dos filtros");
 assert.match(app, /class="selection-actions financial-history-actions"/, "ações do histórico financeiro devem ficar no topo");
 assert.match(app, /financial-history-actions[\s\S]*Estornar[\s\S]*Devolver valor[\s\S]*Gerar recibo/, "ações dos recebimentos devem manter a ordem solicitada no topo");
+assert.match(app, /\["MENSALIDADE", "ACOLHIMENTO"\]\.includes\(row\.tipo\)[^\n]+\["receipt"\]/, "mensalidade e acolhimento devem permitir gerar recibo");
 assert.match(app, /const history = renderActionTable\(dados, columns, \(\) => "", \{[\s\S]*filters: false,[\s\S]*selectableRows: true/, "histórico individual não deve exibir pesquisa nem coluna de ações");
 assert.match(app, /firstEffective[\s\S]*selectReportRow\(firstEffective\)/, "o primeiro lançamento efetivo deve ser selecionado automaticamente");
 assert.match(modules, /\.financial-history table\s*{\s*font-size:\s*\.8rem/, "histórico financeiro deve usar fonte levemente menor");
 assert.match(modules, /\.financial-history \[data-column-key="forma_pagamento"\][\s\S]*white-space:\s*nowrap/, "formas de pagamento devem permanecer na mesma linha");
+assert.match(modules, /\.cash-purchase-grid\s*{[^}]*grid-template-columns:\s*repeat\(3,/s, "compra à vista deve apresentar data, valor e forma na mesma linha");
 assert.match(app, /data-cash-filter="inicio"/, "fluxo de caixa deve filtrar pela data inicial");
 assert.match(app, /data-cash-filter="fim"/, "fluxo de caixa deve filtrar pela data final");
 assert.match(app, /metric\("Resultado", dados\.resultado, "info"\)/, "resultado do caixa deve usar sempre o tom azul");
@@ -69,6 +72,11 @@ assert.match(app, /dados\.filter\(\(row\) => row\.produto_vencendo\)\.length/, "
 assert.match(modules, /\.products-summary\s*{[^}]*grid-template-columns:\s*repeat\(4,/s, "os quatro indicadores de produtos devem ocupar a largura disponível");
 assert.match(modules, /\.wallet-summary\s*{[^}]*grid-template-columns:\s*minmax\(0, 2fr\)\s+minmax\(0, 1fr\)\s+minmax\(0, 1fr\)/s, "resumo da carteira deve usar 50%, 25% e 25% em uma linha");
 assert.match(app, /wallet-selector[\s\S]*open-wallet-resident-search[\s\S]*button--success[\s\S]*Nova carteira/, "seleção, pesquisa e nova carteira devem ficar na mesma linha e na ordem solicitada");
+assert.match(app, /name="saldo_inicial" type="text" inputmode="numeric" data-mask="currency" value="R\$ 0,00"/, "saldo inicial da carteira deve usar máscara financeira sem setas");
+assert.match(app, /data\.saldo_inicial = currencyValue\(data\.saldo_inicial\)\.toFixed\(2\)/, "saldo inicial mascarado deve ser convertido antes do envio");
+assert.match(app, /id="receipt-total"[^>]+readonly tabindex="-1"/, "valor total não deve receber foco");
+assert.match(app, /id="receipt-paid"[^>]+readonly tabindex="-1"/, "valor parcial não deve receber foco");
+assert.match(app, /id="financial-value" name="valor"[^>]+value="\$\{escapeHtml\(formatMoney\(remainingCents\)\)\}"/, "valor recebido deve iniciar com o saldo restante");
 assert.match(app, /wallet-status--active[\s\S]*wallet-status--inactive/, "situação da carteira deve distinguir ativo e inativo por cor");
 assert.match(app, /dados\.creditos[\s\S]*\{ filters: false \}/, "créditos da carteira não devem exibir pesquisa própria");
 assert.match(app, /dados\.compras[^\n]+\{ filters: false \}/, "compras da carteira não devem exibir pesquisa própria");
@@ -89,10 +97,14 @@ assert.doesNotMatch(app, /<span class="selection-actions__label">Internação se
 assert.match(modules, /\.selection-scope \.selection-actions\.internment-actions\s*\{[^}]*flex-wrap:\s*nowrap/s, "ações de internação devem permanecer em uma linha");
 assert.doesNotMatch(app, /\["Cobrança", "tipo_cobranca_convenio"/, "internações não devem exibir a coluna Cobrança");
 const internmentActions = app.match(/const actions = `<div class="selection-actions internment-actions"[^;]+;/)?.[0] || '';
-for (const [left, right] of [["Nova internação", "Editar"], ["Editar", "Encerrar"], ["Encerrar", "Cancelar"], ["Cancelar", "Novo convênio"], ["Novo convênio", "Editar convênio"]]) {
+for (const [left, right] of [["Nova internação", "Prorrogar"], ["Prorrogar", "Editar"], ["Editar", "Encerrar"], ["Encerrar", "Cancelar"], ["Cancelar", "Novo convênio"], ["Novo convênio", "Editar convênio"]]) {
     assert.ok(internmentActions.indexOf(left) < internmentActions.indexOf(right), `${left} deve aparecer antes de ${right}`);
 }
-assert.doesNotMatch(internmentActions, /Prorrogar|internment-extend/, "a barra de internações não deve exibir Prorrogar");
+assert.match(internmentActions, /data-kind="internment-extend" data-selection-action="extend"[^>]*>Prorrogar/, "a barra de internações deve permitir prorrogar após Nova internação");
+assert.match(app, /row\.modalidade !== "VOLUNTARIO"[^\n]+\["extend"\]/, "somente internações com prazo e ainda abertas podem ser prorrogadas");
+assert.match(app, /\["ATIVA", "AGUARDANDO"\]\.includes\(row\.status\)[^\n]+\["end"\]/, "internações aguardando devem permitir encerramento manual");
+const awaitingStatus = renderActionTable([{status: "AGUARDANDO"}], [["Status", "status"]], () => "", {filters: false});
+assert.match(awaitingStatus, /status--warning[^>]*>AGUARDANDO/, "o status AGUARDANDO deve usar o tom laranja de atenção");
 assert.match(modules, /\.internments-report table\s*{\s*font-size:\s*calc\(1em - 2\.5pt\)/, "tabela de internações deve usar fonte levemente menor");
 assert.match(app, /data-endpoint="\/api\/convenios\/editar"/, "o formulário deve enviar a edição do convênio");
 assert.match(tableLayout, /padding-top:\s*5px/, "painéis financeiros devem iniciar até 5 px abaixo do cabeçalho");

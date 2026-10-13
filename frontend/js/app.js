@@ -247,6 +247,12 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     function handleChange(event) {
         conference.change(event.target);
+        if (event.target.matches('[data-settlement-charge], .maintenance-form[data-kind="internment-end"] [name="politica"]')) {
+            const form = event.target.closest('.maintenance-form');
+            if (form?.elements.assinatura) form.elements.assinatura.value = '';
+            const note = form?.querySelector('[data-settlement-selection-note]');
+            if (note) note.textContent = 'Seleção alterada. Clique em Conferir prévia novamente.';
+        }
         if (administrationItems.change(event.target)) return;
         if (event.target.matches("[data-import-file]")) { void imports.change(event.target); return; }
         if (event.target.matches("[data-dashboard-chart-control]")) updateDashboardChart(event.target);
@@ -404,8 +410,8 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     function openCanteenMenu() {
         renderMenu("Menu da Cantina", "Módulo", [
-            ["cantina", "Caixa da Cantina", "Vendas e estornos", "open-panel", "Operação"],
             ["carteiras", "Carteiras", "Créditos, saldos e compras", "open-panel", "Residentes"],
+            ["cantina", "Caixa da Cantina", "Vendas e estornos", "open-panel", "Operação"],
             ["itens", "Produtos e estoque", "Catálogo, preços e movimentações", "open-panel", "Estoque"],
             ["", "Sair", "Encerrar esta sessão", "logout", "Sessão"],
         ], true, "canteen-menu");
@@ -830,7 +836,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
                     showAlert("Cadastro necessário", "Cadastre ou reative uma despesa vinculada a um setor ativo antes de lançar uma compra.");
                     return;
                 }
-                definitions.compra_avista = ["Nova compra à vista", "/api/compras-avista", "contas_pagar", `<div class="field"><label for="cash-purchase-expense">Despesa</label><select id="cash-purchase-expense" name="despesa_id" required>${activeExpenses.map((item) => `<option value="${item.id}">${escapeHtml(item.descricao)} — ${escapeHtml(item.setor_nome)}</option>`).join("")}</select></div><div class="field"><label for="cash-purchase-date">Data da compra e pagamento</label><input id="cash-purchase-date" name="data_pagamento" type="date" value="${today}" max="${today}" required></div>${moneyField("Valor pago")}<div class="field"><label for="cash-purchase-method">Forma de pagamento</label><select id="cash-purchase-method" name="forma_pagamento" required><option value="PIX">PIX</option><option value="DINHEIRO">Dinheiro</option><option value="CARTAO">Cartão</option><option value="TRANSFERENCIA">Transferência</option><option value="BOLETO">Boleto</option></select></div><div class="field"><label for="cash-purchase-supplier">Fornecedor (opcional)</label><input id="cash-purchase-supplier" name="fornecedor"></div><div class="field"><label for="cash-purchase-document">Nota ou documento (opcional)</label><input id="cash-purchase-document" name="documento"></div><div class="field"><label for="cash-purchase-note">Observação</label><textarea id="cash-purchase-note" name="observacao" rows="3"></textarea></div>`];
+                definitions.compra_avista = ["Nova compra à vista", "/api/compras-avista", "contas_pagar", `<div class="field"><label for="cash-purchase-expense">Despesa</label><select id="cash-purchase-expense" name="despesa_id" required>${activeExpenses.map((item) => `<option value="${item.id}">${escapeHtml(item.descricao)} — ${escapeHtml(item.setor_nome)}</option>`).join("")}</select></div><div class="cash-purchase-grid"><div class="field"><label for="cash-purchase-date">Data da compra e pagamento</label><input id="cash-purchase-date" name="data_pagamento" type="date" value="${today}" max="${today}" required></div><div class="field"><label for="cash-purchase-value">Valor pago</label><input id="cash-purchase-value" name="valor" type="text" inputmode="numeric" data-mask="currency" value="R$ 0,00" required></div><div class="field"><label for="cash-purchase-method">Forma de pagamento</label><select id="cash-purchase-method" name="forma_pagamento" required><option value="PIX">PIX</option><option value="DINHEIRO">Dinheiro</option><option value="CARTAO">Cartão</option><option value="TRANSFERENCIA">Transferência</option><option value="BOLETO">Boleto</option></select></div></div><div class="field"><label for="cash-purchase-supplier">Fornecedor (opcional)</label><input id="cash-purchase-supplier" name="fornecedor"></div><div class="field"><label for="cash-purchase-document">Nota ou documento (opcional)</label><input id="cash-purchase-document" name="documento"></div><div class="field"><label for="cash-purchase-note">Observação</label><textarea id="cash-purchase-note" name="observacao" rows="3"></textarea></div>`];
             }
             if (kind === "editar_setor") {
                 const collection = registrations.setores;
@@ -844,7 +850,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             const [title, endpoint, refresh, fields] = definition;
             const body = `<form class="login-form financial-form${isSettlement ? " settlement-form" : ""}" data-endpoint="${endpoint}" data-refresh="${refresh}" data-kind="${kind}">${fields}<p class="login-error" data-financial-error role="alert"></p><button class="button" type="submit">Salvar</button></form>`;
             layers.auxiliary.replaceChildren(createPanel({ title, eyebrow: "Financeiro", body, size: "medium" }));
-            requestAnimationFrame(() => layers.auxiliary.querySelector("input:not([type=hidden]), select")?.focus());
+            requestAnimationFrame(() => layers.auxiliary.querySelector("input:not([type=hidden]):not([readonly]), select")?.focus());
         } catch (error) { showAlert("Não foi possível abrir", error.message); }
     }
 
@@ -863,7 +869,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const hiddenName = isReceipt ? "cobranca_id" : "conta_pagar_id";
         const action = isReceipt ? "recebido" : "pago";
         const pending = isReceipt ? "receber" : "pagar";
-        return `<input type="hidden" name="${hiddenName}" value="${escapeHtml(id)}"><div class="financial-receipt-grid" data-remaining="${remaining}"><div class="field"><label for="receipt-due-date">Data de vencimento</label><input id="receipt-due-date" type="date" value="${escapeHtml(record.data_vencimento)}" readonly></div><div class="field"><label for="financial-date">Data de pagamento</label><input id="financial-date" name="data_pagamento" type="date" value="${today}" required></div><div class="field"><label for="receipt-total">Valor total</label><input id="receipt-total" type="text" value="${escapeHtml(formatMoney(record.valor))}" readonly></div><div class="field"><label for="receipt-paid">Valor pago parcial</label><input id="receipt-paid" type="text" value="${escapeHtml(formatMoney(totalPaid))}" readonly></div><div class="field"><label for="financial-value">Valor ${action}</label><input id="financial-value" name="valor" type="text" inputmode="numeric" data-mask="currency" value="R$ 0,00" required></div><div class="field"><label for="financial-method">Forma de pagamento</label><select id="financial-method" name="forma_pagamento"><option value="PIX">PIX</option><option value="DINHEIRO">Dinheiro</option><option value="CARTAO">Cartão</option><option value="TRANSFERENCIA">Transferência</option><option value="BOLETO">Boleto</option></select></div><div class="field"><label for="financial-discount">Valor do desconto</label><input id="financial-discount" name="desconto" type="text" inputmode="numeric" data-mask="currency" value="R$ 0,00"></div><div class="field"><label for="financial-fees">Multa e juros</label><input id="financial-fees" name="multa_juros" type="text" inputmode="numeric" data-mask="currency" value="R$ 0,00"></div><div class="field financial-receipt-grid__remaining"><label for="receipt-remaining">Ainda falta ${pending}</label><input id="receipt-remaining" type="text" value="${escapeHtml(formatMoney(remainingCents))}" readonly data-receipt-remaining></div></div><div class="field"><label for="financial-note">Observação</label><textarea id="financial-note" name="observacao" rows="3"></textarea></div>`;
+        return `<input type="hidden" name="${hiddenName}" value="${escapeHtml(id)}"><div class="financial-receipt-grid" data-remaining="${remaining}"><div class="field"><label for="receipt-due-date">Data de vencimento</label><input id="receipt-due-date" type="date" value="${escapeHtml(record.data_vencimento)}" readonly></div><div class="field"><label for="financial-date">Data de pagamento</label><input id="financial-date" name="data_pagamento" type="date" value="${today}" required></div><div class="field"><label for="receipt-total">Valor total</label><input id="receipt-total" type="text" value="${escapeHtml(formatMoney(record.valor))}" readonly tabindex="-1"></div><div class="field"><label for="receipt-paid">Valor pago parcial</label><input id="receipt-paid" type="text" value="${escapeHtml(formatMoney(totalPaid))}" readonly tabindex="-1"></div><div class="field"><label for="financial-value">Valor ${action}</label><input id="financial-value" name="valor" type="text" inputmode="numeric" data-mask="currency" value="${escapeHtml(formatMoney(remainingCents))}" required></div><div class="field"><label for="financial-method">Forma de pagamento</label><select id="financial-method" name="forma_pagamento"><option value="PIX">PIX</option><option value="DINHEIRO">Dinheiro</option><option value="CARTAO">Cartão</option><option value="TRANSFERENCIA">Transferência</option><option value="BOLETO">Boleto</option></select></div><div class="field"><label for="financial-discount">Valor do desconto</label><input id="financial-discount" name="desconto" type="text" inputmode="numeric" data-mask="currency" value="R$ 0,00"></div><div class="field"><label for="financial-fees">Multa e juros</label><input id="financial-fees" name="multa_juros" type="text" inputmode="numeric" data-mask="currency" value="R$ 0,00"></div><div class="field financial-receipt-grid__remaining"><label for="receipt-remaining">Ainda falta ${pending}</label><input id="receipt-remaining" type="text" value="${escapeHtml(formatMoney(remainingCents))}" readonly data-receipt-remaining></div></div><div class="field"><label for="financial-note">Observação</label><textarea id="financial-note" name="observacao" rows="3"></textarea></div>`;
     }
 
     function updateSettlementRemaining(form) {
@@ -884,6 +890,9 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function submitFinancialForm(form) {
         const data = Object.fromEntries(new FormData(form));
+        if (form.elements.valor?.matches('[data-mask="currency"]')) {
+            data.valor = currencyValue(data.valor).toFixed(2);
+        }
         if (form.dataset.kind === "despesa" && !data.recorrente) data.recorrente = "0";
         const errorElement = form.querySelector("[data-financial-error]");
         if (form.classList.contains("settlement-form") && currencyValue(data.valor) <= 0) {
@@ -938,7 +947,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
                 selectionHint: false,
                 selectionData: (row) => ({
                     id: row.id,
-                    capabilities: row.estornada ? [] : ["reverse", ...(!isOutgoing ? ["refund"] : []), ...(!isOutgoing && row.tipo === "MENSALIDADE" ? ["receipt"] : [])],
+                    capabilities: row.estornada ? [] : ["reverse", ...(!isOutgoing ? ["refund"] : []), ...(!isOutgoing && ["MENSALIDADE", "ACOLHIMENTO"].includes(row.tipo) ? ["receipt"] : [])],
                 }),
             });
             let body = `<section class="selection-scope financial-history"><div class="toolbar selection-toolbar">${actions}</div>${history}</section>`;
@@ -971,8 +980,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
                     return;
                 }
                 title = "Criar carteira"; endpoint = "/api/carteiras";
-                fields = `<div class="field"><label for="wallet-resident-new">Residente</label><select id="wallet-resident-new" name="residente_id">${selectOptions(eligible)}</select></div>${moneyField("Saldo inicial")}`;
-                fields = fields.replace('name="valor"', 'name="saldo_inicial"').replace('min="0.01"', 'min="0"').replace(" required></div>", ' value="0" required></div>');
+                fields = `<div class="field"><label for="wallet-resident-new">Residente</label><select id="wallet-resident-new" name="residente_id">${selectOptions(eligible)}</select></div><div class="field"><label for="wallet-initial-balance">Saldo inicial</label><input id="wallet-initial-balance" name="saldo_inicial" type="text" inputmode="numeric" data-mask="currency" value="R$ 0,00" required></div>`;
             } else if (kind === "credit") {
                 title = "Adicionar crédito"; endpoint = "/api/carteiras/credito";
                 fields = `<input type="hidden" name="carteira_id" value="${escapeHtml(id)}">${moneyField("Valor do crédito")}<div class="field"><label for="wallet-date">Data</label><input id="wallet-date" name="data_movimentacao" type="date" value="${today}" max="${today}" required></div>`;
@@ -1056,6 +1064,12 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
 
     async function submitMaintenanceForm(form) {
         const data = Object.fromEntries(new FormData(form));
+        if (form.dataset.kind === 'internment-end') {
+            data.cobrancas_mantidas = [...form.querySelectorAll('[data-settlement-charge]:checked')].map(input => input.value);
+        }
+        if (form.elements.saldo_inicial?.matches('[data-mask="currency"]')) {
+            data.saldo_inicial = currencyValue(data.saldo_inicial).toFixed(2);
+        }
         const errorElement = form.querySelector("[data-maintenance-error]");
         if (form.dataset.kind === 'internment-end' && !data.assinatura) {
             errorElement.textContent = 'Consulte e confira a prévia do acerto antes de confirmar o encerramento.';
@@ -1430,10 +1444,10 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             selectableRows: true,
             selectionData: (row) => ({
                 id: row.id,
-                capabilities: [...(["ATIVA", "AGENDADA"].includes(row.status) ? ["edit"] : []), ...(row.status === "AGENDADA" ? ["cancel"] : []), ...(row.status === "ATIVA" && !row.encerrada_em ? ["end"] : [])],
+                capabilities: [...(["ATIVA", "AGENDADA", "AGUARDANDO"].includes(row.status) ? ["edit"] : []), ...(["ATIVA", "AGENDADA", "AGUARDANDO"].includes(row.status) && row.modalidade !== "VOLUNTARIO" && !row.encerrada_em ? ["extend"] : []), ...(row.status === "AGENDADA" ? ["cancel"] : []), ...(["ATIVA", "AGUARDANDO"].includes(row.status) && !row.encerrada_em ? ["end"] : [])],
             }),
         });
-        const actions = `<div class="selection-actions internment-actions" aria-label="Ações da internação selecionada"><button class="button" type="button" data-action="open-new-internment">Nova internação</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-edit" data-selection-action="edit" disabled>Editar</button><button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-selection-action="end" disabled>Encerrar</button><button class="button button--danger" type="button" data-action="cancel-internment" data-selection-action="cancel" disabled>Cancelar</button><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button button--secondary" type="button" data-action="open-edit-convenio">Editar convênio</button></div>`;
+        const actions = `<div class="selection-actions internment-actions" aria-label="Ações da internação selecionada"><button class="button" type="button" data-action="open-new-internment">Nova internação</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-extend" data-selection-action="extend" disabled>Prorrogar</button><button class="button button--secondary" type="button" data-action="open-maintenance-form" data-kind="internment-edit" data-selection-action="edit" disabled>Editar</button><button class="button button--danger" type="button" data-action="open-maintenance-form" data-kind="internment-end" data-selection-action="end" disabled>Encerrar</button><button class="button button--danger" type="button" data-action="cancel-internment" data-selection-action="cancel" disabled>Cancelar</button><button class="button button--secondary" type="button" data-action="open-new-convenio">Novo convênio</button><button class="button button--secondary" type="button" data-action="open-edit-convenio">Editar convênio</button></div>`;
         return `<section class="selection-scope internments-report"><div class="toolbar selection-toolbar">${actions}</div>${table}</section>`;
     }
 

@@ -49,6 +49,12 @@ class InicializacaoTests(unittest.TestCase):
         self.assertIn('WaitForExit(5000)', script)
         self.assertIn('if (-not $encerrouNaPartida)', script)
 
+    def test_inicializador_valida_python_real_antes_de_usar_alias_do_windows(self):
+        script = (Path(__file__).resolve().parents[1] / 'iniciar.ps1').read_text(encoding='utf-8')
+        self.assertIn('function Testar-Python', script)
+        self.assertIn('sys.version_info >= (3, 10)', script)
+        self.assertLess(script.index('Join-Path $env:LOCALAPPDATA "Python"'), script.index('Get-Command $comando'))
+
     def test_webview2_usa_perfil_economico_sem_sobrescrever_configuracao_externa(self):
         with patch.dict(os.environ, {}, clear=True):
             main.configurar_webview2_economico()

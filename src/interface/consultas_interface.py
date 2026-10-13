@@ -28,8 +28,9 @@ def listar_responsaveis():
 
 def listar_internacoes():
     from src.cadastros.internacoes import sincronizar_status_residentes
+    from src.financeiro.parcelas import calcular_data_vencimento
     sincronizar_status_residentes()
-    return _listar(
+    dados = _listar(
         """
         SELECT i.id, r.nome AS residente_nome, rp.nome AS responsavel_nome,
                i.data_acolhimento, i.periodo_tratamento, i.valor_contrato,
@@ -48,6 +49,11 @@ def listar_internacoes():
         ORDER BY i.data_acolhimento DESC, r.nome
         """
     )
+    for item in dados:
+        item['data_fim_contrato'] = None if item['modalidade'] == 'VOLUNTARIO' else calcular_data_vencimento(
+            item['data_acolhimento'], int(item['periodo_tratamento'])
+        ).isoformat()
+    return dados
 
 
 def listar_colaboradores():

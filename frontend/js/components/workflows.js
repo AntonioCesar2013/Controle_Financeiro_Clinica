@@ -1,5 +1,4 @@
-import { escapeHtml as e, formatMoney as money, localDate } from '../utils/formatters.js';
-import { renderTable } from './renderers.js';
+import { escapeHtml as e, formatDate as date, formatMoney as money, localDate } from '../utils/formatters.js';
 
 export function createWorkflows({ api, showPanel, showAlert }) {
     const field = (label, name, type = 'text', value = '') => `<div class="field"><label>${e(label)}<input name="${name}" type="${type}" value="${e(value)}" required${type === 'number' ? ' min="0.01" step="0.01"' : ''}></label></div>`;
@@ -7,13 +6,15 @@ export function createWorkflows({ api, showPanel, showAlert }) {
     async function open(kind, id) {
         try {
             let title, endpoint, refresh, fields;
-            const today = localDate();
+            let today = localDate();
             if (kind === 'internment-end') {
                 const i = (await api('/api/internacoes')).dados.find(r => String(r.id) === String(id));
+                if (i.status === 'AGUARDANDO' && i.data_fim_contrato) today = i.data_fim_contrato;
                 title = 'Conferir acerto e encerrar'; endpoint = '/api/internacoes/encerrar'; refresh = 'internacoes';
                 fields = hidden('id', id) + field('Data de encerramento', 'data_encerramento', 'date', today);
-                fields += i.modalidade === 'PARTICULAR' ? `<div class="field"><label>Cobranças particulares<select name="politica" required><option value="">Selecione conforme o contrato</option><option value="MANTER">Manter cobranças contratadas</option><option value="DISPENSAR_FUTURAS">Dispensar mensalidades com vencimento após a saída</option></select></label></div><p>Dispensar futuras zera essas mensalidades por inteiro. Não calcula proporcionalidade nem multa contratual.</p>` : '';
-                fields += field('Motivo do encerramento', 'motivo') + `<label><input type="checkbox" name="autorizar_ajuste_desconto" value="1"> Confirmar ajustes de descontos mostrados na prévia</label>` + hidden('assinatura', '') + `<button type="button" class="button button--secondary" data-action="preview-settlement">Conferir prévia</button><div data-settlement-preview></div>`;
+                const cobrancaFixa = i.modalidade === 'PARTICULAR' || (i.modalidade === 'CONVENIO' && i.tipo_cobranca_convenio === 'FIXA');
+                fields += cobrancaFixa ? `<div class="field"><label>Cobranças mensais<select name="politica" required><option value="">Selecione conforme o contrato</option><option value="MANTER">Manter cobranças contratadas</option><option value="DISPENSAR_FUTURAS">Dispensar mensalidades com vencimento após a saída</option><option value="SELECIONAR_MANTIDAS">Selecionar cobranças mantidas</option></select></label></div><p>Na seleção manual, apenas mensalidades abertas podem ser mantidas. As abertas não marcadas serão desconsideradas por inteiro.</p>` : '';
+                fields += field('Motivo do encerramento', 'motivo') + `<label><input type="checkbox" name="autorizar_ajuste_desconto" value="1"> Confirmar ajustes de descontos mostrados na prévia</label>` + hidden('assinatura', '') + `<button type="button" class="button button--secondary" data-action="preview-settlement">Conferir prévia</button><p data-settlement-selection-note></p><div data-settlement-preview></div>`;
             } else if (kind === 'internment-extend') {
                 const i = (await api('/api/internacoes')).dados.find(r => String(r.id) === String(id));
                 title = 'Prorrogar internação'; endpoint = '/api/internacoes/prorrogar'; refresh = 'internacoes';
@@ -53,10 +54,17 @@ export function createWorkflows({ api, showPanel, showAlert }) {
         signature.value = '';
         const values = new FormData(form);
         const query = new URLSearchParams({ id: values.get('id'), data_encerramento: values.get('data_encerramento'), politica: values.get('politica') || '' });
+        const mantidas = values.getAll('cobrancas_mantidas');
+        if (mantidas.length) query.set('cobrancas_mantidas', mantidas.join(','));
         target.textContent = 'Consultando acerto…';
         try {
             const { dados: d } = await api(`/api/internacoes/acerto?${query}`);
-            target.innerHTML = renderTable(d.cobrancas, [['Parcela', 'numero_parcela'], ['Valor anterior', 'valor_anterior', money], ['Valor após saída', 'valor_novo', money], ['Desconto anterior', 'desconto_anterior', money], ['Desconto após saída', 'desconto_novo', money], ['Recebido líquido', 'recebido', money], ['Devolver', 'devolver', money], ['Pendente', 'saldo_restante', money]]) + `<p>Devolver do tratamento: <strong>${money(d.total_devolver)}</strong>. Dívida restante: <strong>${money(d.total_pendente)}</strong>.</p><p>Saldo da carteira: <strong>${money(d.carteira?.saldo || 0)}</strong>. ${d.carteira?.saldo > 0 ? 'Registre a devolução na carteira quando realizada.' : d.carteira?.saldo < 0 ? 'Permanece uma dívida da carteira; registre o crédito ao receber.' : ''}</p>${d.total_devolver ? '<p>Faça as devoluções pelo histórico de recebimentos e consulte novamente a prévia.</p>' : ''}`;
+            const selecionar = d.politica === 'SELECIONAR_MANTIDAS';
+            const cabecalho = `${selecionar ? '<th>Manter</th>' : ''}<th>Parcela</th><th>Vencimento</th><th>Situação</th><th>Valor anterior</th><th>Valor após saída</th><th>Desconto anterior</th><th>Desconto após saída</th><th>Recebido líquido</th><th>Devolver</th><th>Pendente</th>`;
+            const linhas = d.cobrancas.map(c => `<tr>${selecionar ? `<td>${c.selecionavel ? `<input type="checkbox" name="cobrancas_mantidas" value="${e(c.id)}" data-settlement-charge aria-label="Manter mensalidade ${e(c.numero_parcela)}"${c.mantida ? ' checked' : ''}>` : '—'}</td>` : ''}<td>${e(c.numero_parcela)}</td><td>${e(date(c.data_vencimento))}</td><td>${e(c.status_anterior)}</td><td>${money(c.valor_anterior)}</td><td>${money(c.valor_novo)}</td><td>${money(c.desconto_anterior)}</td><td>${money(c.desconto_novo)}</td><td>${money(c.recebido)}</td><td>${money(c.devolver)}</td><td>${money(c.saldo_restante)}</td></tr>`).join('');
+            target.innerHTML = `${selecionar ? '<p><strong>Marque as mensalidades abertas que devem permanecer.</strong> As não marcadas serão dispensadas integralmente. Depois, confira novamente a prévia.</p>' : ''}<div class="table-wrap"><table><thead><tr>${cabecalho}</tr></thead><tbody>${linhas}</tbody></table></div><p>Devolver do tratamento: <strong>${money(d.total_devolver)}</strong>. Dívida restante: <strong>${money(d.total_pendente)}</strong>.</p><p>Saldo da carteira: <strong>${money(d.carteira?.saldo || 0)}</strong>. ${d.carteira?.saldo > 0 ? 'Registre a devolução na carteira quando realizada.' : d.carteira?.saldo < 0 ? 'Permanece uma dívida da carteira; registre o crédito ao receber.' : ''}</p>${d.total_devolver ? '<p>Faça as devoluções pelo histórico de recebimentos e consulte novamente a prévia.</p>' : ''}`;
+            const note = form.querySelector('[data-settlement-selection-note]');
+            if (note) note.textContent = '';
             signature.value = d.assinatura;
         } catch (error) { target.textContent = error.message; }
     }

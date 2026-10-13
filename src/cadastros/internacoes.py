@@ -9,7 +9,7 @@ from src.financeiro.api_publica import (
 
 
 def sincronizar_status_residentes(data_referencia=None):
-    """Ativa somente residentes com internação dentro do período contratado."""
+    """Mantém contratos vencidos com saldo pendente aguardando encerramento manual."""
     referencia = date.fromisoformat(data_referencia) if data_referencia else date.today()
     conexao = conectar()
     try:
@@ -30,26 +30,33 @@ def sincronizar_status_residentes(data_referencia=None):
             elif referencia < inicio_data:
                 status = "AGENDADA"
             else:
-                status = "ATIVA" if dentro_periodo else "ENCERRADA"
+                possui_saldo_aberto = conexao.execute(
+                    '''SELECT EXISTS(SELECT 1 FROM cobrancas c
+                       WHERE c.internacao_id=? AND
+                       c.valor-c.desconto-COALESCE((SELECT SUM(r.valor)
+                           FROM recebimentos_liquidos r WHERE r.cobranca_id=c.id),0)>0)''',
+                    (internacao_id,),
+                ).fetchone()[0]
+                status = "ATIVA" if dentro_periodo else "AGUARDANDO" if possui_saldo_aberto else "ENCERRADA"
             if status != status_atual:
                 conexao.execute("UPDATE internacoes SET status=? WHERE id=?", (status, internacao_id))
                 alteradas += 1
-            if status == "ATIVA":
+            if status in ("ATIVA", "AGUARDANDO"):
                 ativas.add(residente_id)
         conexao.execute("""UPDATE residentes SET ativo=0
             WHERE ativo<>0 AND NOT EXISTS (
-                SELECT 1 FROM internacoes i WHERE i.residente_id=residentes.id AND i.status='ATIVA'
+                SELECT 1 FROM internacoes i WHERE i.residente_id=residentes.id AND i.status IN ('ATIVA','AGUARDANDO')
             )""")
         conexao.execute("""UPDATE residentes SET ativo=1
             WHERE ativo<>1 AND EXISTS (
-                SELECT 1 FROM internacoes i WHERE i.residente_id=residentes.id AND i.status='ATIVA'
+                SELECT 1 FROM internacoes i WHERE i.residente_id=residentes.id AND i.status IN ('ATIVA','AGUARDANDO')
             )""")
         # Inicializa apenas contatos ausentes e inequívocos. Uma escolha atual
         # existente (ou ambígua) nunca é substituída por agendamento/reativação.
         conexao.execute('''INSERT INTO residente_responsavel(residente_id,responsavel_id,relacao,principal)
             SELECT i.residente_id, MIN(i.responsavel_id), 'Contato inicial', 1
             FROM internacoes i
-            WHERE i.status='ATIVA'
+            WHERE i.status IN ('ATIVA','AGUARDANDO')
               AND NOT EXISTS (SELECT 1 FROM residente_responsavel rr
                               WHERE rr.residente_id=i.residente_id AND rr.principal=1)
             GROUP BY i.residente_id
@@ -335,8 +342,8 @@ def editar_internacao(
         atual = conexao.execute("SELECT * FROM internacoes WHERE id=?", (internacao_id,)).fetchone()
         if not atual:
             return {"sucesso": False, "erro": "Internação não encontrada."}
-        if atual["status"] not in ("ATIVA", "AGENDADA") or atual["encerrada_em"]:
-            return {"sucesso": False, "erro": "Somente internações ativas ou agendadas podem ser editadas."}
+        if atual["status"] not in ("ATIVA", "AGENDADA", "AGUARDANDO") or atual["encerrada_em"]:
+            return {"sucesso": False, "erro": "Somente internações ativas, agendadas ou aguardando encerramento podem ser editadas."}
         if not conexao.execute("SELECT 1 FROM residentes WHERE id=?", (residente_id,)).fetchone():
             return {"sucesso": False, "erro": "Residente não encontrado."}
         responsavel = conexao.execute("SELECT ativo FROM responsaveis WHERE id=?", (responsavel_id,)).fetchone()
@@ -445,7 +452,8 @@ def editar_internacao(
 
 
 def encerrar_internacao(internacao_id, data_encerramento=None, motivo=None,
-                       autorizar_ajuste_desconto=False, politica=None, assinatura=None):
+                       autorizar_ajuste_desconto=False, politica=None, assinatura=None,
+                       cobrancas_mantidas=None):
     data_encerramento = data_encerramento or date.today().isoformat()
     motivo = str(motivo or "Encerramento antecipado").strip()
     try:
@@ -470,7 +478,8 @@ def encerrar_internacao(internacao_id, data_encerramento=None, motivo=None,
             return {"sucesso": False, "erro": "O encerramento não pode ultrapassar o período contratado."}
         from src.financeiro.api_publica import aplicar_acerto_encerramento
         acerto = aplicar_acerto_encerramento(
-            internacao_id, data_encerramento, conexao, politica, motivo, autorizar_ajuste_desconto, assinatura)
+            internacao_id, data_encerramento, conexao, politica, motivo,
+            autorizar_ajuste_desconto, assinatura, cobrancas_mantidas)
         conexao.execute(
             "UPDATE internacoes SET status='ENCERRADA',encerrada_em=?,motivo_encerramento=? WHERE id=?",
             (data_encerramento, motivo, internacao_id),

@@ -108,6 +108,37 @@ class Fluxos(unittest.TestCase):
         self.assertTrue(internacoes.encerrar_internacao(iid, self.hoje, 'Saída', politica='MANTER', assinatura=d['assinatura'])['sucesso'])
         self.assertEqual(antes, self.sql('SELECT valor,desconto,status FROM cobrancas WHERE internacao_id=?', (iid,)))
 
+    def test_encerramento_permite_escolher_mensalidades_abertas_mantidas(self):
+        _, iid = self.internar()
+        ids = dict(self.sql(
+            'SELECT numero_parcela,id FROM cobrancas WHERE internacao_id=?', (iid,),
+        ))
+        d = acertos.previa(
+            iid, self.hoje, 'SELECIONAR_MANTIDAS', cobrancas_mantidas=[ids[2]],
+        )
+        linhas = {linha['numero_parcela']: linha for linha in d['cobrancas']}
+        self.assertEqual((linhas[0]['valor_novo'], linhas[0]['selecionavel']), (10000, False))
+        self.assertEqual((linhas[1]['valor_novo'], linhas[1]['mantida']), (0, False))
+        self.assertEqual((linhas[2]['valor_novo'], linhas[2]['mantida']), (30000, True))
+        self.assertEqual(d['total_pendente'], 40000)
+        with self.assertRaisesRegex(ValueError, 'não está aberta'):
+            acertos.previa(
+                iid, self.hoje, 'SELECIONAR_MANTIDAS', cobrancas_mantidas=[999999],
+            )
+        self.assertFalse(internacoes.encerrar_internacao(
+            iid, self.hoje, 'Seleção', politica='SELECIONAR_MANTIDAS',
+            assinatura=d['assinatura'], cobrancas_mantidas=[ids[1]],
+        )['sucesso'])
+        self.assertTrue(internacoes.encerrar_internacao(
+            iid, self.hoje, 'Seleção', politica='SELECIONAR_MANTIDAS',
+            assinatura=d['assinatura'], cobrancas_mantidas=[ids[2]],
+        )['sucesso'])
+        self.assertEqual(
+            self.sql('SELECT valor,status FROM cobrancas WHERE internacao_id=? ORDER BY numero_parcela', (iid,)),
+            [(10000, 'ABERTA'), (0, 'DESCONTADA'), (30000, 'ABERTA')],
+        )
+        self.assertEqual(self.sql('SELECT valor_contrato FROM internacoes WHERE id=?', (iid,))[0][0], 40000)
+
     def test_devolucao_saida_e_encerramento_preservam_recibo_entrada_e_extrato(self):
         rid, iid = self.internar()
         cid = self.sql('SELECT id FROM cobrancas WHERE internacao_id=? AND numero_parcela=1', (iid,))[0][0]

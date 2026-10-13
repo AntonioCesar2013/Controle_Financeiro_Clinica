@@ -3,26 +3,43 @@
 Set-Location -LiteralPath $PSScriptRoot
 
 function Encontrar-Python {
-    $pythonLocal = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
-    if (Test-Path -LiteralPath $pythonLocal) {
-        return $pythonLocal
+    function Testar-Python($executavel) {
+        if (-not $executavel -or -not (Test-Path -LiteralPath $executavel -PathType Leaf)) {
+            return $null
+        }
+        try {
+            $resultado = & $executavel -c "import sys; print(sys.executable if sys.version_info >= (3, 10) else '')" 2>$null
+            if ($LASTEXITCODE -eq 0 -and $resultado) {
+                return ($resultado | Select-Object -Last 1).Trim()
+            }
+        } catch {}
+        return $null
+    }
+
+    $candidatos = [System.Collections.Generic.List[string]]::new()
+    $candidatos.Add((Join-Path $PSScriptRoot ".venv\Scripts\python.exe"))
+
+    foreach ($diretorioPython in @(
+        (Join-Path $env:LOCALAPPDATA "Python"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Python")
+    )) {
+        if (Test-Path -LiteralPath $diretorioPython) {
+            Get-ChildItem -LiteralPath $diretorioPython -Filter "python.exe" -Recurse -File -ErrorAction SilentlyContinue |
+                Sort-Object FullName -Descending |
+                ForEach-Object { $candidatos.Add($_.FullName) }
+        }
     }
 
     foreach ($comando in @("python.exe", "python3.exe", "py.exe")) {
         $encontrado = Get-Command $comando -ErrorAction SilentlyContinue
         if ($encontrado) {
-            return $encontrado.Source
+            $candidatos.Add($encontrado.Source)
         }
     }
 
-    $diretorioPython = Join-Path $env:LOCALAPPDATA "Python"
-    if (Test-Path -LiteralPath $diretorioPython) {
-        $encontrado = Get-ChildItem -LiteralPath $diretorioPython -Filter "python.exe" -Recurse -File -ErrorAction SilentlyContinue |
-            Sort-Object FullName -Descending |
-            Select-Object -First 1
-        if ($encontrado) {
-            return $encontrado.FullName
-        }
+    foreach ($candidato in $candidatos | Select-Object -Unique) {
+        $validado = Testar-Python $candidato
+        if ($validado) { return $validado }
     }
 
     return $null

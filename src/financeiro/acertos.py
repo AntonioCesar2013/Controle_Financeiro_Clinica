@@ -9,12 +9,23 @@ from src.infraestrutura.banco import conectar
 from src.financeiro.parcelas import calcular_data_vencimento
 
 
-def previa(internacao_id, data_encerramento, politica=None, conexao=None):
+def _normalizar_cobrancas_mantidas(valor):
+    if valor in (None, ""):
+        return set()
+    partes = valor if isinstance(valor, (list, tuple, set)) else str(valor).split(',')
+    try:
+        return {int(item) for item in partes if str(item).strip()}
+    except (TypeError, ValueError) as erro:
+        raise ValueError('A seleção de cobranças mantidas é inválida.') from erro
+
+
+def previa(internacao_id, data_encerramento, politica=None, conexao=None,
+           cobrancas_mantidas=None):
     if conexao is None:
         with closing(conectar()) as conn:
             conn.row_factory = sqlite3.Row
             conn.execute('BEGIN')
-            return previa(internacao_id, data_encerramento, politica, conn)
+            return previa(internacao_id, data_encerramento, politica, conn, cobrancas_mantidas)
     conn = conexao
     conn.row_factory = sqlite3.Row
     try:
@@ -32,10 +43,12 @@ def previa(internacao_id, data_encerramento, politica=None, conexao=None):
         raise ValueError('O encerramento não pode ultrapassar o período contratado.')
     cobranca_fixa = i['modalidade'] == 'PARTICULAR' or (i['modalidade'] == 'CONVENIO' and i['tipo_cobranca_convenio'] == 'FIXA')
     if cobranca_fixa:
-        if politica not in ('MANTER', 'DISPENSAR_FUTURAS'):
-            raise ValueError('Escolha manter as cobranças ou dispensar mensalidades com vencimento após a saída.')
+        if politica not in ('MANTER', 'DISPENSAR_FUTURAS', 'SELECIONAR_MANTIDAS'):
+            raise ValueError('Escolha como as cobranças mensais serão tratadas no encerramento.')
     else:
         politica = 'DIARIAS' if i['modalidade'] == 'CONVENIO' else 'SEM_COBRANCAS'
+    mantidas = _normalizar_cobrancas_mantidas(cobrancas_mantidas) if politica == 'SELECIONAR_MANTIDAS' else set()
+    elegiveis = set()
     linhas = []
     # A competência original pode conter parcelas de prorrogação; as diárias
     # são calculadas pelo intervalo real de cada parcela, sem renumerá-las.
@@ -44,6 +57,11 @@ def previa(internacao_id, data_encerramento, politica=None, conexao=None):
         WHERE cobranca_id=c.id),0) AS recebido FROM cobrancas c
         WHERE internacao_id=? ORDER BY numero_parcela''', (internacao_id,)):
         valor = c['valor']
+        selecionavel = politica == 'SELECIONAR_MANTIDAS' and c['tipo'] == 'MENSALIDADE' and c['status'] == 'ABERTA'
+        if selecionavel:
+            elegiveis.add(c['id'])
+            if c['id'] not in mantidas:
+                valor = 0
         if politica == 'DISPENSAR_FUTURAS' and c['tipo'] == 'MENSALIDADE' and c['data_vencimento'] > data_encerramento:
             valor = 0
         if politica == 'DIARIAS':
@@ -52,12 +70,18 @@ def previa(internacao_id, data_encerramento, politica=None, conexao=None):
             inicio_diarias = fim_parcela + timedelta(days=1)
         desconto = min(c['desconto'], max(0, valor-c['recebido']))
         linhas.append({'id': c['id'], 'numero_parcela': c['numero_parcela'],
+                       'tipo': c['tipo'], 'data_vencimento': c['data_vencimento'],
+                       'status_anterior': c['status'], 'selecionavel': selecionavel,
+                       'mantida': selecionavel and c['id'] in mantidas,
                        'valor_anterior': c['valor'], 'valor_novo': valor,
                        'desconto_anterior': c['desconto'], 'desconto_novo': desconto,
                        'recebido': c['recebido'], 'devolver': max(0, c['recebido']-valor),
                        'saldo_restante': max(0, valor-desconto-c['recebido'])})
+    if mantidas - elegiveis:
+        raise ValueError('Uma cobrança selecionada não está aberta ou não pertence a esta internação.')
     carteira = conn.execute('SELECT id,saldo FROM carteiras WHERE residente_id=?', (i['residente_id'],)).fetchone()
     dados = {'internacao_id': i['id'], 'modalidade': i['modalidade'], 'politica': politica,
+            'cobrancas_mantidas': sorted(mantidas),
             'data_encerramento': data_encerramento, 'cobrancas': linhas,
             'total_devolver': sum(c['devolver'] for c in linhas),
             'total_pendente': sum(c['saldo_restante'] for c in linhas),
@@ -66,8 +90,9 @@ def previa(internacao_id, data_encerramento, politica=None, conexao=None):
     return dados
 
 
-def aplicar(internacao_id, data_encerramento, conn, politica, motivo, autorizar_ajuste_desconto=False, assinatura=None):
-    dados = previa(internacao_id, data_encerramento, politica, conn)
+def aplicar(internacao_id, data_encerramento, conn, politica, motivo, autorizar_ajuste_desconto=False,
+            assinatura=None, cobrancas_mantidas=None):
+    dados = previa(internacao_id, data_encerramento, politica, conn, cobrancas_mantidas)
     if assinatura is not None and assinatura != dados['assinatura']:
         raise ValueError('O acerto mudou. Consulte e confira novamente a prévia antes de encerrar.')
     if dados['total_devolver']:

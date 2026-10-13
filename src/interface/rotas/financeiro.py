@@ -25,7 +25,9 @@ def rotas_get(query):
     inicio = _parametro(query, "data_inicio")
     fim = _parametro(query, "data_fim")
     return {
-        '/api/internacoes/acerto': lambda: acertos.previa(_parametro(query, 'id'), _parametro(query, 'data_encerramento'), _parametro(query, 'politica')),
+        '/api/internacoes/acerto': lambda: acertos.previa(
+            _parametro(query, 'id'), _parametro(query, 'data_encerramento'),
+            _parametro(query, 'politica'), cobrancas_mantidas=_parametro(query, 'cobrancas_mantidas')),
         '/api/recebimentos/devolucoes': lambda: devolucoes.listar(_parametro(query, 'cobranca_id')),
         '/api/recorrencias': recorrencias.listar,
         '/api/recorrencias/previa': lambda: recorrencias.previa(

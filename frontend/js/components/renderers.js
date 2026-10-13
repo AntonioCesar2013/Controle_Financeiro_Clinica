@@ -54,7 +54,7 @@ function renderCell(row, key, formatter, isStatus = false) {
     if (!isStatus) return safe;
     const normalized = String(value).toLocaleUpperCase("pt-BR");
     const tone = /ATRASO|VENCID|CANCEL|ESTORN|INATIV|DIVERG|REVISAR/.test(normalized) ? "danger"
-        : /PENDENT|ABERTA|A VENCER|PARCIAL|AGENDADA/.test(normalized) ? "warning"
+        : /PENDENT|ABERTA|A VENCER|PARCIAL|AGENDADA|AGUARDANDO/.test(normalized) ? "warning"
         : /PAGA|ATIV|CONFERIDA|FECHADO|EFETIV/.test(normalized) ? "success" : "neutral";
     return `<span class="status status--${tone}">${safe}</span>`;
 }

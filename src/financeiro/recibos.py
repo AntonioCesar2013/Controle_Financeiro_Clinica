@@ -1,4 +1,4 @@
-"""Recibos numerados de recebimentos de mensalidade, com dados preservados."""
+"""Recibos numerados de mensalidade e acolhimento, com dados preservados."""
 import json
 import sqlite3
 from src.infraestrutura.banco import conectar
@@ -19,8 +19,8 @@ def gerar(recebimento_id):
                JOIN internacoes i ON i.id=c.internacao_id JOIN residentes res ON res.id=i.residente_id
                JOIN responsaveis rp ON rp.id=i.responsavel_id WHERE r.id=?""", (recebimento_id,)
         ).fetchone()
-        if not dados or dados["tipo"] != "MENSALIDADE":
-            raise ValueError("Selecione um recebimento efetivo de mensalidade para gerar o recibo.")
+        if not dados or dados["tipo"] not in ("MENSALIDADE", "ACOLHIMENTO"):
+            raise ValueError("Selecione um recebimento efetivo de mensalidade ou acolhimento para gerar o recibo.")
         conn.execute("INSERT OR IGNORE INTO recibos(recebimento_id,dados) VALUES(?,?)",
                      (recebimento_id, json.dumps(dict(dados), ensure_ascii=False)))
         recibo_id = conn.execute("SELECT id FROM recibos WHERE recebimento_id=?", (recebimento_id,)).fetchone()[0]
