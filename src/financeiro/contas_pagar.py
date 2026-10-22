@@ -16,6 +16,19 @@ STATUS_ABERTA = "ABERTA"
 STATUS_PARCIAL = "PARCIAL"
 STATUS_PAGA = "PAGA"
 STATUS_CANCELADA = "CANCELADA"
+STATUS_VENCIDA = "VENCIDA"
+
+
+def status_exibicao(status, data_vencimento, restante, hoje=None):
+    """Retorna a situação atual da conta sem alterar seu estado contábil."""
+    if status in (STATUS_PAGA, STATUS_CANCELADA):
+        return status
+    if restante <= 0:
+        return STATUS_PAGA
+    hoje = hoje or date.today().isoformat()
+    if data_vencimento < hoje:
+        return STATUS_VENCIDA
+    return status
 
 
 def registrar_compra_avista(despesa_id, data_pagamento, valor, forma_pagamento=None,
@@ -379,13 +392,6 @@ def listar_contas(
         # Filtro por status
         # --------------------------------------------------------
 
-        if status:
-            sql += """
-                AND c.status = ?
-            """
-
-            parametros.append(status)
-
         # --------------------------------------------------------
         # Filtro por data inicial
         # --------------------------------------------------------
@@ -419,7 +425,7 @@ def listar_contas(
 
         resultados = cursor.fetchall()
 
-        return [
+        contas = [
             {
                 "id": linha[0],
                 "despesa_id": linha[1],
@@ -430,7 +436,9 @@ def listar_contas(
                 "data_vencimento": linha[6],
                 "valor": linha[7],
                 "desconto": linha[8],
-                "status": linha[9],
+                "status": status_exibicao(
+                    linha[9], linha[6], linha[7] - linha[8] - linha[10]
+                ),
                 "valor_devido": linha[7] - linha[8],
                 "total_pago": linha[10],
                 "total_multa_juros": linha[11],
@@ -439,6 +447,7 @@ def listar_contas(
             }
             for linha in resultados
         ]
+        return [conta for conta in contas if not status or conta["status"] == status]
 
     finally:
         conexao.close()
@@ -471,13 +480,21 @@ def listar_contas_paginadas(status=None, data_inicio=None, data_fim=None, busca=
     base = """WITH pagamentos AS (
             SELECT conta_pagar_id, SUM(valor) total_pago, SUM(multa_juros) total_multa_juros
             FROM pagamentos_saida GROUP BY conta_pagar_id
-        ), contas AS (
+        ), contas_base AS (
             SELECT c.id,c.despesa_id,d.descricao despesa_descricao,s.nome setor_nome,
-                   d.natureza,d.recorrente,c.data_vencimento,c.valor,c.desconto,c.status,
+                   d.natureza,d.recorrente,c.data_vencimento,c.valor,c.desconto,c.status status_registrado,
                    COALESCE(p.total_pago,0) total_pago,COALESCE(p.total_multa_juros,0) total_multa_juros,
                    c.valor-c.desconto-COALESCE(p.total_pago,0) restante
             FROM contas_pagar c JOIN despesas d ON d.id=c.despesa_id
             JOIN setores s ON s.id=d.setor_id LEFT JOIN pagamentos p ON p.conta_pagar_id=c.id
+        ), contas AS (
+            SELECT *, CASE
+                WHEN status_registrado IN ('PAGA','CANCELADA') THEN status_registrado
+                WHEN restante<=0 THEN 'PAGA'
+                WHEN data_vencimento<date('now','localtime') THEN 'VENCIDA'
+                ELSE status_registrado
+            END status
+            FROM contas_base
         )"""
     filtros, parametros = [], []
     if status:

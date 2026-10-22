@@ -51,6 +51,17 @@ class ContasPagarCorrigidas(unittest.TestCase):
         self.assertEqual(canceladas['totais_filtrados']['restante'], 0)
         self.assertEqual(canceladas['linhas'][0]['valor'], 10000)
 
+    def test_conta_em_aberto_vencida_tem_status_calculado_e_filtro(self):
+        vencida = self.conta('2020-01-01', 12000)
+        futura = self.conta('2999-01-01', 8000)
+        linhas = contas_pagar.listar_contas_paginadas(completo=True)['linhas']
+        por_id = {linha['id']: linha for linha in linhas}
+        self.assertEqual(por_id[vencida]['status'], 'VENCIDA')
+        self.assertEqual(por_id[futura]['status'], 'ABERTA')
+        filtradas = contas_pagar.listar_contas_paginadas(status='VENCIDA', completo=True)
+        self.assertIn(vencida, [linha['id'] for linha in filtradas['linhas']])
+        self.assertNotIn(futura, [linha['id'] for linha in filtradas['linhas']])
+
     def test_edicao_despesa_preserva_contas_e_protege_recorrencia(self):
         conta = self.conta(self.fixture.hoje, 12345)
         novo_setor = despesas.cadastrar_setor('Administrativo')['id']

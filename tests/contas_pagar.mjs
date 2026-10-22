@@ -28,12 +28,13 @@ assert.doesNotMatch(appSource, /data-action="payables-page"/);
 assert.match(appSource, /data-kind="compra_avista">Compra à vista/);
 assert.match(appSource, /payableState = \{[^}]*ordem: "vencimento_desc"/);
 assert.match(appSource, /<option value="vencimento_desc">Vencimento decrescente<\/option><option value="vencimento_asc"/);
+assert.match(appSource, /\["ABERTA","VENCIDA","PARCIAL","PAGA","CANCELADA"\]/);
 assert.match(appSource, /definitions\.compra_avista = \["Nova compra à vista", "\/api\/compras-avista"/);
 assert.match(appSource, /class="cash-purchase-grid"[\s\S]*cash-purchase-date[\s\S]*cash-purchase-value[\s\S]*cash-purchase-method/, "data, valor e forma da compra à vista devem ficar agrupados na mesma linha");
 assert.match(appSource, /id="cash-purchase-value" name="valor" type="text" inputmode="numeric" data-mask="currency" value="R\$ 0,00"/, "valor da compra à vista deve usar máscara monetária sem setas");
 assert.match(appSource, /form\.elements\.valor\?\.matches\('\[data-mask="currency"\]'\)[\s\S]*currencyValue\(data\.valor\)\.toFixed\(2\)/, "valor monetário deve ser convertido antes do envio");
 console.log('Contas a pagar: contrato de filtros e despesas elegíveis validados.');
 if (process.argv.includes('--query')) {
-    console.log(parametrosContasPagar({busca: 'agua', status: 'ABERTA',
+    console.log(parametrosContasPagar({busca: 'agua', status: 'VENCIDA',
         inicio: '2026-02-01', fim: '2026-02-28', ordem: 'vencimento_asc'}).toString());
 }

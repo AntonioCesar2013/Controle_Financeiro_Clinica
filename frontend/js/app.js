@@ -206,6 +206,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (action === "open-wallet-form") openWalletForm(trigger.dataset.kind, trigger.dataset.id, trigger.dataset.value, trigger.dataset.date);
         if (action === "open-wallet-resident-search") openWalletResidentSearch();
         if (action === "select-wallet-resident") selectWalletResident(trigger.dataset.id);
+        if (action === "navigate-wallet") navigateWallet(Number(trigger.dataset.step));
         if (action === "wallet-status") runMaintenanceCommand("/api/carteiras/status", { carteira_id: trigger.dataset.id, ativo: trigger.dataset.ativo }, "Alterar a situação desta carteira?", "carteiras");
         if (action === "wallet-reversal") runMaintenanceCommand("/api/carteiras/movimentacoes/estornar", { movimentacao_id: trigger.dataset.id, motivo: "Estorno realizado pela tela" }, "Estornar esta movimentação? O saldo e o estoque serão recalculados.", "carteiras");
         if (action === "wallet-report") openWalletReport(trigger.dataset.id);
@@ -219,6 +220,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (action === "canteen-cart-clear") clearCanteenCart();
         if (action === "open-canteen-resident-search") openCanteenResidentSearch();
         if (action === "select-canteen-resident") selectCanteenResident(trigger.dataset.id);
+        if (action === "navigate-canteen-wallet") navigateCanteenWallet(Number(trigger.dataset.step));
         if (action === "open-canteen-product-search") openCanteenProductSearch();
         if (action === "select-canteen-product") selectCanteenProduct(trigger.dataset.id);
         if (action === "cloud-publish") runCloudCommand("/api/sincronizacao/publicar", "Publicar a versão atual na pasta do Google Drive?");
@@ -294,6 +296,24 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         if (event.target.matches('[data-action="select-report-row"]') && ["Enter", " "].includes(event.key)) {
             event.preventDefault();
             selectReportRow(event.target);
+            return;
+        }
+        if (["ArrowLeft", "ArrowRight"].includes(event.key)
+            && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
+            && !layers.modal.children.length && !layers.auxiliary.children.length
+            && document.querySelector("#wallet-resident")
+            && !event.target.matches('input, textarea, [contenteditable="true"]')) {
+            event.preventDefault();
+            navigateWallet(event.key === "ArrowLeft" ? -1 : 1);
+            return;
+        }
+        if (["ArrowLeft", "ArrowRight"].includes(event.key)
+            && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
+            && !layers.modal.children.length && !layers.auxiliary.children.length
+            && document.querySelector("#canteen-wallet")
+            && !event.target.matches('input, textarea, [contenteditable="true"]')) {
+            event.preventDefault();
+            navigateCanteenWallet(event.key === "ArrowLeft" ? -1 : 1);
             return;
         }
         if (layers.auth.children.length || event.key !== "Escape") return;
@@ -616,13 +636,13 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             const limit = `${limitDate.getFullYear()}-${String(limitDate.getMonth() + 1).padStart(2, "0")}-${String(limitDate.getDate()).padStart(2, "0")}`;
             const activeReceivables = receivables
                 .filter((item) => !["PAGA", "DESCONTADA", "CANCELADA"].includes(item.status) && Number(item.saldo_restante) > 0)
-                .map((item) => ({ type: "A receber", description: item.residente_nome, due: item.data_vencimento, remaining: item.saldo_restante }));
+                .map((item) => ({ priority: 1, type: "A receber", description: item.residente_nome, due: item.data_vencimento, remaining: item.saldo_restante }));
             const activePayables = payables
                 .filter((item) => !["PAGA", "CANCELADA"].includes(item.status) && Number(item.restante) > 0)
-                .map((item) => ({ type: "A pagar", description: item.despesa_descricao, due: item.data_vencimento, remaining: item.restante }));
-            const accounts = [...activeReceivables, ...activePayables]
+                .map((item) => ({ priority: 0, type: "A pagar", description: item.despesa_descricao, due: item.data_vencimento, remaining: item.restante }));
+            const accounts = [...activePayables, ...activeReceivables]
                 .filter((item) => item.due <= limit)
-                .sort((left, right) => left.due.localeCompare(right.due) || left.type.localeCompare(right.type));
+                .sort((left, right) => left.priority - right.priority || left.due.localeCompare(right.due));
             const overdueCount = accounts.filter((item) => item.due < today).length;
             const upcomingCount = accounts.length - overdueCount;
             const situation = (due) => due < today
@@ -1216,6 +1236,17 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         refreshCanteenCart();
     }
 
+    function navigateCanteenWallet(step) {
+        const select = document.querySelector("#canteen-wallet");
+        const wallets = canteenState.wallets;
+        if (!select || !wallets.length || ![-1, 1].includes(step)) return;
+        const current = wallets.findIndex((wallet) => String(wallet.id) === String(select.value));
+        const next = current < 0
+            ? (step > 0 ? 0 : wallets.length - 1)
+            : (current + step + wallets.length) % wallets.length;
+        selectCanteenResident(wallets[next].id);
+    }
+
     function openCanteenProductSearch() {
         const body = `<div class="field"><label for="canteen-product-lookup">Pesquisar produto</label><input id="canteen-product-lookup" type="search" autocomplete="off" placeholder="Digite o nome do produto" autofocus></div><div class="resident-search-results" data-canteen-product-results></div>`;
         layers.auxiliary.replaceChildren(createPanel({ id: "canteen-product-search", title: "Pesquisar produto", eyebrow: "Cantina", body, size: "medium" }));
@@ -1459,7 +1490,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         selectedWalletId = selected ? String(selected.id) : "";
         const options = `<option value=""${selected ? "" : " selected"}>Selecione um residente</option>` + dados.map((wallet) => `<option value="${wallet.id}"${String(wallet.id) === selectedWalletId ? " selected" : ""}>${escapeHtml(wallet.residente_nome)}</option>`).join("");
         const detail = selected ? await renderWalletDetail(selected.id) : walletSelectionPlaceholder();
-        return `<div class="wallet-selector"><div class="field"><label for="wallet-resident">Residente</label><select id="wallet-resident">${options}</select></div><button class="canteen-resident-search-button" type="button" data-action="open-wallet-resident-search" aria-label="Pesquisar residente" title="Pesquisar residente">🔍</button><button class="button button--success" type="button" data-action="open-wallet-form" data-kind="create">Nova carteira</button></div><div data-wallet-detail>${detail}</div>`;
+        return `<div class="wallet-selector"><div class="field"><label for="wallet-resident">Residente</label><select id="wallet-resident">${options}</select></div><div class="wallet-navigation" aria-label="Percorrer carteiras"><button type="button" data-action="navigate-wallet" data-step="-1" aria-label="Carteira anterior" title="Carteira anterior (seta para a esquerda)">←</button><button type="button" data-action="navigate-wallet" data-step="1" aria-label="Próxima carteira" title="Próxima carteira (seta para a direita)">→</button></div><button class="canteen-resident-search-button" type="button" data-action="open-wallet-resident-search" aria-label="Pesquisar residente" title="Pesquisar residente">🔍</button><button class="button button--success" type="button" data-action="open-wallet-form" data-kind="create">Nova carteira</button></div><div data-wallet-detail>${detail}</div>`;
     }
 
     function walletSelectionPlaceholder() {
@@ -1487,6 +1518,16 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         select.value = String(walletId);
         closeLayer("auxiliary");
         refreshWalletDetail(select);
+    }
+
+    function navigateWallet(step) {
+        const select = document.querySelector("#wallet-resident");
+        if (!select || !walletResidents.length || ![-1, 1].includes(step)) return;
+        const current = walletResidents.findIndex((wallet) => String(wallet.id) === String(select.value));
+        const next = current < 0
+            ? (step > 0 ? 0 : walletResidents.length - 1)
+            : (current + step + walletResidents.length) % walletResidents.length;
+        selectWalletResident(walletResidents[next].id);
     }
 
     async function refreshWalletDetail(select) {
@@ -1555,7 +1596,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
         const balanceClass = selectedWallet ? (Number(selectedWallet.saldo) > 0 ? "amount--positive" : "amount--negative") : "";
         const walletOptions = `<option value=""${selectedWallet ? "" : " selected"}>Selecione um residente</option>` + wallets.map((wallet) => `<option value="${wallet.id}"${String(wallet.id) === selectedCanteenWalletId ? " selected" : ""}>${escapeHtml(wallet.residente_nome)}</option>`).join("");
         const productOptions = `<option value="">Selecione um produto</option>` + products.map((product) => `<option value="${product.id}">${escapeHtml(product.nome)}</option>`).join("");
-        const customer = `<section class="canteen-customer"><div class="field"><label for="canteen-wallet">Residente</label><select id="canteen-wallet" name="carteira_id" form="canteen-checkout-form" required>${walletOptions}</select></div><button class="canteen-resident-search-button" type="button" data-action="open-canteen-resident-search" aria-label="Pesquisar residente" title="Pesquisar residente">🔍</button><div class="canteen-balance"><span>Saldo da carteira</span><strong data-canteen-balance class="${balanceClass}">${selectedBalance}</strong></div></section>`;
+        const customer = `<section class="canteen-customer"><div class="field"><label for="canteen-wallet">Residente</label><select id="canteen-wallet" name="carteira_id" form="canteen-checkout-form" required>${walletOptions}</select></div><div class="wallet-navigation" aria-label="Percorrer carteiras"><button type="button" data-action="navigate-canteen-wallet" data-step="-1" aria-label="Carteira anterior" title="Carteira anterior (seta para a esquerda)">←</button><button type="button" data-action="navigate-canteen-wallet" data-step="1" aria-label="Próxima carteira" title="Próxima carteira (seta para a direita)">→</button></div><button class="canteen-resident-search-button" type="button" data-action="open-canteen-resident-search" aria-label="Pesquisar residente" title="Pesquisar residente">🔍</button><div class="canteen-balance"><span>Saldo da carteira</span><strong data-canteen-balance class="${balanceClass}">${selectedBalance}</strong></div></section>`;
         const productSearch = `<section class="canteen-product-selector"><div class="field"><label for="canteen-product">Produto</label><select id="canteen-product">${productOptions}</select></div><button class="canteen-resident-search-button" type="button" data-action="open-canteen-product-search" aria-label="Pesquisar produto" title="Pesquisar produto">🔍</button></section>`;
         const checkout = `<form class="canteen-checkout" id="canteen-checkout-form"><div class="canteen-checkout__details"><h3>Carrinho de compras</h3><div class="field"><label for="canteen-sale-date">Data</label><input id="canteen-sale-date" name="data_movimentacao" type="date" value="${localDate()}" required></div></div><div data-canteen-cart>${emptyState("Carrinho vazio", "Pesquise e escolha um produto.")}</div><div class="canteen-totals"><article><span>Total</span><strong data-canteen-total>${formatMoney(0)}</strong></article><article><span>Saldo após compra</span><strong data-canteen-remaining>${selectedBalance}</strong></article></div><p class="login-error" data-canteen-error role="alert"></p><div class="report-actions"><button class="button button--secondary" type="button" data-action="canteen-cart-clear">Limpar</button><button class="button" id="canteen-checkout-button" type="submit" disabled>Finalizar compra</button></div></form>`;
         setTimeout(() => refreshCanteenCart(), 0);
@@ -1645,7 +1686,7 @@ import { applyInputMask, applyInputMasks, currencyValue } from "./utils/masks.js
             filters: false,
         });
         const actions = `<div class="selection-actions" aria-label="Ações da conta selecionada"><span class="selection-actions__label">Conta selecionada</span><button class="button" type="button" data-action="open-financial-form" data-kind="pagamento" data-selection-action="pay" disabled>Pagar</button><button class="button button--danger" type="button" data-action="cancel-payable" data-selection-action="cancel" disabled>Cancelar</button><button class="button button--danger" type="button" data-action="correct-cash-purchase" data-selection-action="correct-cash-purchase" disabled>Corrigir compra</button><button class="button button--secondary" type="button" data-action="financial-history" data-kind="saida" data-selection-action="history" disabled>Histórico</button><span class="selection-actions__divider" aria-hidden="true"></span><button class="button button--secondary" type="button" data-action="open-financial-form" data-kind="compra_avista">Compra à vista</button><button class="button" type="button" data-action="open-financial-form" data-kind="conta">Nova conta</button></div>`;
-        const filtros = `<div class="table-filters"><label>Buscar<input type="search" data-payables-search value="${escapeHtml(payableState.busca)}" placeholder="Descrição, setor ou natureza"></label><label>Situação<select data-payables-filter="status"><option value="">Todas</option>${["ABERTA","PARCIAL","PAGA","CANCELADA"].map(v => `<option value="${v}"${payableState.status === v ? " selected" : ""}>${v}</option>`).join("")}</select></label><label>Vencimento de<input type="date" data-payables-filter="inicio" value="${escapeHtml(payableState.inicio)}"></label><label>Até<input type="date" data-payables-filter="fim" value="${escapeHtml(payableState.fim)}"></label><label>Ordenar<select data-payables-filter="ordem"><option value="vencimento_desc">Vencimento decrescente</option><option value="vencimento_asc"${payableState.ordem === "vencimento_asc" ? " selected" : ""}>Vencimento crescente</option><option value="descricao_asc"${payableState.ordem === "descricao_asc" ? " selected" : ""}>Descrição A–Z</option></select></label></div>`;
+        const filtros = `<div class="table-filters"><label>Buscar<input type="search" data-payables-search value="${escapeHtml(payableState.busca)}" placeholder="Descrição, setor ou natureza"></label><label>Situação<select data-payables-filter="status"><option value="">Todas</option>${["ABERTA","VENCIDA","PARCIAL","PAGA","CANCELADA"].map(v => `<option value="${v}"${payableState.status === v ? " selected" : ""}>${v}</option>`).join("")}</select></label><label>Vencimento de<input type="date" data-payables-filter="inicio" value="${escapeHtml(payableState.inicio)}"></label><label>Até<input type="date" data-payables-filter="fim" value="${escapeHtml(payableState.fim)}"></label><label>Ordenar<select data-payables-filter="ordem"><option value="vencimento_desc">Vencimento decrescente</option><option value="vencimento_asc"${payableState.ordem === "vencimento_asc" ? " selected" : ""}>Vencimento crescente</option><option value="descricao_asc"${payableState.ordem === "descricao_asc" ? " selected" : ""}>Descrição A–Z</option></select></label></div>`;
         const navegacao = `<div class="filterable__meta"><p>${pagina.total_filtrado} de ${pagina.total_registros} conta(s) · Restante filtrado: ${formatMoney(pagina.totais_filtrados.restante)}</p></div>`;
         return `<section class="selection-scope financial-fixed-header"><div class="toolbar selection-toolbar">${actions}<button class="button button--secondary button--compact" type="button" data-action="clear-payables-filters">Limpar filtros</button></div>${filtros}${navegacao}${table}</section>`;
     }

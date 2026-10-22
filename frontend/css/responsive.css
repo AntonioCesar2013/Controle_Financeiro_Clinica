@@ -14,7 +14,7 @@
 }
 
 @media (max-width: 760px) {
-    .wallet-selector { grid-template-columns: minmax(0, 1fr) 42px; }
+    .wallet-selector { grid-template-columns: minmax(0, 1fr) auto 42px; }
     .wallet-selector > .button { grid-column: 1 / -1; }
     .product-form-grid { grid-template-columns: 1fr; }
     .cash-flow__summary { grid-template-columns: 1fr; }
